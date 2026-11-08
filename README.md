@@ -1,6 +1,13 @@
 # headless-ns
 
-A browser client for the standard NetSuite MCP tools. NetSuite stays the system of record. The page never holds a NetSuite token or a model key. A local server calls the tools and the model. The browser only keeps an httpOnly session cookie.
+A browser client for the standard NetSuite MCP tools.
+
+## Non-negotiables
+
+- NetSuite stays the system of record.
+- The page never holds a NetSuite token or a model key.
+- A local server calls the tools and the model.
+- The browser keeps only an httpOnly session cookie.
 
 ## Run
 
