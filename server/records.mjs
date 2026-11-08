@@ -216,19 +216,30 @@ function externalIdOf(value, recordType) {
   return given;
 }
 
-// Serial or lot numbers to ship on one line: [{id, quantity}] from inventorynumber. The quantities must add up to the line.
-export function inventoryNumbers(raw, orderLine, quantity) {
+const LOT_NUMBER = /^[A-Za-z0-9][A-Za-z0-9 _.\/-]{0,39}$/;
+
+// Serial or lot numbers on one line, as [{id, quantity}] or [{number, quantity}]. A fulfillment ships numbers
+// in stock (`id` from inventorynumber); a receipt names new ones (`number`). The quantities must add up to the line.
+export function inventoryNumbers(raw, orderLine, quantity, targetType = "itemfulfillment") {
   if (raw == null) return null;
   if (!Array.isArray(raw) || raw.length > MAX_LINES) fail(`The serial or lot numbers for line ${orderLine} are not valid.`);
   if (!raw.length) return null;
+  const receiving = targetType === "itemreceipt";
   const items = raw.map((entry) => {
-    const id = String(entry?.id ?? "");
     const count = Number(entry?.quantity);
-    if (!/^[1-9]\d{0,11}$/.test(id) || !(Number.isFinite(count) && count > 0)) fail(`The serial or lot numbers for line ${orderLine} are not valid.`);
+    const valid = Number.isFinite(count) && count > 0;
+    if (receiving) {
+      const number = String(entry?.number ?? "").trim();
+      if (!LOT_NUMBER.test(number) || !valid) fail(`The serial or lot numbers for line ${orderLine} are not valid. Use letters, numbers, spaces and . _ / -, up to 40 characters.`);
+      return { receiptInventoryNumber: number, quantity: count };
+    }
+    const id = String(entry?.id ?? "");
+    if (!/^[1-9]\d{0,11}$/.test(id) || !valid) fail(`The serial or lot numbers for line ${orderLine} are not valid.`);
     return { issueInventoryNumber: { id }, quantity: count };
   });
   const total = items.reduce((sum, item) => sum + item.quantity, 0);
-  if (Math.abs(total - quantity) > 1e-9) fail(`Line ${orderLine} ships ${quantity}, but the picked numbers add up to ${total}.`);
+  const verb = receiving ? "receives" : "ships";
+  if (Math.abs(total - quantity) > 1e-9) fail(`Line ${orderLine} ${verb} ${quantity}, but the numbers add up to ${total}.`);
   return items;
 }
 
@@ -241,7 +252,7 @@ export function fulfillData({ lines, shipStatus, clearShipMethod } = {}, targetT
     const quantity = Number(line.quantity);
     if (receive && !(Number.isFinite(quantity) && quantity > 0)) fail(`Enter a quantity above 0 for line ${orderLine}.`);
     if (!receive) return [{ orderLine, itemReceive: false }];
-    const numbers = inventoryNumbers(line.numbers, orderLine, quantity);
+    const numbers = inventoryNumbers(line.numbers, orderLine, quantity, targetType);
     return [{ orderLine, itemReceive: true, quantity, ...(numbers ? { inventoryDetail: { inventoryAssignment: { items: numbers } } } : {}) }];
   });
   const data = {};
@@ -258,6 +269,39 @@ export function fulfillData({ lines, shipStatus, clearShipMethod } = {}, targetT
   return data;
 }
 
+// Bill lines made from a purchase order: [{orderLine, quantity}]. Transforms keep every order line,
+// so a line not to bill goes with quantity 0 and stays on the bill at 0.
+export function billData({ lines } = {}) {
+  const items = (Array.isArray(lines) ? lines : []).slice(0, MAX_LINES).flatMap((line) => {
+    const orderLine = Number(line?.orderLine);
+    if (!Number.isInteger(orderLine) || orderLine < 0) return [];
+    const quantity = Number(line.quantity);
+    if (!(Number.isFinite(quantity) && quantity >= 0)) fail(`Enter a quantity of 0 or more for line ${orderLine}.`);
+    return [{ orderLine, quantity }];
+  });
+  if (!items.length) return {};
+  if (!items.some((line) => line.quantity > 0)) fail("Bill at least one line.");
+  return { item: { items } };
+}
+
+// Bills a payment pays, as [{doc, amount}]. The bill it was made from is unticked unless it is in the list.
+export function applyData(lines, sourceId) {
+  if (lines == null) return {};
+  if (!Array.isArray(lines) || lines.length > MAX_LINES) fail("The bills to pay are not valid.");
+  const seen = new Set();
+  const items = lines.map((line) => {
+    const doc = String(line?.doc ?? "");
+    const amount = Number(line?.amount);
+    if (!/^[1-9]\d{0,11}$/.test(doc) || seen.has(doc)) fail("The bills to pay are not valid.");
+    if (!(Number.isFinite(amount) && amount > 0)) fail("Enter an amount above 0 for each bill you pay.");
+    seen.add(doc);
+    return { doc: { id: doc }, apply: true, amount: Math.round(amount * 100) / 100 };
+  });
+  if (!items.length) fail("Pick at least one bill to pay.");
+  if (sourceId && !seen.has(String(sourceId))) items.push({ doc: { id: String(sourceId) }, apply: false });
+  return { apply: { items } };
+}
+
 // The id of the record a create or transform made. The MCP tools answer {success, recordId}.
 export function newRecordId(payload) {
   const id = String(payload?.recordId ?? payload?.data?.id ?? payload?.id ?? "");
@@ -268,7 +312,7 @@ export function newRecordId(payload) {
 export function plainError(message) {
   const text = String(message || "");
   const detail = /configure the inventory detail in line (\d+)/i.exec(text);
-  if (detail) return `Line ${detail[1]} is a serial or lot item. Pick its serial or lot numbers, then try again.`;
+  if (detail) return `Line ${detail[1]} is a serial or lot item. Pick or enter its serial or lot numbers, then try again.`;
   const field = /Invalid Field Value (\S+) for the following field: (\w+)/i.exec(text);
   if (field && /location/i.test(field[2])) return "That location is not in this customer's or vendor's subsidiary. Pick a location from the same subsidiary.";
   if (field) return `NetSuite does not accept ${field[1]} for ${field[2]}. Pick another value.`;
@@ -529,6 +573,8 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
       const data = {
         ...cleanWrite(body.data),
         ...(shipping ? fulfillData(body.fulfill, targetRecordType) : {}),
+        ...(sourceRecordType === "purchaseorder" && targetRecordType === "vendorbill" ? billData(body.bill) : {}),
+        ...(targetRecordType === "vendorpayment" ? applyData(body.apply, sourceRecordId) : {}),
         externalId,
       };
       const created = await createOnce(

@@ -62,6 +62,39 @@ test.describe("sales order fulfillment", () => {
     expect(transform?.body.fulfill.clearShipMethod).toBe(true);
   });
 
+  test("a lot item ships from two lots", async ({ page }) => {
+    const writes = await mockApi(page, {
+      "/api/session": session,
+      "/api/flow": salesOrder([
+        flowLine({ item: { id: "759", name: "Stumptown Hair Bender" }, quantity: 3, remaining: 3, tracking: "lot", location: { id: "2", name: "San Francisco" }, available: 40 }),
+      ]),
+      "/api/flow/numbers": {
+        numbers: [
+          { id: "6148", number: "LOT-DEMO-A", available: 20 },
+          { id: "6149", number: "LOT-DEMO-B", available: 20 },
+        ],
+      },
+      "POST /api/records/transform": { id: "902", type: "itemfulfillment", externalId: "hns-wf-test" },
+    });
+    await page.goto("/#/transaction?type=salesorder&id=500");
+    await page.getByRole("button", { name: "Fulfill", exact: true }).click();
+    await page.getByRole("combobox", { name: "Lot 1 for line 1" }).click();
+    await page.getByRole("option", { name: "LOT-DEMO-A (20 available)" }).click();
+    await page.getByRole("spinbutton", { name: "Lot 1 quantity for line 1" }).fill("2");
+    await page.getByRole("button", { name: "Add another lot" }).click();
+    await page.getByRole("combobox", { name: "Lot 2 for line 1" }).click();
+    await page.getByRole("option", { name: "LOT-DEMO-B (20 available)" }).click();
+    await expect(page.getByText("Lots: 3 of 3 picked")).toBeVisible();
+    await page.getByLabel(/I mean to run this/).check();
+    await page.getByRole("button", { name: "Create fulfillment" }).click();
+    await expect(page).toHaveURL(/type=itemfulfillment&id=902/);
+    const transform = writes.find((write) => write.path === "/api/records/transform");
+    expect(transform?.body.fulfill.lines[0].numbers).toEqual([
+      { id: "6148", quantity: 2 },
+      { id: "6149", quantity: 1 },
+    ]);
+  });
+
   test("a fulfillment that is only picked is not offered again", async ({ page }) => {
     const order = salesOrder([flowLine({ location: { id: "2", name: "San Francisco" }, available: 2, picked: 1, remaining: 0 })]);
     order.steps = [{ id: "close", label: "Close lines", kind: "close" }];

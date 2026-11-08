@@ -37,6 +37,8 @@ export function nextSteps(recordType, status, lines = [], { approvalStatus = "" 
   const s = String(status || "");
   const open = lines.filter((line) => !line.closed);
   const toShip = open.some((line) => Number(line.remaining) > 0);
+  // Received or fulfilled units not billed yet.
+  const toBill = open.some((line) => Number(line.done) > Number(line.billed));
   const steps = [];
   const close = { id: "close", label: "Close lines", kind: "close" };
   switch (recordType) {
@@ -62,7 +64,7 @@ export function nextSteps(recordType, status, lines = [], { approvalStatus = "" 
         break;
       }
       if (["B", "D", "E"].includes(s) && toShip) steps.push({ id: "receive", label: "Receive", kind: "ship", target: "itemreceipt" });
-      if (["E", "F"].includes(s)) steps.push({ id: "bill", label: "Bill", kind: "transform", target: "vendorbill" });
+      if (["E", "F"].includes(s) || (s === "D" && toBill)) steps.push({ id: "bill", label: "Bill", kind: "transform", target: "vendorbill" });
       if (ORDER_OPEN.includes(s) && open.length) steps.push(close);
       break;
     case "vendorbill":
@@ -123,7 +125,7 @@ ORDER BY n.inventorynumber`;
 }
 
 // Adds where each line ships from, how much is available there and elsewhere, and serial or lot tracking.
-export function addStock(lines, factRows, stockRows) {
+export function addStock(lines, factRows, stockRows, { stock: withStock = true } = {}) {
   const facts = new Map((factRows || []).map((row) => [String(row.id), row]));
   return lines.map((line) => {
     const id = line.item?.id || "";
@@ -132,9 +134,11 @@ export function addStock(lines, factRows, stockRows) {
       .filter((row) => String(row.item) === id && Number(row.available) > 0)
       .map((row) => ({ id: String(row.location), name: String(row.name || row.location), available: Number(row.available) }))
       .sort((a, b) => b.available - a.available);
+    const tracking = fact?.isserialitem === "T" ? "serial" : fact?.islotitem === "T" ? "lot" : "";
+    if (!withStock) return { ...line, tracking };
     return {
       ...line,
-      tracking: fact?.isserialitem === "T" ? "serial" : fact?.islotitem === "T" ? "lot" : "",
+      tracking,
       stock,
       available: line.location ? (stock.find((row) => row.id === line.location.id)?.available ?? 0) : null,
     };
@@ -236,9 +240,12 @@ export function flowRoutes({ sendJson, authorized }) {
       const items = read.sublists.find((sublist) => sublist.id === "item")?.lines || [];
       let lines = mergeLines(items, quantities.items);
       const itemIds = lines.map((line) => line.item?.id).filter(Boolean);
-      if (type === "salesorder" && itemIds.length) {
-        const [facts, stock] = await withSource("flow", () => Promise.all([suiteqlOsmcp(itemFactsSql(itemIds), 200), suiteqlOsmcp(stockSql(itemIds), 1000)]));
-        lines = addStock(lines, facts.items, stock.items);
+      // Orders need serial or lot tracking per line; sales orders also need stock by location.
+      if ((type === "salesorder" || type === "purchaseorder") && itemIds.length) {
+        const [facts, stock] = await withSource("flow", () =>
+          Promise.all([suiteqlOsmcp(itemFactsSql(itemIds), 200), type === "salesorder" ? suiteqlOsmcp(stockSql(itemIds), 1000) : null]),
+        );
+        lines = addStock(lines, facts.items, stock?.items, { stock: type === "salesorder" });
       }
       const top = head.items[0] || {};
       // Receipts and bill payments read "Undefined": they have no status.

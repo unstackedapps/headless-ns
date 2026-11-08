@@ -133,3 +133,17 @@ test("lines learn their stock, location availability and tracking", () => {
   assert.equal(spices.available, 30);
   assert.equal(spices.stock.length, 1);
 });
+
+test("a partly received purchase order offers Bill only while received units are unbilled", () => {
+  const ids = (steps) => steps.map((step) => step.id);
+  const unbilled = [{ closed: false, remaining: 2, done: 3, billed: 0 }];
+  const billed = [{ closed: false, remaining: 2, done: 3, billed: 3 }];
+  assert.deepEqual(ids(nextSteps("purchaseorder", "D", unbilled)), ["receive", "bill", "close"]);
+  assert.deepEqual(ids(nextSteps("purchaseorder", "D", billed)), ["receive", "close"]);
+});
+
+test("purchase order lines get serial or lot tracking without stock", () => {
+  const [line] = addStock([{ line: 1, item: { id: "693" }, location: { id: "2" } }], [{ id: 693, isserialitem: "F", islotitem: "T" }], null, { stock: false });
+  assert.equal(line.tracking, "lot");
+  assert.equal("available" in line, false);
+});

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { amount, dateLabel } from "./format";
 import { explain, StatusPill, useLive } from "./lists";
 import { Button, Lookup, SkeletonRecord } from "./load";
-import { pickSerial, serialFull } from "./serials";
+import { editRow, numbersProblem, pickedTotal, pickSerial, serialFull, serialRows, type Picked } from "./serials";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
@@ -329,56 +329,122 @@ type ShipPick = {
   label: string;
   on: boolean;
   quantity: string;
-  numbers: { id: string; quantity: number }[];
+  numbers: Picked[];
   source: FlowLine;
 };
 type Number = { id: string; number: string; available: number };
 
-// Serial or lot numbers in stock at the line's location. Serial items take one number per unit.
-function NumberPick({ line, quantity, value, onChange }: { line: FlowLine; quantity: number; value: ShipPick["numbers"]; onChange: (value: ShipPick["numbers"]) => void }) {
-  const [numbers, setNumbers] = useState<Number[] | null>(null);
+// Serial or lot numbers for one line. A fulfillment picks numbers in stock at the line's location;
+// a receipt types new ones. Serial items take one number per unit; lots take any split of the quantity.
+function NumberPick({
+  line,
+  quantity,
+  receiving,
+  value,
+  onChange,
+}: {
+  line: FlowLine;
+  quantity: number;
+  receiving: boolean;
+  value: Picked[];
+  onChange: (value: Picked[]) => void;
+}) {
+  const [numbers, setNumbers] = useState<Number[] | null>(receiving ? [] : null);
   const [error, setError] = useState("");
   const location = line.location?.id || "";
   useEffect(() => {
-    if (!line.item || !location) return;
+    if (receiving || !line.item || !location) return;
     api<{ numbers: Number[] }>(`/api/flow/numbers?item=${encodeURIComponent(line.item.id)}&location=${encodeURIComponent(location)}`)
       .then((body) => setNumbers(body.numbers))
       .catch((reason: Error) => setError(reason.message));
-  }, [line.item, location]);
+  }, [line.item, location, receiving]);
   if (error) return <p className="error">{error}</p>;
   if (!numbers) return <Lookup label={`Finding ${line.tracking} numbers at ${line.location?.name || "this location"}.`} />;
-  if (!numbers.length) return <p className="status">No {line.tracking} numbers are in stock at {line.location?.name}.</p>;
-  if (line.tracking === "lot") {
+  if (!receiving && !numbers.length) return <p className="status">No {line.tracking} numbers are in stock at {line.location?.name}.</p>;
+
+  if (line.tracking === "serial" && receiving) {
+    const rows = serialRows(value, quantity);
     return (
-      <label>
-        Lot
-        <Pick
-          label={`Lot for line ${line.line}`}
-          value={value[0]?.id || ""}
-          onChange={(id) => onChange([{ id, quantity }])}
-          options={numbers.map((item) => ({ value: item.id, label: `${item.number} (${item.available} available)` }))}
-        />
-      </label>
+      <fieldset className="numbers">
+        <legend>{rows.length === 1 ? "Serial number: enter 1" : `Serial numbers: enter ${rows.length}`}</legend>
+        {rows.map((row, at) => (
+          <input
+            key={at}
+            aria-label={`Serial ${at + 1} for line ${line.line}`}
+            value={row.number || ""}
+            onChange={(event) => onChange(editRow(rows, at, { number: event.target.value }))}
+          />
+        ))}
+      </fieldset>
     );
   }
-  const chosen = new Set(value.map((item) => item.id));
-  const single = quantity === 1;
-  const full = serialFull(value, quantity);
+
+  if (line.tracking === "serial") {
+    const chosen = new Set(value.map((item) => item.id));
+    const single = quantity === 1;
+    const full = serialFull(value, quantity);
+    return (
+      <fieldset className="numbers">
+        <legend>{single ? "Serial number: pick 1" : `Serial numbers: pick ${quantity} (${chosen.size} picked)`}</legend>
+        {numbers.map((item) => (
+          <label key={item.id} className="check">
+            <input
+              type={single ? "radio" : "checkbox"}
+              name={`serial-${line.line}`}
+              checked={chosen.has(item.id)}
+              disabled={!single && full && !chosen.has(item.id)}
+              onChange={(event) => onChange(pickSerial(value, item.id, event.target.checked, quantity))}
+            />
+            {item.number}
+          </label>
+        ))}
+      </fieldset>
+    );
+  }
+
+  // Lots: one row per lot, starting with one row for the whole quantity.
+  const rows: Picked[] = value.length ? value : [{ quantity }];
+  const left = quantity - pickedTotal(rows);
   return (
-    <fieldset className="numbers">
-      <legend>{single ? "Serial number: pick 1" : `Serial numbers: pick ${quantity} (${chosen.size} picked)`}</legend>
-      {numbers.map((item) => (
-        <label key={item.id} className="check">
-          <input
-            type={single ? "radio" : "checkbox"}
-            name={`serial-${line.line}`}
-            checked={chosen.has(item.id)}
-            disabled={!single && full && !chosen.has(item.id)}
-            onChange={(event) => onChange(pickSerial(value, item.id, event.target.checked, quantity))}
-          />
-          {item.number}
-        </label>
+    <fieldset className="numbers lots">
+      <legend>
+        Lots: {pickedTotal(rows)} of {quantity} {receiving ? "entered" : "picked"}
+      </legend>
+      {rows.map((row, at) => (
+        <div key={at} className="filters">
+          <label>
+            Lot
+            {receiving ? (
+              <input aria-label={`Lot ${at + 1} for line ${line.line}`} value={row.number || ""} onChange={(event) => onChange(editRow(rows, at, { number: event.target.value }))} />
+            ) : (
+              <Pick
+                label={`Lot ${at + 1} for line ${line.line}`}
+                value={row.id || ""}
+                onChange={(id) => onChange(editRow(rows, at, { id }))}
+                options={numbers.map((item) => ({ value: item.id, label: `${item.number} (${item.available} available)` }))}
+              />
+            )}
+          </label>
+          <label>
+            Lot quantity
+            <input
+              type="number"
+              min="0"
+              aria-label={`Lot ${at + 1} quantity for line ${line.line}`}
+              value={String(row.quantity)}
+              onChange={(event) => onChange(editRow(rows, at, { quantity: Number(event.target.value) }))}
+            />
+          </label>
+          {rows.length > 1 && (
+            <button className="quiet" type="button" onClick={() => onChange(rows.filter((_, other) => other !== at))}>
+              Remove lot
+            </button>
+          )}
+        </div>
       ))}
+      <button className="quiet" type="button" onClick={() => onChange([...rows, { quantity: Math.max(left, 0) }])}>
+        Add another lot
+      </button>
     </fieldset>
   );
 }
@@ -402,6 +468,79 @@ function StockNote({ line, quantity, onMove, busy }: { line: FlowLine; quantity:
   );
 }
 
+// One line of a step form: a checkbox naming the line and a number for it (quantity or amount).
+function PickRow({
+  checked,
+  onCheck,
+  label,
+  field,
+  fieldLabel,
+  value,
+  onValue,
+  step,
+  children,
+}: {
+  checked: boolean;
+  onCheck: (on: boolean) => void;
+  label: string;
+  field?: string;
+  fieldLabel?: string;
+  value?: string;
+  onValue?: (value: string) => void;
+  step?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="ship-line">
+      <div className="filters">
+        <label className="check">
+          <input type="checkbox" checked={checked} onChange={(event) => onCheck(event.target.checked)} />
+          {label}
+        </label>
+        {field && onValue && (
+          <label>
+            {field}
+            <input type="number" min="0" step={step} aria-label={fieldLabel} value={value} disabled={!checked} onChange={(event) => onValue(event.target.value)} />
+          </label>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+type BillPick = { doc: string; label: string; on: boolean; amount: string };
+type VendorBills = { bills: { id: string; number: string; due: string; currency: string; unpaid: number | null }[] };
+
+// Open bills of the bill's vendor, with this bill ticked for its open amount.
+function useBillsToPay(flow: Flow, active: boolean) {
+  const [bills, setBills] = useState<BillPick[]>(() =>
+    active ? [{ doc: flow.id, label: `${flowTitle(flow.type, flow.id, flow.number)}, ${amount(flow.unpaid, show(flow.header.currency))} open`, on: true, amount: String(flow.unpaid ?? "") }] : [],
+  );
+  const [error, setError] = useState("");
+  const vendor = String(flow.header.entity?.value ?? "");
+  useEffect(() => {
+    if (!active || !/^\d+$/.test(vendor)) return;
+    api<VendorBills>(`/api/vendors/${vendor}`)
+      .then((body) =>
+        // Keep this bill's row as the user left it and replace the rest, so a second load adds nothing twice.
+        setBills((current) => [
+          ...current.filter((bill) => bill.doc === flow.id),
+          ...body.bills
+            .filter((bill) => bill.id !== flow.id && (bill.unpaid ?? 0) > 0)
+            .map((bill) => ({
+              doc: bill.id,
+              label: `${flowTitle("vendorbill", bill.id, bill.number)}, ${amount(bill.unpaid, bill.currency)} open${bill.due ? `, due ${dateLabel(bill.due)}` : ""}`,
+              on: false,
+              amount: String(bill.unpaid ?? ""),
+            })),
+        ]),
+      )
+      .catch((reason: Error) => setError(`Other open bills did not load. ${reason.message}`));
+  }, [active, vendor, flow.id]);
+  return { bills, setBills, error };
+}
+
 const SHIP_STATUSES = [
   { value: "A", label: "Picked" },
   { value: "B", label: "Packed" },
@@ -420,17 +559,24 @@ function StepForm({
   onChanged: () => void;
 }) {
   const isShip = step.kind === "ship";
+  // A purchase order bills what was received and not billed yet, line by line.
+  const billing = flow.type === "purchaseorder" && step.target === "vendorbill";
+  const payingBills = step.target === "vendorpayment";
   const open = flow.lines.filter((line) => !line.closed && (!isShip || line.remaining > 0));
+  const toBill = (line: FlowLine) => Math.max(line.done - line.billed, 0);
   const [picks, setPicks] = useState<ShipPick[]>(() =>
     open.map((line) => ({
       line: line.line,
-      label: `${line.item?.name || line.description || "Item"} (${isShip ? `${line.remaining} open` : `${line.quantity} ordered`})`,
-      on: step.kind !== "close",
-      quantity: String(isShip ? line.remaining : line.quantity),
+      label: `${line.item?.name || line.description || "Item"} (${
+        isShip ? `${line.remaining} open` : billing ? `${line.done} received, ${line.billed} billed` : `${line.quantity} ordered`
+      })`,
+      on: billing ? toBill(line) > 0 : step.kind !== "close",
+      quantity: String(isShip ? line.remaining : billing ? toBill(line) : line.quantity),
       numbers: [],
       source: line,
     })),
   );
+  const pay = useBillsToPay(flow, payingBills);
   const [memo, setMemo] = useState("");
   const [shipStatus, setShipStatus] = useState("C");
   const [clearShipMethod, setClearShipMethod] = useState(/ups/i.test(show(flow.header.shipMethod)));
@@ -456,6 +602,7 @@ function StepForm({
   }, [flow.lines]);
   const target = step.target ? FLOW_LABELS[step.target] || step.target : "";
   const fulfill = step.target === "itemfulfillment";
+  const receiving = step.target === "itemreceipt";
 
   function update(index: number, change: Partial<ShipPick>) {
     setPicks((current) => current.map((item, at) => (at === index ? { ...item, ...change } : item)));
@@ -510,11 +657,14 @@ function StepForm({
         }
         if (isShip) {
           for (const pick of picks) {
-            if (pick.on && pick.source.tracking && fulfill && pick.numbers.reduce((sum, item) => sum + item.quantity, 0) !== Number(pick.quantity)) {
-              throw new Error(`Line ${pick.line} needs ${pick.quantity} ${pick.source.tracking} number${Number(pick.quantity) === 1 ? "" : "s"}.`);
-            }
+            if (!pick.on || !pick.source.tracking || !(fulfill || receiving)) continue;
+            const problem = numbersProblem(pick.numbers, Number(pick.quantity), pick.source.tracking, pick.line, receiving);
+            if (problem) throw new Error(problem);
           }
         }
+        const apply = payingBills ? pay.bills.filter((bill) => bill.on).map((bill) => ({ doc: bill.doc, amount: Number(bill.amount) })) : undefined;
+        if (apply && !apply.length) throw new Error("Pick at least one bill to pay.");
+        if (apply?.some((bill) => !(bill.amount > 0))) throw new Error("Enter an amount above 0 for each bill you pay.");
         const created = await postJson<Created>("/api/records/transform", {
           sourceRecordType: flow.type,
           sourceRecordId: flow.id,
@@ -527,12 +677,14 @@ function StepForm({
                   orderLine: pick.line,
                   receive: pick.on,
                   quantity: Number(pick.quantity),
-                  ...(fulfill && pick.numbers.length ? { numbers: pick.numbers } : {}),
+                  ...(pick.source.tracking && pick.numbers.length ? { numbers: pick.numbers } : {}),
                 })),
                 shipStatus,
                 clearShipMethod,
               }
             : undefined,
+          bill: billing ? { lines: picks.map((pick) => ({ orderLine: pick.line, quantity: pick.on ? Number(pick.quantity) : 0 })) } : undefined,
+          apply,
           confirm: true,
         });
         onDone(`Created ${target.toLowerCase()} ${created.id}.${created.note ? ` ${created.note}` : ""}`, created);
@@ -556,32 +708,55 @@ function StepForm({
 
   return (
     <div className="step-form">
-      {(isShip || step.kind === "close") && (
+      {(isShip || billing || step.kind === "close") && (
         <div className="ship-lines">
           {picks.map((pick, index) => (
-            <div key={pick.line} className="ship-line">
-              <div className="filters">
-                <label className="check">
-                  <input type="checkbox" checked={pick.on} onChange={(event) => update(index, { on: event.target.checked })} />
-                  Line {pick.line}: {pick.label}
-                  {pick.source.location && isShip ? ` from ${pick.source.location.name}` : ""}
-                </label>
-                {isShip && (
-                  <label>
-                    Quantity
-                    <input type="number" min="0" value={pick.quantity} disabled={!pick.on} onChange={(event) => update(index, { quantity: event.target.value, numbers: [] })} />
-                  </label>
-                )}
-              </div>
+            <PickRow
+              key={pick.line}
+              checked={pick.on}
+              onCheck={(on) => update(index, { on })}
+              label={`Line ${pick.line}: ${pick.label}${pick.source.location && isShip ? ` from ${pick.source.location.name}` : ""}`}
+              field={isShip || billing ? "Quantity" : undefined}
+              value={pick.quantity}
+              onValue={(quantity) => update(index, { quantity, numbers: [] })}
+            >
               {fulfill && pick.on && <StockNote line={pick.source} quantity={Number(pick.quantity)} onMove={moveOrder} busy={busy} />}
-              {fulfill && pick.on && pick.source.tracking && (pick.source.available ?? 0) > 0 && (
-                <NumberPick line={pick.source} quantity={Number(pick.quantity)} value={pick.numbers} onChange={(numbers) => update(index, { numbers })} />
+              {pick.on && pick.source.tracking && (receiving || (fulfill && (pick.source.available ?? 0) > 0)) && (
+                <NumberPick
+                  line={pick.source}
+                  quantity={Number(pick.quantity)}
+                  receiving={receiving}
+                  value={pick.numbers}
+                  onChange={(numbers) => update(index, { numbers })}
+                />
               )}
-            </div>
+            </PickRow>
           ))}
           {picks.length === 0 && <p className="status">No open lines.</p>}
           {isShip && <p className="status">Unchecked lines stay open on the order.</p>}
+          {billing && <p className="status">Each line starts at what was received and not billed yet. An unchecked line goes on the bill at 0.</p>}
           {step.kind === "close" && <p className="status">A closed line stays on the order but is not fulfilled or billed.</p>}
+        </div>
+      )}
+      {payingBills && (
+        <div className="ship-lines">
+          {pay.bills.map((bill, index) => (
+            <PickRow
+              key={bill.doc}
+              checked={bill.on}
+              onCheck={(on) => pay.setBills((current) => current.map((item, at) => (at === index ? { ...item, on } : item)))}
+              label={bill.label}
+              field="Amount"
+              fieldLabel={`Amount for ${bill.label.split(",")[0]}`}
+              step="0.01"
+              value={bill.amount}
+              onValue={(value) => pay.setBills((current) => current.map((item, at) => (at === index ? { ...item, amount: value } : item)))}
+            />
+          ))}
+          {pay.error && <p className="error">{pay.error}</p>}
+          <p className="status">
+            Pays {amount(pay.bills.filter((bill) => bill.on).reduce((sum, bill) => sum + (Number(bill.amount) || 0), 0), show(flow.header.currency))}. Lower an amount to pay part of a bill.
+          </p>
         </div>
       )}
       <div className="filters">

@@ -108,27 +108,120 @@ test.describe("purchase orders", () => {
     expect(transform?.body.fulfill.lines).toEqual([{ orderLine: 1, receive: true, quantity: 2 }]);
   });
 
-  test("paying a bill takes a date and account and pays the open amount", async ({ page }) => {
+  test("paying a bill pays its open amount, or part of it, and other open bills", async ({ page }) => {
     const writes = await mockApi(page, {
       "/api/session": session,
       "/api/flow": record("vendorbill", "415", { id: "A", name: "Open" }, [{ id: "pay", label: "Pay bill", kind: "pay", target: "vendorpayment" }], { unpaid: 8.4 }),
+      "/api/vendors/628": {
+        vendor: { id: "628", name: "Core4Solutions" },
+        balance: [],
+        orders: [],
+        bills: [
+          { id: "700", number: "415", date: "2026-11-08", due: "", status: "Open", currency: "US Dollar", amount: 8.4, unpaid: 8.4 },
+          { id: "703", number: "416", date: "2026-11-08", due: "2026-12-08", status: "Open", currency: "US Dollar", amount: 4.2, unpaid: 4.2 },
+        ],
+      },
       "/api/records/lookup": { options: [{ id: "122", label: "1010 Cash : US Checking" }] },
       "POST /api/records/transform": { id: "702", type: "vendorpayment", externalId: "hns-wf-test" },
     });
     await page.goto("/#/transaction?type=vendorbill&id=700");
     await expect(page.getByRole("heading", { name: "Bill 415" })).toBeVisible();
-    await expect(page.getByText("8.40 US Dollar").last()).toBeVisible();
     await page.getByRole("button", { name: "Pay bill" }).click();
-    await expect(page.getByRole("spinbutton", { name: "Amount" })).toHaveCount(0);
+    await expect(page.getByRole("spinbutton", { name: "Amount for Bill 415" })).toHaveValue("8.4");
+    await expect(page.getByRole("spinbutton", { name: "Amount for Bill 416" })).toBeDisabled();
+    await expect(page.getByText("Pays 8.40 US Dollar.")).toBeVisible();
+    await page.getByRole("spinbutton", { name: "Amount for Bill 415" }).fill("5");
+    await page.getByLabel(/Bill 416, 4.20 US Dollar open/).check();
+    await page.getByRole("spinbutton", { name: "Amount for Bill 416" }).fill("1.2");
+    await expect(page.getByText("Pays 6.20 US Dollar.")).toBeVisible();
     await page.getByRole("combobox", { name: "Account" }).click();
     await page.getByRole("option", { name: "1010 Cash : US Checking" }).click();
-    await expect(page.getByRole("combobox", { name: "Account" })).toHaveValue("1010 Cash : US Checking");
     await page.getByLabel(/I mean to run this/).check();
     await page.getByRole("button", { name: "Create bill payment" }).click();
     await expect(page).toHaveURL(/type=vendorpayment&id=702/);
     const transform = writes.find((write) => write.path === "/api/records/transform");
     expect(transform?.body.data).toMatchObject({ account: { id: "122" } });
-    expect(transform?.body.data.payment).toBeUndefined();
+    expect(transform?.body.apply).toEqual([
+      { doc: "700", amount: 5 },
+      { doc: "703", amount: 1.2 },
+    ]);
+  });
+
+  test("billing a purchase order starts each line at received minus billed", async ({ page }) => {
+    const lines = [
+      { ...poLine, done: 3, billed: 1 },
+      { ...poLine, line: 2, item: { id: "693", name: "GAR002L Garbanzo Beans" }, done: 0, billed: 0, remaining: 4 },
+    ];
+    const writes = await mockApi(page, {
+      "/api/session": session,
+      "/api/flow": record("purchaseorder", "PO900", { id: "D", name: "Partially Received" }, [{ id: "bill", label: "Bill", kind: "transform", target: "vendorbill" }], { lines }),
+      "POST /api/records/transform": { id: "704", type: "vendorbill", externalId: "hns-wf-test" },
+    });
+    await page.goto("/#/transaction?type=purchaseorder&id=700");
+    await page.getByRole("button", { name: "Bill", exact: true }).click();
+    await expect(page.getByText("Line 1: KAP001 Kapton Plastic (3 received, 1 billed)")).toBeVisible();
+    const quantities = page.getByRole("spinbutton", { name: "Quantity" });
+    await expect(quantities.nth(0)).toHaveValue("2");
+    await expect(quantities.nth(1)).toHaveValue("0");
+    await expect(page.getByLabel(/Line 2: GAR002L/)).not.toBeChecked();
+    await quantities.nth(0).fill("1");
+    await page.getByLabel(/I mean to run this/).check();
+    await page.getByRole("button", { name: "Create bill" }).click();
+    await expect(page).toHaveURL(/type=vendorbill&id=704/);
+    const transform = writes.find((write) => write.path === "/api/records/transform");
+    expect(transform?.body.bill.lines).toEqual([
+      { orderLine: 1, quantity: 1 },
+      { orderLine: 2, quantity: 0 },
+    ]);
+  });
+
+  test("receiving a lot item takes typed lot numbers that add up to the quantity", async ({ page }) => {
+    const lines = [{ ...poLine, item: { id: "693", name: "GAR002L Garbanzo Beans" }, done: 0, remaining: 3, tracking: "lot" }];
+    const writes = await mockApi(page, {
+      "/api/session": session,
+      "/api/flow": record("purchaseorder", "PO900", { id: "B", name: "Pending Receipt" }, [{ id: "receive", label: "Receive", kind: "ship", target: "itemreceipt" }], { lines }),
+      "POST /api/records/transform": { id: "705", type: "itemreceipt", externalId: "hns-wf-test" },
+    });
+    await page.goto("/#/transaction?type=purchaseorder&id=700");
+    await page.getByRole("button", { name: "Receive", exact: true }).click();
+    await page.getByRole("textbox", { name: "Lot 1 for line 1" }).fill("LOT-A");
+    await page.getByRole("spinbutton", { name: "Lot 1 quantity for line 1" }).fill("2");
+    await page.getByLabel(/I mean to run this/).check();
+    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await expect(page.getByText("Line 1 receives 3, but its lot quantities add up to 2.")).toBeVisible();
+    await page.getByRole("button", { name: "Add another lot" }).click();
+    await expect(page.getByRole("spinbutton", { name: "Lot 2 quantity for line 1" })).toHaveValue("1");
+    await page.getByRole("textbox", { name: "Lot 2 for line 1" }).fill("LOT-B");
+    await expect(page.getByText("Lots: 3 of 3 entered")).toBeVisible();
+    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await expect(page).toHaveURL(/type=itemreceipt&id=705/);
+    const transform = writes.find((write) => write.path === "/api/records/transform");
+    expect(transform?.body.fulfill.lines[0].numbers).toEqual([
+      { number: "LOT-A", quantity: 2 },
+      { number: "LOT-B", quantity: 1 },
+    ]);
+  });
+
+  test("receiving a serial item takes one typed number per unit", async ({ page }) => {
+    const lines = [{ ...poLine, quantity: 2, done: 0, remaining: 2, tracking: "serial" }];
+    const writes = await mockApi(page, {
+      "/api/session": session,
+      "/api/flow": record("purchaseorder", "PO900", { id: "B", name: "Pending Receipt" }, [{ id: "receive", label: "Receive", kind: "ship", target: "itemreceipt" }], { lines }),
+      "POST /api/records/transform": { id: "706", type: "itemreceipt", externalId: "hns-wf-test" },
+    });
+    await page.goto("/#/transaction?type=purchaseorder&id=700");
+    await page.getByRole("button", { name: "Receive", exact: true }).click();
+    await expect(page.getByText("Serial numbers: enter 2")).toBeVisible();
+    await page.getByRole("textbox", { name: "Serial 1 for line 1" }).fill("SN-1");
+    await page.getByRole("textbox", { name: "Serial 2 for line 1" }).fill("SN-2");
+    await page.getByLabel(/I mean to run this/).check();
+    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await expect(page).toHaveURL(/type=itemreceipt&id=706/);
+    const transform = writes.find((write) => write.path === "/api/records/transform");
+    expect(transform?.body.fulfill.lines[0].numbers).toEqual([
+      { number: "SN-1", quantity: 1 },
+      { number: "SN-2", quantity: 1 },
+    ]);
   });
 });
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyData,
+  billData,
   cleanLines,
   cleanWrite,
   externalIdSql,
@@ -142,7 +144,7 @@ test("fulfillment lines carry serial or lot numbers that add up to the quantity"
   assert.deepEqual(data.item.items[0].inventoryDetail, { inventoryAssignment: { items: [{ issueInventoryNumber: { id: "6152" }, quantity: 1 }] } });
   assert.equal(inventoryNumbers([], 1, 1), null);
   assert.equal(inventoryNumbers(undefined, 1, 1), null);
-  assert.throws(() => inventoryNumbers([{ id: "6152", quantity: 1 }], 1, 2), /add up to 1/);
+  assert.throws(() => inventoryNumbers([{ id: "6152", quantity: 1 }], 1, 2), /ships 2, but the numbers add up to 1/);
   assert.throws(() => inventoryNumbers([{ id: "1 OR 1=1", quantity: 1 }], 1, 1), /not valid/);
   assert.throws(() => inventoryNumbers([{ id: "5", quantity: -1 }], 1, -1), /not valid/);
   assert.throws(() => inventoryNumbers("6152", 1, 1), /not valid/);
@@ -172,4 +174,43 @@ test("item defaults follow the side of the transaction", () => {
   assert.deepEqual(itemDefaults(row, "purchase"), { rate: 4637, description: "Server, bought", rateLabel: "Purchase price" });
   assert.equal(itemDefaults({ description: "Spices", baseprice: null }, "sale").rate, null);
   assert.equal(itemDefaults({ cost: null, lastpurchaseprice: 0 }, "purchase").rate, null);
+});
+
+test("receipts name new serial or lot numbers", () => {
+  const data = fulfillData(
+    { lines: [{ orderLine: 1, receive: true, quantity: 3, numbers: [{ number: "HNS-P4-LOT-A", quantity: 2 }, { number: "HNS-P4-LOT-B", quantity: 1 }] }] },
+    "itemreceipt",
+  );
+  assert.deepEqual(data.item.items[0].inventoryDetail.inventoryAssignment.items, [
+    { receiptInventoryNumber: "HNS-P4-LOT-A", quantity: 2 },
+    { receiptInventoryNumber: "HNS-P4-LOT-B", quantity: 1 },
+  ]);
+  assert.throws(() => inventoryNumbers([{ number: "A", quantity: 1 }], 1, 2, "itemreceipt"), /receives 2, but the numbers add up to 1/);
+  assert.throws(() => inventoryNumbers([{ number: "A'; DROP", quantity: 1 }], 1, 1, "itemreceipt"), /not valid/);
+  // A fulfillment never takes a typed number, only one in stock.
+  assert.throws(() => inventoryNumbers([{ number: "A", quantity: 1 }], 1, 1), /not valid/);
+});
+
+test("a purchase order bill sends a quantity for each order line", () => {
+  assert.deepEqual(billData({ lines: [{ orderLine: 1, quantity: 3 }, { orderLine: 2, quantity: 0 }] }), {
+    item: { items: [{ orderLine: 1, quantity: 3 }, { orderLine: 2, quantity: 0 }] },
+  });
+  assert.deepEqual(billData(undefined), {});
+  assert.throws(() => billData({ lines: [{ orderLine: 1, quantity: 0 }] }), /at least one line/);
+  assert.throws(() => billData({ lines: [{ orderLine: 1, quantity: -1 }] }), /0 or more/);
+});
+
+test("a bill payment pays the chosen bills and unticks the source bill when left out", () => {
+  assert.deepEqual(applyData([{ doc: "17091", amount: 5 }, { doc: "17093", amount: 1.2 }], "17091"), {
+    apply: { items: [{ doc: { id: "17091" }, apply: true, amount: 5 }, { doc: { id: "17093" }, apply: true, amount: 1.2 }] },
+  });
+  assert.deepEqual(applyData([{ doc: "17093", amount: 3.004 }], "17091").apply.items, [
+    { doc: { id: "17093" }, apply: true, amount: 3 },
+    { doc: { id: "17091" }, apply: false },
+  ]);
+  assert.deepEqual(applyData(undefined, "1"), {});
+  assert.throws(() => applyData([], "1"), /at least one bill/);
+  assert.throws(() => applyData([{ doc: "1", amount: 0 }], "1"), /above 0/);
+  assert.throws(() => applyData([{ doc: "1 OR 1", amount: 2 }], "1"), /not valid/);
+  assert.throws(() => applyData([{ doc: "1", amount: 2 }, { doc: "1", amount: 2 }], "1"), /not valid/);
 });
