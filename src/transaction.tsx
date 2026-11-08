@@ -217,6 +217,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
                   if (next) location.hash = flowLink(next.type, next.id);
                   else refreshScope(path);
                 }}
+                onChanged={() => refreshScope(path, true)}
               />
             )}
           </section>
@@ -383,7 +384,17 @@ const SHIP_STATUSES = [
   { value: "C", label: "Shipped" },
 ];
 
-function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (message: string, next?: Created) => void }) {
+function StepForm({
+  flow,
+  step,
+  onDone,
+  onChanged,
+}: {
+  flow: Flow;
+  step: Step;
+  onDone: (message: string, next?: Created) => void;
+  onChanged: () => void;
+}) {
   const isShip = step.kind === "ship";
   const open = flow.lines.filter((line) => !line.closed && (!isShip || line.remaining > 0));
   const [picks, setPicks] = useState<ShipPick[]>(() =>
@@ -405,7 +416,20 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [moved, setMoved] = useState("");
   const accountField: Field = { id: "account", title: "Account", type: "ref", source: "account" };
+
+  // When the order reloads (after a move, say), take the new location and stock but keep what the user picked.
+  useEffect(() => {
+    setPicks((current) =>
+      current.map((pick) => {
+        const source = flow.lines.find((line) => line.line === pick.line);
+        if (!source) return pick;
+        const sameLocation = source.location?.id === pick.source.location?.id;
+        return { ...pick, source, numbers: sameLocation ? pick.numbers : [] };
+      }),
+    );
+  }, [flow.lines]);
   const target = step.target ? FLOW_LABELS[step.target] || step.target : "";
   const fulfill = step.target === "itemfulfillment";
 
@@ -433,7 +457,15 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
     }
     void attempt(async () => {
       await postJson("/api/records", { recordType: flow.type, recordId: flow.id, data: { location: { id: location.id } }, confirm: true });
-      onDone(`The order now ships from ${location.name}. Open Fulfill again.`);
+      // Show the new location at once; the reload then fills in NetSuite's own figures.
+      setPicks((current) =>
+        current.map((pick) => {
+          const there = pick.source.stock?.find((row) => row.id === location.id);
+          return { ...pick, numbers: [], source: { ...pick.source, location, available: there?.available ?? 0 } };
+        }),
+      );
+      setMoved(`The order now ships from ${location.name}.`);
+      onChanged();
     });
   }
 
@@ -567,6 +599,7 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
         </label>
       )}
       <ConfirmCheck checked={confirm} onChange={setConfirm} />
+      {moved && <p className="status">{moved}</p>}
       {error && <p className="error">{error}</p>}
       <Button className="primary" busy={busy} disabled={!confirm} onClick={run}>
         {target ? `Create ${target.toLowerCase()}` : step.label}
