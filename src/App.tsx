@@ -28,6 +28,7 @@ type Discovery = {
 type SessionInfo = {
   configured: boolean;
   accountId: string;
+  accountMissing: boolean;
   redirectUri: string;
   ephemeralSecret: boolean;
   discovery: Discovery | null;
@@ -553,7 +554,9 @@ function SignIn({ session, authError }: { session: SessionInfo; authError: strin
         <h2>SuiteTalk sign-in</h2>
         {session.osmcpError && <p className="error">{session.osmcpError}</p>}
         {authError && <p className="error">{authError}</p>}
-        {session.discovery ? (
+        {session.accountMissing ? (
+          <p className="note">Add the account ID under Connection to sign in.</p>
+        ) : session.discovery ? (
           <p className="live-line">
             Account <strong>{session.accountId.toUpperCase()}</strong> is ready to sign in.
           </p>
@@ -576,7 +579,7 @@ function SignIn({ session, authError }: { session: SessionInfo; authError: strin
           <li>Restart the server, then use Sign in with NetSuite.</li>
         </ol>
         <div className="actions">
-          {session.configured ? (
+          {session.configured && !session.accountMissing ? (
             <a className="primary" href="/api/auth/login">
               <Glyph icon={glyph.signIn} />
               Sign in with NetSuite

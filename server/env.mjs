@@ -29,7 +29,19 @@ export const REDIRECT_URI = `https://localhost:${PORT}/api/auth/callback`;
 export const SCOPES = "openid email rest_webservices";
 
 export function accountId() {
-  return process.env.NETSUITE_ACCOUNT_ID?.trim() || "TD3138390";
+  return process.env.NETSUITE_ACCOUNT_ID?.trim() || "";
+}
+
+// NetSuite ids look like 1234567, 1234567_SB1, or TSTDRV123456.
+export function validAccountId(value) {
+  return /^[A-Za-z0-9_-]{1,40}$/.test(String(value ?? ""));
+}
+
+// The account an MCP connection reported, so record links work without NETSUITE_ACCOUNT_ID.
+let reportedAccount = "";
+
+export function rememberAccount(id) {
+  if (validAccountId(id)) reportedAccount = id;
 }
 
 export function clientId() {
@@ -49,6 +61,7 @@ export function sessionSecretIsEphemeral() {
 }
 
 export function accountHost(id = accountId()) {
+  if (!id) throw new Error("Add the NetSuite account ID in Settings.");
   const host = String(id).trim().toLowerCase().replace(/-/g, "_");
   if (!/^[a-z0-9_]+$/.test(host)) {
     throw new Error("NETSUITE_ACCOUNT_ID is not a valid account id.");
@@ -57,7 +70,8 @@ export function accountHost(id = accountId()) {
 }
 
 export function appOrigin() {
-  return `https://${accountHost()}.app.netsuite.com`;
+  const id = accountId() || reportedAccount;
+  return id ? `https://${accountHost(id)}.app.netsuite.com` : "";
 }
 
 export function suiteTalkHost() {
@@ -99,6 +113,7 @@ export function mcpSuite() {
 }
 
 export function netsuiteMcpUrl() {
+  if (!accountId()) return "";
   const path = mcpSuite() === "all" ? "all" : "suiteapp/com.netsuite.mcpstandardtools";
   return `https://${suiteTalkHost()}/services/mcp/v1/${path}`;
 }

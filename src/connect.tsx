@@ -6,6 +6,8 @@ type Kind = "opensuitemcp" | "netsuite" | "custom";
 
 type Connection = {
   kind: Kind;
+  accountId: string;
+  accountMissing: boolean;
   redirectUri: string;
   osmcpUrl: string;
   osmcpHint: string;
@@ -27,6 +29,7 @@ const names: Record<Kind, string> = {
 export function ConnectionPanel() {
   const [saved, setSaved] = useState<Connection | null>(null);
   const [kind, setKind] = useState<Kind>("opensuitemcp");
+  const [accountId, setAccountId] = useState("");
   const [osmcpUrl, setOsmcpUrl] = useState("https://app.opensuitemcp.com/api/mcp");
   const [osmcpToken, setOsmcpToken] = useState("");
   const [customUrl, setCustomUrl] = useState("");
@@ -48,6 +51,7 @@ export function ConnectionPanel() {
           setSaved(body);
           if (hintsOnly) return;
           setKind(body.kind);
+          setAccountId(body.accountId);
           setOsmcpUrl(body.osmcpUrl);
           setCustomUrl(body.customUrl);
           setMcpClientId(body.mcpClientId);
@@ -78,7 +82,7 @@ export function ConnectionPanel() {
       const response = await fetch("/api/config/connector", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, osmcpUrl, osmcpToken, customUrl, customToken, mcpClientId, mcpClientSecret, suite }),
+        body: JSON.stringify({ kind, accountId, osmcpUrl, osmcpToken, customUrl, customToken, mcpClientId, mcpClientSecret, suite }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Could not save the connection.");
@@ -105,6 +109,17 @@ export function ConnectionPanel() {
           ]}
         />
       </label>
+      <label>
+        Account ID
+        <input
+          value={accountId}
+          autoComplete="off"
+          maxLength={40}
+          pattern="[A-Za-z0-9_\-]+"
+          placeholder={kind === "netsuite" ? "1234567 or 1234567_SB1" : "Optional. The connection reports it."}
+          onChange={(event) => setAccountId(event.target.value)}
+        />
+      </label>
       {kind === "opensuitemcp" && (
         <>
           <label>
@@ -119,7 +134,7 @@ export function ConnectionPanel() {
       )}
       {kind === "netsuite" && (
         <>
-          <p className="status">Tool URL {saved?.netsuiteMcpUrl}</p>
+          <p className="status">{saved?.netsuiteMcpUrl ? `Tool URL ${saved.netsuiteMcpUrl}` : "Add the account ID to get the tool URL."}</p>
           <label>
             Client ID
             <input value={mcpClientId} autoComplete="off" onChange={(event) => setMcpClientId(event.target.value)} />
@@ -165,12 +180,20 @@ export function ConnectionPanel() {
         <button className="primary" type="submit" disabled={busy}>
           Save connection
         </button>
-        {kind === "netsuite" && (
-          <a className="quiet" href="/api/auth/mcp/login">
-            <Glyph icon={glyph.signIn} />
-            Sign in with NetSuite
-          </a>
-        )}
+        {kind === "netsuite" &&
+          (saved?.accountMissing ? (
+            <>
+              <button className="quiet" type="button" disabled>
+                Sign in with NetSuite
+              </button>
+              <span className="note">Save the account ID first.</span>
+            </>
+          ) : (
+            <a className="quiet" href="/api/auth/mcp/login">
+              <Glyph icon={glyph.signIn} />
+              Sign in with NetSuite
+            </a>
+          ))}
       </div>
       <div key={kind}>
         <details className="panel" open={kind === "opensuitemcp"}>

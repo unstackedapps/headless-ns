@@ -232,7 +232,8 @@ export function recordHref(kind, id) {
     item: "/app/common/item/item.nl",
     employee: "/app/common/entity/employee.nl",
   };
-  return `${appOrigin()}${paths[kind]}?id=${encodeURIComponent(id)}`;
+  const origin = appOrigin();
+  return origin ? `${origin}${paths[kind]}?id=${encodeURIComponent(id)}` : "";
 }
 
 const TX_PAGE = {
@@ -255,7 +256,8 @@ const TX_PAGE = {
 export function transactionHref(type, id) {
   // shortcut: a type without its own page opens through transaction.nl
   const page = TX_PAGE[type] || "transaction";
-  return `${appOrigin()}/app/accounting/transactions/${page}.nl?id=${encodeURIComponent(id)}`;
+  const origin = appOrigin();
+  return origin ? `${origin}/app/accounting/transactions/${page}.nl?id=${encodeURIComponent(id)}` : "";
 }
 
 export function likeTerm(value) {
@@ -267,5 +269,5 @@ export function likeTerm(value) {
 }
 
 export function accountLabel() {
-  return accountHost();
+  return accountId() ? accountHost() : "";
 }

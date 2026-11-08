@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { connector, customMcpToken, customMcpUrl, netsuiteMcpUrl, osmcpToken, osmcpUrl } from "./env.mjs";
+import { connector, customMcpToken, customMcpUrl, netsuiteMcpUrl, osmcpToken, osmcpUrl, rememberAccount } from "./env.mjs";
 import { recordTrace } from "./trace.mjs";
 
 const authStore = new AsyncLocalStorage();
@@ -86,7 +86,7 @@ async function readMcpBody(response) {
 
 async function postRpc(auth, method, params, name, sessionId) {
   if (!auth.url) {
-    const error = new Error("Add the MCP server URL in Settings.");
+    const error = new Error(auth.label === "NetSuite" ? "Add the NetSuite account ID in Settings." : "Add the MCP server URL in Settings.");
     error.status = 400;
     throw error;
   }
@@ -219,6 +219,7 @@ export async function osmcpIdentity() {
     permissions: payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : {},
   };
   identityAt = Date.now();
+  rememberAccount(identityCache.accountId);
   return identityCache;
 }
 

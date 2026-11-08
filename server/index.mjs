@@ -22,6 +22,7 @@ import {
   updateEnv,
   sessionSecret,
   sessionSecretIsEphemeral,
+  validAccountId,
 } from "./env.mjs";
 import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
 import { walkRelated } from "./related.mjs";
@@ -314,15 +315,18 @@ const routes = {
   async session(_req, res) {
     let discovery = null;
     let discoveryError = null;
-    try {
-      discovery = publicDiscovery(await getDiscovery());
-    } catch (error) {
-      discoveryError = error.message;
+    if (accountId()) {
+      try {
+        discovery = publicDiscovery(await getDiscovery());
+      } catch (error) {
+        discoveryError = error.message;
+      }
     }
     const base = {
       configured: Boolean(clientId()),
       confidential: Boolean(clientSecret()),
       accountId: accountLabel(),
+      accountMissing: !accountId(),
       redirectUri: REDIRECT_URI,
       scopes: "openid email rest_webservices",
       ephemeralSecret: sessionSecretIsEphemeral(),
@@ -398,6 +402,10 @@ const routes = {
   async login(_req, res) {
     if (!clientId()) {
       redirect(res, "/?auth_error=" + encodeURIComponent("Add NETSUITE_CLIENT_ID to .env before signing in."));
+      return;
+    }
+    if (!accountId()) {
+      redirect(res, "/?auth_error=" + encodeURIComponent("Add the NetSuite account ID in Settings before signing in."));
       return;
     }
     const state = randomBytes(24).toString("base64url");
@@ -1084,7 +1092,8 @@ function connectorPayload(req) {
   const session = sid ? sessions.get(sid) : null;
   return {
     kind: connector(),
-    accountId: accountLabel(),
+    accountId: accountId(),
+    accountMissing: !accountId(),
     redirectUri: REDIRECT_URI,
     osmcpUrl: osmcpUrl(),
     osmcpHint: hint(osmcpToken()),
@@ -1115,10 +1124,16 @@ async function saveConnector(req, res) {
     sendJson(res, 400, { error: "The OpenSuiteMCP URL must start with https://." });
     return;
   }
+  const nextAccountId = String(body.accountId || "").trim();
+  if (nextAccountId && !validAccountId(nextAccountId)) {
+    sendJson(res, 400, { error: "The account ID can use letters, numbers, _ and -, up to 40 characters." });
+    return;
+  }
   updateEnv(
-    ["CONNECTOR", "OSMCP_URL", "OSMCP_TOKEN", "MCP_URL", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_ID", "NETSUITE_MCP_CLIENT_SECRET", "NETSUITE_MCP_SUITE"],
+    ["CONNECTOR", "NETSUITE_ACCOUNT_ID", "OSMCP_URL", "OSMCP_TOKEN", "MCP_URL", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_ID", "NETSUITE_MCP_CLIENT_SECRET", "NETSUITE_MCP_SUITE"],
     {
       CONNECTOR: kind,
+      NETSUITE_ACCOUNT_ID: nextAccountId,
       OSMCP_URL: nextOsmcpUrl,
       OSMCP_TOKEN: String(body.osmcpToken || ""),
       MCP_URL: customUrl,
@@ -1135,6 +1150,10 @@ async function saveConnector(req, res) {
 async function mcpLogin(_req, res) {
   if (!mcpClientId()) {
     redirect(res, "/?auth_error=" + encodeURIComponent("Add the NetSuite MCP client ID in Settings first."));
+    return;
+  }
+  if (!accountId()) {
+    redirect(res, "/?auth_error=" + encodeURIComponent("Add the NetSuite account ID in Settings first."));
     return;
   }
   const state = randomBytes(24).toString("base64url");
@@ -1241,11 +1260,15 @@ httpsServer.listen(PORT, () => {
   if (kind === "opensuitemcp" || kind === "custom") {
     osmcpIdentity()
       .then((identity) => {
-        console.log(`[headless] ${kind} connected · ${identity.accountId} · ${identity.roleId}`);
+        console.log(`[headless] ${kind} connected · ${identity.accountId || "account not reported"} · ${identity.roleId}`);
       })
       .catch((error) => {
         console.log(`[headless] ${kind} not ready: ${error.message}`);
       });
+  }
+  if (!accountId()) {
+    console.log("[headless] no NETSUITE_ACCOUNT_ID set, skipped OIDC discovery");
+    return;
   }
   getDiscovery()
     .then((document) => {
