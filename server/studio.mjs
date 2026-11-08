@@ -1,4 +1,5 @@
 import { llmApiKey, llmBaseUrl, llmKeyHint, llmModel, updateLlmEnv } from "./env.mjs";
+import { readJsonBody } from "./http.mjs";
 import { toolKind } from "./kinds.mjs";
 import { ask, confirmAsk, pingModel } from "./llm.mjs";
 import { modelStore } from "./models.mjs";
@@ -8,32 +9,6 @@ import { recordRoutes } from "./records.mjs";
 import { listTrace } from "./trace.mjs";
 
 const NEEDS_CONFIRM = new Set(["write", "internal", "app"]);
-
-function readJsonBody(req, limit = 1_000_000) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("The request body is too large."));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8");
-      if (!text) return resolve({});
-      try {
-        resolve(JSON.parse(text));
-      } catch {
-        reject(new Error("The body was not JSON."));
-      }
-    });
-    req.on("error", reject);
-  });
-}
 
 function publicTool(tool) {
   return {

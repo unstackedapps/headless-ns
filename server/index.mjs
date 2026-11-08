@@ -25,6 +25,7 @@ import {
   validAccountId,
 } from "./env.mjs";
 import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
 import { studioRoutes } from "./studio.mjs";
 import {
@@ -172,6 +173,8 @@ function hint(value) {
 
 async function authorized(req, res) {
   const kind = connector();
+  // These hosts use a token from .env, so there is no browser session to check. The server
+  // listens on 127.0.0.1 and handle() refuses cross-site writes; any local process could read .env anyway.
   if (kind === "opensuitemcp" || kind === "custom") return { via: kind, expiresAt: 0 };
   const sid = cookies(req).hn_sid;
   const session = sid ? sessions.get(sid) : null;
@@ -866,36 +869,6 @@ async function transactionList(req, res, url, type, kind, party) {
   });
 }
 
-function readJsonBody(req, limit = 200_000) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        const error = new Error("The request body is too large.");
-        error.status = 400;
-        reject(error);
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8");
-      if (!text) return resolve({});
-      try {
-        resolve(JSON.parse(text));
-      } catch {
-        const error = new Error("The body was not JSON.");
-        error.status = 400;
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
 function assertReadQuery(sql) {
   const text = String(sql || "").trim();
   if (!text) {
@@ -1200,6 +1173,11 @@ async function handle(req, res, vite) {
     ? (request, response) => routes.customer(request, response, customerMatch[1])
     : apiRoutes[`${req.method} ${url.pathname}`];
   if (url.pathname.startsWith("/api/")) {
+    const blocked = blockedReason(req, PORT);
+    if (blocked) {
+      sendJson(res, 403, { error: blocked });
+      return;
+    }
     if (!handler) {
       sendJson(res, 404, { error: "Unknown API route." });
       return;
