@@ -185,3 +185,67 @@ UI runs on 2026-11-08, memo "headless-ns workflow test":
 |---|---|
 | Quote to paid invoice | SO631 (16393), INV435, PYMT400 |
 | Purchase order to paid bill | PO447, IR440 (16690), bill 415 (16789), bill payment 427 (16590) |
+
+## Procure-to-pay gaps and lot numbers (Phase 4)
+
+Tested on 2026-11-08 with vendor 628 (Core4Solutions), location 2, item 693 (GAR002L, lot) and item 541 (KAP001). Payload tests have memo "headless-ns payload test p4" and external ids `hns-p4-*`.
+
+| Record | Internal id | Number | What it tested |
+|---|---|---|---|
+| Purchase order | 17089 | | 5 of GAR002L and 4 of KAP001 |
+| Item receipt | 17090 | | 3 GAR002L into new lots HNS-P4-LOT-A (2) and HNS-P4-LOT-B (1), 2 KAP001 |
+| Vendor bill | 17091 | | Billed the received 3 and 2, total 10.20 |
+| Item receipt | 17092 | | The other 2 KAP001, GAR002L line `itemReceive:false` |
+| Vendor bill | 17093 | 417 | GAR002L at quantity 0, KAP001 at 2, total 4.20 |
+| Bill payment | 17094 | | 5.00 to bill 17091 and 1.20 to bill 17093 |
+| Purchase order | 17095 | | `supervisorApproval:false`, saved as approved anyway |
+
+### Bill a purchase order for chosen quantities
+
+Bill lines have `orderLine`. Send one line per order line with the quantity to bill:
+
+```json
+{"item":{"items":[{"orderLine":1,"quantity":3},{"orderLine":2,"quantity":2}]}}
+```
+
+- Without `item`, the transform bills the ordered quantity.
+- A line with `quantity: 0` stays on the bill at 0. The transform has no way to drop a line.
+- After billing everything received, a partly received PO reads D "Partially Received", not E. The page offers Bill on D while a line has received units that are not billed (`quantityshiprecv > quantitybilled`).
+
+### Partial bill payment
+
+Vendor payment `apply` lines are keyed by `doc`. A transform from one bill pays any open bill of the vendor:
+
+```json
+{"apply":{"items":[{"doc":{"id":"17091"},"apply":true,"amount":5},{"doc":{"id":"17093"},"apply":true,"amount":1.2}]}}
+```
+
+Payment 17094 totaled 6.20 and left 5.20 open on 17091 and 3.00 on 17093. The transform pre-applies the source bill in full. When the user unticks that bill, the server also sends `{"doc":{"id":<source>},"apply":false}`. That case has not run live yet.
+
+### Lot and serial numbers on receipts
+
+Receipts name new numbers with `receiptInventoryNumber` (text). Fulfillments pick numbers in stock with `issueInventoryNumber` (`{id}`). Several entries split a line:
+
+```json
+{"orderLine":1,"itemReceive":true,"quantity":3,"inventoryDetail":{"inventoryAssignment":{"items":[{"receiptInventoryNumber":"HNS-P4-LOT-A","quantity":2},{"receiptInventoryNumber":"HNS-P4-LOT-B","quantity":1}]}}}
+```
+
+NetSuite created both lots at San Francisco with 2 and 1 available.
+
+### Purchase order approval
+
+Not built, because td3138390 cannot test it without a settings change.
+
+- Every PO here has `approvalstatus` null and starts at B Pending Receipt.
+- The PO metadata has `supervisorApproval` (boolean), and `ns_getRecordActionMetadata` lists an `approve` action. PO 17095, created with `supervisorApproval:false`, read back `true` at B Pending Receipt. The account ignores the box.
+- Approval needs an account change. Setup > Accounting > Accounting Preferences > Approval Routing > Purchase Order turns on approval routing, and it needs an approval workflow (SuiteFlow) first. Purchase orders then start at Pending Approval with `approvalstatus` 1. Sources: Oracle's help pages "Switching From the Approval Routing Feature to SuiteFlow for Purchases" and "Supervisors, Approvers, and Approval Limits". They disagree on how the preference and the older supervisor approval interact, so check the account before changing anything.
+- The page already offers Approve for a PO at status A or `approvalstatus` 1, by setting `approvalStatus` to 2. That write is untested. The `approve` action may be the better call once routing is on.
+
+### UI runs (`e2e/gaps.live.ts`, memo "headless-ns phase4 test")
+
+| Flow | Records |
+|---|---|
+| Lot receipt, bill for the received quantity, partial payment | PO451 (17098): 5 ordered. IR443 (17190): 3 received into lots HNS-MW8ADV1A-A (2) and -B (1). Bill 418 (17099): 3 × 2.00 = 6.00. Bill payment 429 (17191): 5.00, 4.00 to bill 418 (2.00 left) and 1.00 to bill 417 (2.00 left). |
+| Lot fulfillment | SO634 (17096), 3 of item 759. IF473 (17097) shipped 2 from LOT-DEMO-A and 1 from LOT-DEMO-B (available went from 20 to 18 and 19). |
+
+PO450 (17189) is left at Pending Receipt from a run that stopped on a test selector before receiving.

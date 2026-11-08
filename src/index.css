@@ -1183,6 +1183,8 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .numbers { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 8px 0 0; border: 0; }
 .numbers legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
 .numbers .check { margin: 0; }
+.numbers.lots { display: grid; justify-items: start; gap: 4px; }
+.numbers.lots .filters { margin: 0; align-items: end; justify-content: flex-start; gap: 16px; }
 .list-filter .pick { min-width: 180px; }
 .filters .pick, .record-form .pick { min-width: 180px; }
 .step-form .filters label, .step-form .filters label:first-child { flex: 0 1 auto; min-width: 180px; max-width: 320px; }
