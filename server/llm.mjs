@@ -5,6 +5,7 @@ import { callTool, listTools, osmcpIdentity, suiteqlOsmcp, withSource } from "./
 import { modelStore } from "./models.mjs";
 import { readPolicy } from "./policy.mjs";
 import { languageModel, scrub } from "./providers.mjs";
+import { newExternalId } from "./records.mjs";
 import { describeWrites } from "./summary.mjs";
 
 const ROLES = new Set(["user", "assistant", "tool"]);
@@ -54,7 +55,7 @@ function systemPrompt(identity) {
     "Use ns_listAllReports, ns_getSubsidiaries, and ns_runReport for saved reports. Dates are YYYY-MM-DD.",
     "A write tool posts a record. Call it only when the person asked to change NetSuite. The server pauses for confirmation before it runs. Propose one write at a time and continue after it runs.",
     "Write payloads: `data` is a JSON string. References are {\"id\":\"341\"}. Lines go in {\"item\":{\"items\":[{\"item\":{\"id\":\"248\"},\"quantity\":2,\"rate\":10}]}}. Always send a rate.",
-    "Set a new \"externalId\" like \"hns-ask-<type>-<random>\" inside `data` on every ns_createRecord and ns_transformRecord.",
+    "The server sets externalId on every ns_createRecord and ns_transformRecord. The tool call you see afterwards shows it.",
     "ns_transformRecord takes sourceRecordType, sourceRecordId, targetRecordType and optional `data` that overrides the copied values. Quote to order: estimate to salesorder.",
     "Sales order to itemfulfillment: data {\"generateIntegratedShipperLabel\":false,\"shipMethod\":null,\"shipStatus\":{\"id\":\"C\"}}. To ship only some lines add item.items with {\"orderLine\":1,\"itemReceive\":true,\"quantity\":2}.",
     "Success returns {\"success\":true,\"recordId\":\"...\"}. On failure read the error and fix the payload.",
@@ -150,6 +151,23 @@ function toModelMessages(messages) {
   return out;
 }
 
+// A fresh external id on each create and transform, so a timed-out write can be found and never repeats an old id.
+export function withExternalId(name, input) {
+  if (name !== "ns_createRecord" && name !== "ns_transformRecord") return input;
+  const type = name === "ns_createRecord" ? input?.recordType : input?.targetRecordType;
+  let data = input?.data ?? {};
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data || "{}");
+    } catch {
+      return input;
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return input;
+  const next = { ...data, externalId: newExternalId(`ask-${String(type || "record").replace(/[^a-z]/gi, "")}`) };
+  return { ...input, data: JSON.stringify(next) };
+}
+
 function clientCall(call) {
   return {
     id: call.toolCallId,
@@ -209,7 +227,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
     const left = deadline - Date.now();
     if (left <= 0) return stopped("I ran out of time on this request. Ask me to continue.", steps, clientMessages);
     const result = await step(model, messages, tools, secret, Math.min(90_000, left));
-    const calls = result.toolCalls || [];
+    const calls = (result.toolCalls || []).map((call) => ({ ...call, input: withExternalId(call.toolName, call.input ?? {}) }));
     const assistant = {
       role: "assistant",
       content: result.text || "",

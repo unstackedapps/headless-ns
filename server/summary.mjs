@@ -63,7 +63,7 @@ export function summaryRefs(name, args) {
 export function namesSql(kind, ids) {
   const list = ids.filter((id) => ID.test(id)).join(",");
   if (!list) return "";
-  if (kind === "entity") return `SELECT id, entityid AS name FROM entity WHERE id IN (${list})`;
+  if (kind === "entity") return `SELECT id, entitytitle AS name FROM entity WHERE id IN (${list})`;
   if (kind === "location") return `SELECT id, name FROM location WHERE id IN (${list})`;
   if (kind === "item") return `SELECT id, itemid AS name FROM item WHERE id IN (${list})`;
   if (kind === "transaction") return `SELECT id, NVL(tranid, transactionnumber) AS name FROM transaction WHERE id IN (${list})`;

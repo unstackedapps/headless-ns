@@ -118,7 +118,10 @@ test("confirm runs the stored write once", async () => {
     ran.push({ name, args });
     return { id: 42 };
   });
-  assert.deepEqual(ran, [{ name: "ns_createRecord", args: { type: "customer" } }]);
+  assert.equal(ran.length, 1);
+  assert.equal(ran[0].name, "ns_createRecord");
+  assert.equal(ran[0].args.type, "customer");
+  assert.match(JSON.parse(ran[0].args.data).externalId, /^hns-ask-record-[0-9a-f-]{36}$/);
   assert.equal(result.answer, "Done.");
   await assert.rejects(confirmWith(id, { allowWrites: true, disabled: [] }, async () => ({})), /expired or was already handled/);
 });
@@ -255,5 +258,8 @@ test("a pending write carries a readable summary with looked-up names", async ()
     runTool: async () => assert.fail("nothing runs before confirm"),
   });
   assert.equal(result.pending[0].summary.title, "Create quote for Acme: 2 lines, Boston, total $35.00");
+  const held = JSON.parse(result.pending[0].arguments.data).externalId;
+  assert.match(held, /^hns-ask-estimate-[0-9a-f-]{36}$/, "the server replaces the model's external id");
+  assert.equal(JSON.parse(result.transcript.at(-1).tool_calls[0].function.arguments).data, result.pending[0].arguments.data);
   assert.deepEqual(result.pending[0].summary.details.slice(0, 2), ["2 × SPC002 at $10.00", "3 × GAR002 at $5.00"]);
 });
