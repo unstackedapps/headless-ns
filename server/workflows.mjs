@@ -171,7 +171,8 @@ export function flowRoutes({ sendJson, authorized }) {
       const items = read.sublists.find((sublist) => sublist.id === "item")?.lines || [];
       const lines = mergeLines(items, quantities.items);
       const top = head.items[0] || {};
-      const status = top.status ? { id: String(top.status), name: String(top.statusname || "").replace(/^[^:]*:\s*/, "") } : null;
+      // Receipts and bill payments read "Undefined": they have no status.
+      const status = top.status && !/undefined$/i.test(String(top.statusname)) ? { id: String(top.status), name: String(top.statusname || "").replace(/^[^:]*:\s*/, "") } : null;
       const approvalStatus = String(top.approvalstatus ?? "");
       sendJson(res, 200, {
         type,
@@ -187,7 +188,7 @@ export function flowRoutes({ sendJson, authorized }) {
             type: recordTypeOfCode(row.type),
             number: String(row.tranid || row.id),
             date: String(row.trandate || ""),
-            status: String(row.status || ""),
+            status: /undefined$/i.test(String(row.status)) ? "" : String(row.status || ""),
             direction: row.direction === "next" ? "next" : "previous",
           }))
           .filter((row) => row.type),

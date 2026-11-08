@@ -156,3 +156,5 @@ Run on 2026-11-08 through the same routes. Vendor 628 (Core4Solutions), item 541
 - Filter status with the bare letter: `t.status IN ('B','F')` matched 46 purchase orders, `t.status = 'PurchOrd:B'` matched none. The old Orders filter `NOT IN ('SalesOrd:C','SalesOrd:G','SalesOrd:H')` excluded nothing, and the old Quotes filter `= 'Estimate:A'` matched nothing.
 - `foreigntotal` is negative for purchase orders, item receipts, bills, bill payments and returns. Lists show `ABS(foreigntotal)`.
 - Paging: `ns_runCustomSuiteQL` takes `pageIndex` (0-based) with `pageSize`. The REST SuiteQL path takes `offset`.
+- Items: `item.itemtype` codes seen are InvtPart, NonInvtPart, OthCharge, Assembly, Discount. Non-inventory, service and other charge items also have `subtype` (Sale, Resale, Purchase), which picks the record type, such as `noninventoryresaleitem` or `otherchargepurchaseitem`. Inventory items have no subtype.
+- Item receipts, bill payments and customer payments open on the transaction page with lines and links but no next steps.

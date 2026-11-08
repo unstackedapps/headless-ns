@@ -182,7 +182,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
           <section className="section">
             <h2>Next steps</h2>
             {flow.steps.length === 0 ? (
-              <p>Nothing to do here at status {flow.status?.name || "unknown"}.</p>
+              <p>{flow.status ? `Nothing to do here at status ${flow.status.name}.` : "Nothing to do here."}</p>
             ) : (
               <div className="actions">
                 {flow.steps.map((item) => (
@@ -271,9 +271,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
                         </td>
                         <td>{FLOW_LABELS[row.type] || row.type}</td>
                         <td>{dateLabel(row.date)}</td>
-                        <td>
-                          <StatusPill value={row.status.replace(/^[^:]*:\s*/, "")} />
-                        </td>
+                        <td>{row.status ? <StatusPill value={row.status.replace(/^[^:]*:\s*/, "")} /> : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

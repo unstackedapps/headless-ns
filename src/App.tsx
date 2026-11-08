@@ -120,11 +120,16 @@ export function App() {
           {view === "orders" && <TransactionList key="orders" list="orders" title="Orders" recordType="salesorder" party="Customer" canCreate />}
           {view === "quotes" && <TransactionList key="quotes" list="quotes" title="Quotes" recordType="estimate" party="Customer" canCreate />}
           {view === "invoices" && <TransactionList key="invoices" list="invoices" title="Invoices" recordType="invoice" party="Customer" money />}
+          {view === "fulfillments" && <TransactionList key="fulfillments" list="fulfillments" title="Fulfillments" recordType="itemfulfillment" party="Customer" />}
+          {view === "payments" && <TransactionList key="payments" list="payments" title="Payments" recordType="customerpayment" party="Customer" />}
+          {view === "returns" && <TransactionList key="returns" list="returns" title="Returns" recordType="returnauthorization" party="Customer" />}
           {view === "vendors" && <VendorsPage />}
           {view === "purchaseorders" && (
             <TransactionList key="purchaseorders" list="purchaseorders" title="Purchase orders" recordType="purchaseorder" party="Vendor" canCreate />
           )}
+          {view === "receipts" && <TransactionList key="receipts" list="receipts" title="Receipts" recordType="itemreceipt" party="Vendor" />}
           {view === "bills" && <TransactionList key="bills" list="bills" title="Bills" recordType="vendorbill" party="Vendor" money />}
+          {view === "billpayments" && <TransactionList key="billpayments" list="billpayments" title="Bill payments" recordType="vendorpayment" party="Vendor" />}
           {view === "items" && <ItemsPage />}
           {view === "people" && <PeoplePage />}
         {view === "reports" && <ReportsPage />}

@@ -27,7 +27,7 @@ import {
 import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
 import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
-import { PAGE_SIZE, TX_LISTS, pageOf, txListSql, vendorListSql } from "./lists.mjs";
+import { ITEM_TYPES, PAGE_SIZE, TX_LISTS, itemListSql, itemRecordType, pageOf, txListSql, vendorListSql } from "./lists.mjs";
 import { studioRoutes } from "./studio.mjs";
 import {
   accountLabel,
@@ -704,14 +704,9 @@ const routes = {
   async items(req, res, url) {
     const session = await authorized(req, res);
     if (!session) return;
-    const result = await query(
-      session,
-      `SELECT id, itemid, displayname
-       FROM item
-       WHERE isinactive = 'F' AND itemtype = 'InvtPart'${searchAnd(["itemid", "displayname"], url.searchParams.get("q"))}
-       ORDER BY itemid`,
-      200,
-    );
+    const page = pageOf(url.searchParams.get("page"));
+    const sql = itemListSql({ type: url.searchParams.get("type"), q: url.searchParams.get("q") });
+    const result = await query(session, sql, PAGE_SIZE, "ledger", page);
     let balances = new Map();
     let note = null;
     try {
@@ -735,12 +730,17 @@ const routes = {
     sendJson(res, 200, {
       ...meta(session),
       note,
+      page,
+      types: Object.entries(ITEM_TYPES).map(([id, spec]) => ({ id, label: spec.label })),
       ...rowsOf(result, (row) => {
         const stock = balances.get(idOf(row));
+        const itemType = String(field(row, "itemtype") || "");
         return {
           id: idOf(row),
           name: field(row, "itemid") || "",
           displayName: field(row, "displayname") || "",
+          type: ITEM_TYPES[itemType]?.label || itemType,
+          recordType: itemRecordType(itemType, field(row, "subtype")),
           onHand: stock?.onHand ?? null,
           available: stock?.available ?? null,
           href: recordHref("item", idOf(row)),
