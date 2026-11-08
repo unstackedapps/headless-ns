@@ -11,7 +11,7 @@ const pending = {
       id: "call-1",
       name: "ns_createRecord",
       arguments: { recordType: "estimate", data: '{"entity":{"id":"341"}}' },
-      summary: { title: "Create quote for Acme: 2 lines, Boston, total $35.00", details: ["2 × SPC002 at $10.00", "3 × GAR002 at $5.00"] },
+      summary: { title: "Create quote for Acme: 2 lines, Boston, total 35.00 US Dollar", details: ["2 × SPC002 at 10.00 US Dollar", "3 × GAR002 at 5.00 US Dollar"] },
     },
   ],
 };
@@ -29,8 +29,8 @@ test("Ask shows a pending write as a summary, with the payload folded away", asy
   const drawer = page.getByRole("complementary", { name: "Ask" });
   await drawer.getByLabel("Question").fill("Quote Acme 2 SPC002 at 10");
   await drawer.getByLabel("Question").press("Enter");
-  await expect(drawer.getByText("Create quote for Acme: 2 lines, Boston, total $35.00")).toBeVisible();
-  await expect(drawer.getByText("2 × SPC002 at $10.00")).toBeVisible();
+  await expect(drawer.getByText("Create quote for Acme: 2 lines, Boston, total 35.00 US Dollar")).toBeVisible();
+  await expect(drawer.getByText("2 × SPC002 at 10.00 US Dollar")).toBeVisible();
   const raw = drawer.getByText('"recordType": "estimate"');
   await expect(raw).toBeHidden();
   await drawer.getByText("Payload for").click();

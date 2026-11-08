@@ -44,3 +44,25 @@ test("only digit ids reach the name lookup SQL", () => {
   assert.equal(namesSql("location", refs.location), "SELECT id, name FROM location WHERE id IN (2)");
   assert.equal(namesSql("entity", ["1); DROP"]), "");
 });
+
+test("totals use the customer's currency, or the record's own currency when it sets one", () => {
+  const data = { entity: { id: "1194" }, item: { items: [{ item: { id: "248" }, quantity: 2, rate: 10 }] } };
+  const priced = { ...names, currency: { 4: "Euro" }, currencies: { entity: { 1194: "British pound" } } };
+  const summary = describeWrite("ns_createRecord", { recordType: "estimate", data }, priced);
+  assert.equal(summary.title, "Create quote for #1194: 1 line, total 20.00 British pound");
+  assert.deepEqual(summary.details, ["2 × SPC002 at 10.00 British pound"]);
+  const euro = describeWrite("ns_createRecord", { recordType: "estimate", data: { ...data, currency: { id: "4" } } }, priced);
+  assert.equal(euro.title, "Create quote for #1194: 1 line, total 20.00 Euro");
+  // No currency found: the figure stands alone instead of a guessed "$".
+  assert.equal(describeWrite("ns_createRecord", { recordType: "estimate", data }, names).title, "Create quote for #1194: 1 line, total 20.00");
+});
+
+test("fulfillment lines show their serial or lot numbers", () => {
+  const line = (items) => ({ orderLine: 1, itemReceive: true, quantity: 3, inventoryDetail: { inventoryAssignment: { items } } });
+  const data = { item: { items: [line([{ issueInventoryNumber: { id: "6148" }, quantity: 2 }, { issueInventoryNumber: { id: "6149" }, quantity: 1 }])] } };
+  const args = { sourceRecordType: "salesorder", sourceRecordId: "16190", targetRecordType: "itemfulfillment", data };
+  assert.deepEqual(summaryRefs("ns_transformRecord", args).number, ["6148", "6149"]);
+  const summary = describeWrite("ns_transformRecord", args, { ...names, number: { 6148: "LOT-DEMO-A" } });
+  assert.deepEqual(summary.details, ["Order line 1: 3 (LOT-DEMO-A × 2, #6149)"]);
+  assert.equal(namesSql("number", ["6148"]), "SELECT id, inventorynumber AS name FROM inventorynumber WHERE id IN (6148)");
+});

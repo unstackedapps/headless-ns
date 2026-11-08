@@ -248,7 +248,7 @@ test("a pending write carries a readable summary with looked-up names", async ()
     connection,
     identity,
     query: async (sql) => {
-      if (/FROM entity/.test(sql)) return [{ id: "341", name: "Acme" }];
+      if (/FROM entity/.test(sql)) return [{ id: "341", name: "Acme", currency: "British pound" }];
       if (/FROM location/.test(sql)) return [{ id: "2", name: "Boston" }];
       if (/FROM item/.test(sql)) return [{ id: "248", name: "SPC002" }, { id: "243", name: "GAR002" }];
       return [];
@@ -257,9 +257,9 @@ test("a pending write carries a readable summary with looked-up names", async ()
     catalog: createTool,
     runTool: async () => assert.fail("nothing runs before confirm"),
   });
-  assert.equal(result.pending[0].summary.title, "Create quote for Acme: 2 lines, Boston, total $35.00");
+  assert.equal(result.pending[0].summary.title, "Create quote for Acme: 2 lines, Boston, total 35.00 British pound");
   const held = JSON.parse(result.pending[0].arguments.data).externalId;
   assert.match(held, /^hns-ask-estimate-[0-9a-f-]{36}$/, "the server replaces the model's external id");
   assert.equal(JSON.parse(result.transcript.at(-1).tool_calls[0].function.arguments).data, result.pending[0].arguments.data);
-  assert.deepEqual(result.pending[0].summary.details.slice(0, 2), ["2 × SPC002 at $10.00", "3 × GAR002 at $5.00"]);
+  assert.deepEqual(result.pending[0].summary.details.slice(0, 2), ["2 × SPC002 at 10.00 British pound", "3 × GAR002 at 5.00 British pound"]);
 });
