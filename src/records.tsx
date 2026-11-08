@@ -80,6 +80,12 @@ function lineColumns(sublist: Sublist) {
   return picked.length ? picked : sublist.fields.slice(0, 5);
 }
 
+// Some sublists (packages, for one) have no line number, so their lines cannot be edited by number.
+function lineNumber(cells: Record<string, ReadCell>) {
+  const value = Number(cells.line?.value);
+  return cells.line && Number.isInteger(value) ? value : undefined;
+}
+
 function errorText(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
@@ -235,11 +241,11 @@ function LineGrid({
           </thead>
           <tbody>
             {lines.map((line, index) => (
-              <tr key={line.line ?? `new-${index}`}>
-                <td>{line.line ?? "New"}</td>
+              <tr key={line.line ?? `row-${index}`}>
+                <td>{line.line ?? (onChange && !line.original ? "New" : "—")}</td>
                 {(onChange ? editColumns : columns).map((field) => (
                   <td key={field.id}>
-                    {onChange && (line.line == null || field.id !== "item") ? (
+                    {onChange && !(line.original && (line.line == null || field.id === "item")) ? (
                       <FieldInput field={field} cell={line.values[field.id] ?? { value: "" }} onChange={(cell) => set(index, field.id, cell)} />
                     ) : (
                       showCell(field, line.values[field.id])
@@ -248,7 +254,7 @@ function LineGrid({
                 ))}
                 {onChange && (
                   <td>
-                    {line.line == null ? (
+                    {!line.original ? (
                       <button className="linkish" type="button" onClick={() => onChange(lines.filter((_, at) => at !== index))}>
                         Remove
                       </button>
@@ -288,6 +294,7 @@ function LineGrid({
 function lineChanges(sublist: Sublist, lines: Line[]) {
   const out: Record<string, Wire>[] = [];
   for (const line of lines) {
+    if (line.original && line.line == null) continue;
     const data = changes(sublist.fields, line.values, line.line == null ? null : line.original || {});
     if (!Object.keys(data).length) continue;
     out.push(line.line == null ? data : { line: line.line, ...data });
@@ -366,11 +373,11 @@ export function RecordsPage() {
     setLines({});
   }
 
-  function choose(next: string) {
+  function choose(next: string, keepNotice = false) {
     typeRef.current = next;
     setType(next);
     reset();
-    setNotice("");
+    if (!keepNotice) setNotice("");
     setError(null);
     setFields([]);
     setSublists([]);
@@ -395,7 +402,7 @@ export function RecordsPage() {
 
   async function openFromLink(nextType: string, id: string) {
     if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(nextType)) return;
-    const shape = typeRef.current === nextType && shapeRef.current ? shapeRef.current : choose(nextType);
+    const shape = typeRef.current === nextType && shapeRef.current ? shapeRef.current : choose(nextType, true);
     if (!/^\d{1,12}$/.test(id)) return;
     setRecordId(id);
     try {
@@ -413,7 +420,7 @@ export function RecordsPage() {
       if (!found) continue;
       next[sublist.id] = found.lines.map((cells) => {
         const values = valuesOf(sublist.fields, cells);
-        return { line: Number(cells.line?.value), values, original: values };
+        return { line: lineNumber(cells), values, original: values };
       });
     }
     return next;
@@ -580,7 +587,7 @@ export function RecordsPage() {
   const visibleFields = fields.filter(match).filter((field) => formOpen || (readCells[field.id] && readCells[field.id].value !== ""));
   const readLines = (sublist: Sublist): Line[] =>
     (record?.sublists.find((item) => item.id === sublist.id)?.lines || []).map((cells) => ({
-      line: Number(cells.line?.value),
+      line: lineNumber(cells),
       values: valuesOf(sublist.fields, cells),
     }));
   const lineLists = sublists.filter((sublist) => sublist.id === "item" || record?.sublists.some((item) => item.id === sublist.id && item.lines.length));

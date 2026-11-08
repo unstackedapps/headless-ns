@@ -1177,3 +1177,6 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .line-grid td { vertical-align: top; }
 .line-grid input[type="number"] { width: 90px; }
 .ship-lines { display: grid; gap: 6px; margin: 8px 0; }
+.line-grid .ref-options { position: static; }
+.ship-lines .filters { align-items: center; }
+.ship-lines .filters label.check { display: flex; min-width: 0; color: inherit; }
