@@ -31,8 +31,8 @@ test("invoices and bills take payment while open", () => {
   assert.deepEqual(ids(nextSteps("vendorbill", "A")), ["pay"]);
   assert.equal(nextSteps("vendorbill", "A")[0].target, "vendorpayment");
   assert.deepEqual(ids(nextSteps("vendorbill", "B")), []);
-  assert.deepEqual(ids(nextSteps("vendorbill", "D")), ["approve"]);
-  assert.deepEqual(ids(nextSteps("vendorbill", "A", [], { approvalStatus: "1" })), ["approve"]);
+  assert.deepEqual(ids(nextSteps("vendorbill", "D")), ["approve", "reject"]);
+  assert.deepEqual(ids(nextSteps("vendorbill", "A", [], { approvalStatus: "1" })), ["approve", "reject"]);
 });
 
 test("fulfillments move from picked to packed to shipped", () => {
@@ -42,9 +42,9 @@ test("fulfillments move from picked to packed to shipped", () => {
 });
 
 test("purchase orders approve first, then receive and bill", () => {
-  assert.deepEqual(ids(nextSteps("purchaseorder", "A", open)), ["approve"]);
-  assert.deepEqual(nextSteps("purchaseorder", "A", open)[0].data, { approvalStatus: { id: "2" } });
-  assert.deepEqual(ids(nextSteps("purchaseorder", "B", open, { approvalStatus: "1" })), ["approve"]);
+  assert.deepEqual(ids(nextSteps("purchaseorder", "A", open)), ["approve", "reject"]);
+  assert.equal(nextSteps("purchaseorder", "A", open)[0].action, "WORKFLOWACTION_HNS_APPROVE");
+  assert.deepEqual(ids(nextSteps("purchaseorder", "B", open, { approvalStatus: "1" })), ["approve", "reject"]);
   assert.deepEqual(ids(nextSteps("purchaseorder", "B", open)), ["receive", "close"]);
   assert.deepEqual(ids(nextSteps("purchaseorder", "E", open)), ["receive", "bill", "close"]);
   assert.deepEqual(ids(nextSteps("purchaseorder", "F", shipped)), ["bill", "close"]);

@@ -30,6 +30,13 @@ export function recordTypeOfCode(code) {
 
 const ORDER_OPEN = ["A", "B", "D", "E", "F"];
 
+// Purchase orders and bills approve through the "headless-ns approval - PO and Bill" workflow in td3138390.
+// Its buttons are exposed to the record action API. Setting approvalStatus alone leaves the workflow waiting.
+const WORKFLOW_APPROVAL = [
+  { id: "approve", label: "Approve", kind: "action", action: "WORKFLOWACTION_HNS_APPROVE" },
+  { id: "reject", label: "Reject", kind: "action", action: "WORKFLOWACTION_HNS_REJECT" },
+];
+
 // The next steps that fit a transaction's status. Status ids are NetSuite's one-letter codes
 // (sales order B = Pending Fulfillment, purchase order B = Pending Receipt, and so on).
 // `lines` are {closed, remaining}; `approvalStatus` is the approvalstatus id ("1" pending, "2" approved).
@@ -62,7 +69,7 @@ export function nextSteps(recordType, status, lines = [], { approvalStatus = "" 
       break;
     case "purchaseorder":
       if (s === "A" || String(approvalStatus) === "1") {
-        steps.push({ id: "approve", label: "Approve", kind: "update", data: { approvalStatus: { id: "2" } } });
+        steps.push(...WORKFLOW_APPROVAL);
         break;
       }
       if (["B", "D", "E"].includes(s) && toShip) steps.push({ id: "receive", label: "Receive", kind: "ship", target: "itemreceipt" });
@@ -71,7 +78,7 @@ export function nextSteps(recordType, status, lines = [], { approvalStatus = "" 
       break;
     case "vendorbill":
       if (s === "D" || String(approvalStatus) === "1") {
-        steps.push({ id: "approve", label: "Approve", kind: "update", data: { approvalStatus: { id: "2" } } });
+        steps.push(...WORKFLOW_APPROVAL);
         break;
       }
       if (s === "A") steps.push({ id: "pay", label: "Pay bill", kind: "pay", target: "vendorpayment" });
