@@ -143,13 +143,13 @@ export function addStock(lines, factRows, stockRows) {
 
 // Status letter, open amount and approval status. The record's own status id is not always the letter. this one was made from or turned into.
 export function headerSql(id) {
-  return `SELECT status, BUILTIN.DF(status) AS statusname, foreignamountunpaid AS unpaid, approvalstatus FROM transaction WHERE id = ${checkedId(id)}`;
+  return `SELECT NVL(tranid, transactionnumber) AS docnumber, status, BUILTIN.DF(status) AS statusname, foreignamountunpaid AS unpaid, approvalstatus FROM transaction WHERE id = ${checkedId(id)}`;
 }
 
 // Records this one was made from or turned into.
 export function linkedSql(id) {
   const tx = checkedId(id);
-  return `SELECT DISTINCT t.id, t.type, t.tranid, t.trandate, BUILTIN.DF(t.status) AS status,
+  return `SELECT DISTINCT t.id, t.type, NVL(t.tranid, t.transactionnumber) AS tranid, t.trandate, BUILTIN.DF(t.status) AS status,
        CASE WHEN l.previousdoc = ${tx} THEN 'next' ELSE 'previous' END AS direction
 FROM NextTransactionLineLink l
 JOIN transaction t ON t.id = CASE WHEN l.previousdoc = ${tx} THEN l.nextdoc ELSE l.previousdoc END
@@ -250,6 +250,7 @@ export function flowRoutes({ sendJson, authorized }) {
         status,
         approvalStatus,
         header,
+        number: String(top.docnumber || cells.tranId?.value || ""),
         unpaid: num(top.unpaid),
         lines,
         linked: linked.items

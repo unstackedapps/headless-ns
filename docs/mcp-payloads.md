@@ -171,3 +171,17 @@ Found on SO629 (customer 8 Ntags Associates, item 760 Breville Bambino Plus, loc
 - QUO101 location: the first save sent London (location 6, subsidiary United Kingdom) for a US customer. NetSuite refused it with "Invalid Field Value 6 for the following field: location", and the saved quote has Boston. The location search now lists only locations in the customer's or vendor's subsidiary.
 - `location.subsidiary` is a text list ("2"), so `subsidiary = 2` matches nothing. Use `locationsubsidiarymap` (one row per location and subsidiary).
 - Item defaults: the base price is `itemprice.price` at `pricelevel = 1`. The sales description is `item.description` (`salesdescription` does not exist in SuiteQL). The purchase side uses `cost`, then `lastpurchaseprice`, and `purchasedescription`. Many items here, 248 and 760 among them, have no base price, so NetSuite answers "Please enter a value for Amount" unless a rate is sent.
+
+## Found by the Playwright runs (Phase 2)
+
+- NetSuite MCP answers HTTP 429 when the app sends too many calls at once (Orders list and an order page failed together). The server now runs at most 3 tool calls at a time and retries reads after 1, 2.5 and 5 seconds. Writes are never retried.
+- A fulfillment at Picked or Packed does not count in `transactionline.quantityshiprecv`. It shows in `quantitypicked`. The order stays B Pending Fulfillment until the fulfillment ships.
+- Vendor bills have an empty `tranid` in this account. `transactionnumber` (for example 415) is the number to show.
+- Customer payments name the customer in `customer`, not `entity`.
+
+UI runs on 2026-11-08, memo "headless-ns workflow test":
+
+| Run | Records |
+|---|---|
+| Quote to paid invoice | SO631 (16393), INV435, PYMT400 |
+| Purchase order to paid bill | PO447, IR440 (16690), bill 415 (16789), bill payment 427 (16590) |

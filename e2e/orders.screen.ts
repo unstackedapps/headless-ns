@@ -9,6 +9,7 @@ test.describe("sales order fulfillment", () => {
       "/api/flow/numbers": numbers,
     });
     await page.goto("/#/transaction?type=salesorder&id=500");
+    await expect(page.getByRole("heading", { name: "SO900" })).toBeVisible();
     await page.getByRole("button", { name: "Fulfill", exact: true }).click();
     await expect(page.getByText("Serial number: pick 1")).toBeVisible();
     await page.getByLabel("BES500-DEMO-04").check();

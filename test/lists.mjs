@@ -15,6 +15,7 @@ test("each list filters by its own type and the open statuses by default", () =>
   assert.match(txListSql("quotes"), /t\.status IN \('A'\)/);
   assert.match(txListSql("bills"), /t\.type = 'VendBill' .*t\.status IN \('A', 'D'\)/s);
   assert.match(txListSql("purchaseorders"), /ABS\(t\.foreigntotal\)/);
+  assert.match(txListSql("bills"), /NVL\(t\.tranid, t\.transactionnumber\) AS tranid/);
 });
 
 test("status filters take open, all, or a letter from the list", () => {

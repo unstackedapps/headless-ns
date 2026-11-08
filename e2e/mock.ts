@@ -53,6 +53,7 @@ export function salesOrder(lines: unknown[]) {
   return {
     type: "salesorder",
     id: "500",
+    number: "SO900",
     status: { id: "B", name: "Pending Fulfillment" },
     approvalStatus: "",
     header: {

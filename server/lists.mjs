@@ -98,7 +98,8 @@ export function txListSql(name, { status, q, entity } = {}) {
   if (!Object.hasOwn(TX_LISTS, String(name))) fail("That list does not exist.");
   const spec = TX_LISTS[name];
   const who = entity == null ? "" : /^[1-9]\d{0,11}$/.test(String(entity)) ? ` AND t.entity = ${entity}` : fail("That id is not valid.");
-  return `SELECT t.id, t.tranid, t.trandate, t.duedate, BUILTIN.DF(t.entity) AS entity, t.status AS statusid, BUILTIN.DF(t.status) AS status,
+  // Bills have no tranid here; transactionnumber is NetSuite's own running number.
+  return `SELECT t.id, NVL(t.tranid, t.transactionnumber) AS tranid, t.trandate, t.duedate, BUILTIN.DF(t.entity) AS entity, t.status AS statusid, BUILTIN.DF(t.status) AS status,
        BUILTIN.DF(t.currency) AS currency, ABS(t.foreigntotal) AS amount, t.foreignamountunpaid AS unpaid
 FROM transaction t
 WHERE t.type = '${spec.type}' AND NVL(t.voided, 'F') = 'F'${statusWhere(spec, status)}${who}${partyMatch(spec.party, q)}

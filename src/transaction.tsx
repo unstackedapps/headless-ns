@@ -81,6 +81,7 @@ type Linked = { id: string; type: string; number: string; date: string; status: 
 type Flow = {
   type: string;
   id: string;
+  number: string;
   status: { id: string; name: string } | null;
   header: Record<string, HeaderCell>;
   unpaid: number | null;
@@ -101,6 +102,12 @@ function today() {
 
 function externalId(type: string) {
   return `hns-wf-${type}-${crypto.randomUUID()}`;
+}
+
+// SO628 reads as is; a bare running number such as a bill's 415 reads "Bill 415".
+export function flowTitle(type: string, id: string, number?: string) {
+  if (!number) return `${FLOW_LABELS[type] || type} ${id}`;
+  return /^\d+$/.test(number) ? `${FLOW_LABELS[type] || type} ${number}` : number;
 }
 
 function show(cell?: HeaderCell) {
@@ -143,7 +150,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
       <header className="page-head">
         <div>
           <div className="kicker">{FLOW_LABELS[type]}</div>
-          <h1>{show(h.tranId) === "—" ? `${FLOW_LABELS[type]} ${id}` : show(h.tranId)}</h1>
+          <h1>{flowTitle(type, id, flow?.number)}</h1>
         </div>
         <div className="page-tools">
           {flow?.status && <StatusPill value={flow.status.name} />}
