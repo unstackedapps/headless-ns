@@ -70,10 +70,10 @@ test("Ask fulfills a serial item with a serial number in stock", async ({ page, 
       "After it is created, turn that quote into a sales order, then fulfill the sales order as shipped. The item is serialized, so pick a serial number in stock.",
     "ask-serial",
   );
-  const fulfill = writes.find((write) => /into a fulfillment/.test(write.title));
-  expect(fulfill, "Ask proposed a fulfillment").toBeTruthy();
-  // The detail names the serial number, such as "Order line 1: 1 (ORALB-...)".
-  expect(fulfill?.details.some((detail) => /^Order line \d+: 1 \([^#?]/.test(detail))).toBe(true);
+  // Every fulfillment Ask shows names its serial number, such as "Order line 1: 1 (HNS-...)".
+  const fulfills = writes.filter((write) => /into a fulfillment/.test(write.title));
+  expect(fulfills.length, "Ask proposed a fulfillment").toBeGreaterThan(0);
+  for (const fulfill of fulfills) expect(fulfill.details.some((detail) => /^Order line \d+: 1 \([^#?]/.test(detail))).toBe(true);
 });
 
 test("Ask does not fulfill an order whose location has no stock", async ({ page, context }) => {

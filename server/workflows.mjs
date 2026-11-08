@@ -161,6 +161,28 @@ export function stockProblems(lineRows, stockRows, ship = null) {
   return problems;
 }
 
+// Serial and lot lines a fulfillment ships without numbers, with the numbers in stock to pick from.
+// `numbers` maps order line to [{id, inventorynumber, available}] at that line's location.
+export function numberProblems(lineRows, factRows, items, numbers = new Map()) {
+  const tracked = new Map((factRows || []).filter((row) => row.isserialitem === "T" || row.islotitem === "T").map((row) => [String(row.id), row.isserialitem === "T" ? "serial" : "lot"]));
+  const sent = new Map((items || []).map((line) => [Number(line.orderLine), line]));
+  const problems = [];
+  for (const row of lineRows || []) {
+    const kind = tracked.get(String(row.item));
+    const line = Number(row.line);
+    const payload = sent.get(line);
+    if (!kind || (items && (!payload || payload.itemReceive === false))) continue;
+    if (payload?.inventoryDetail?.inventoryAssignment?.items?.length) continue;
+    const inStock = (numbers.get(line) || []).slice(0, 10).map((entry) => `${entry.inventorynumber} (id ${entry.id}, ${Number(entry.available)} available)`);
+    problems.push(
+      `Line ${line} (${row.itemname}) is a ${kind} item and needs ${kind} numbers on its fulfillment line: {"orderLine":${line},"itemReceive":true,"quantity":<n>,"inventoryDetail":{"inventoryAssignment":{"items":[{"issueInventoryNumber":{"id":"<id>"},"quantity":1}]}}}. ${
+        inStock.length ? `In stock there: ${inStock.join(", ")}.` : "None are in stock there."
+      }`,
+    );
+  }
+  return problems;
+}
+
 // Checks stock before Ask proposes a sales order fulfillment. Returns a reason to tell the person, or "".
 export async function fulfillmentCheck(name, args, query) {
   if (name !== "ns_transformRecord" || args?.sourceRecordType !== "salesorder" || args?.targetRecordType !== "itemfulfillment") return "";
@@ -178,6 +200,16 @@ export async function fulfillmentCheck(name, args, query) {
   const ids = lines.map((row) => String(row.item));
   const stock = ids.length ? await query(stockSql(ids)) : [];
   const problems = stockProblems(lines, stock, ship);
+  if (!problems.length && ids.length) {
+    const facts = await query(itemFactsSql(ids));
+    const numbers = new Map();
+    for (const row of lines) {
+      const location = row.location ?? row.headlocation;
+      const fact = facts.find((item) => String(item.id) === String(row.item));
+      if (location != null && (fact?.isserialitem === "T" || fact?.islotitem === "T")) numbers.set(Number(row.line), await query(numbersSql(row.item, location)));
+    }
+    problems.push(...numberProblems(lines, facts, items, numbers));
+  }
   return problems.length ? `Not fulfilled, nothing was written. ${problems.join(" ")} Tell the person before you change anything.` : "";
 }
 

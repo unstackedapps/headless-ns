@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addStock, headerSql, itemFactsSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, shipLinesSql, stockProblems, stockSql } from "../server/workflows.mjs";
+import { addStock, headerSql, itemFactsSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, numberProblems, shipLinesSql, stockProblems, stockSql } from "../server/workflows.mjs";
 
 const ids = (steps) => steps.map((step) => step.id);
 const open = [{ closed: false, remaining: 2 }];
@@ -170,4 +170,17 @@ test("stock problems name the short line and where stock is", () => {
   assert.match(stockProblems([{ ...boston, quantity: 9 }], stock)[0], /No location has enough\./);
   assert.match(shipLinesSql("17389"), /tl\.transaction = 17389 AND tl\.mainline = 'F'/);
   assert.throws(() => shipLinesSql("1 OR 1=1"), /internal id/);
+});
+
+test("a serial or lot line without numbers is named with the numbers in stock", () => {
+  const line = { line: 1, item: 761, itemname: "Oral-B iO", quantity: 1, done: 0, picked: 0, location: 2 };
+  const facts = [{ id: 761, isserialitem: "T", islotitem: "F" }];
+  const stock = new Map([[1, [{ id: 6162, inventorynumber: "HNS-S1", available: 1 }]]]);
+  const [problem] = numberProblems([line], facts, null, stock);
+  assert.match(problem, /^Line 1 \(Oral-B iO\) is a serial item and needs serial numbers/);
+  assert.match(problem, /In stock there: HNS-S1 \(id 6162, 1 available\)\./);
+  const withNumbers = [{ orderLine: 1, itemReceive: true, quantity: 1, inventoryDetail: { inventoryAssignment: { items: [{ issueInventoryNumber: { id: "6162" }, quantity: 1 }] } } }];
+  assert.deepEqual(numberProblems([line], facts, withNumbers, stock), []);
+  assert.deepEqual(numberProblems([line], facts, [{ orderLine: 1, itemReceive: false }], stock), []);
+  assert.deepEqual(numberProblems([line], [{ id: 761, isserialitem: "F", islotitem: "F" }], null, stock), []);
 });
