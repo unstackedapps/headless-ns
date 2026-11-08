@@ -90,7 +90,7 @@ function checkedId(id) {
 
 // Shipped or received and billed quantities per line. They are not on the record itself.
 export function lineQuantitySql(id) {
-  return `SELECT id, quantityshiprecv, quantitybilled, location, BUILTIN.DF(location) AS locationname FROM transactionline WHERE transaction = ${checkedId(id)} AND mainline = 'F'`;
+  return `SELECT id, quantityshiprecv, quantitypicked, quantitybilled, location, BUILTIN.DF(location) AS locationname FROM transactionline WHERE transaction = ${checkedId(id)} AND mainline = 'F'`;
 }
 
 function idList(ids) {
@@ -179,6 +179,8 @@ export function mergeLines(itemLines, quantityRows) {
       const quantity = Math.abs(num(cellValue(cells.quantity)) ?? 0);
       const row = byLine.get(String(line));
       const done = Math.abs(num(row?.quantityshiprecv) ?? 0);
+      // Units on a fulfillment that is picked or packed but not shipped yet. They are no longer open.
+      const picked = Math.max(Math.abs(num(row?.quantitypicked) ?? 0) - done, 0);
       const location = row?.location == null || row.location === "" ? null : { id: String(row.location), name: String(row.locationname || row.location) };
       const billed = Math.abs(num(row?.quantitybilled) ?? 0);
       return {
@@ -192,14 +194,15 @@ export function mergeLines(itemLines, quantityRows) {
         closed: cellValue(cells.isClosed) === true,
         location,
         done,
+        picked,
         billed,
-        remaining: Math.max(0, quantity - done),
+        remaining: Math.max(0, quantity - done - picked),
       };
     })
     .filter(Boolean);
 }
 
-const HEADER = ["tranId", "tranDate", "memo", "total", "currency", "entity", "location", "createdFrom", "shipStatus", "shipMethod", "subsidiary"];
+const HEADER = ["tranId", "tranDate", "memo", "total", "currency", "entity", "customer", "location", "createdFrom", "shipStatus", "shipMethod", "subsidiary"];
 
 export function flowRoutes({ sendJson, authorized }) {
   return {
@@ -227,6 +230,9 @@ export function flowRoutes({ sendJson, authorized }) {
       const read = readRecord(record?.data);
       const cells = Object.fromEntries(read.fields.map((cell) => [cell.id, cell]));
       const header = Object.fromEntries(HEADER.filter((key) => cells[key]).map((key) => [key, cells[key]]));
+      // Customer payments name the customer in `customer`, not `entity`.
+      if (!header.entity && header.customer) header.entity = header.customer;
+      delete header.customer;
       const items = read.sublists.find((sublist) => sublist.id === "item")?.lines || [];
       let lines = mergeLines(items, quantities.items);
       const itemIds = lines.map((line) => line.item?.id).filter(Boolean);

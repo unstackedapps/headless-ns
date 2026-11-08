@@ -122,8 +122,10 @@ async function postRpc(auth, method, params, name, sessionId) {
   });
   const body = await readMcpBody(response).catch(() => ({}));
   if (!response.ok || body.error) {
-    const error = new Error(body?.error?.message || `${auth.label} rejected the call (${response.status}).`);
-    error.status = response.status === 401 ? 401 : response.status || 502;
+    const busy = response.status === 429;
+    const fallback = busy ? `${auth.label} is busy and asked the app to slow down. Try again in a few seconds.` : `${auth.label} rejected the call (${response.status}).`;
+    const error = new Error(body?.error?.message || fallback);
+    error.status = response.status === 401 ? 401 : busy ? 429 : response.status || 502;
     throw error;
   }
   const nextSession = response.headers.get("mcp-session-id");
@@ -174,11 +176,45 @@ export function clearMcpCache() {
   mcpSessions.clear();
 }
 
+// NetSuite answers 429 when too many calls run at once. Every tool call waits for one of a few slots.
+const MAX_CALLS = 3;
+let running = 0;
+const waiting = [];
+
+export async function inSlot(task) {
+  if (running >= MAX_CALLS) await new Promise((resolve) => waiting.push(resolve));
+  running += 1;
+  try {
+    return await task();
+  } finally {
+    running -= 1;
+    waiting.shift()?.();
+  }
+}
+
+// Reads are safe to repeat after a 429. Writes are never repeated.
+export function isReadTool(name) {
+  return /^ns_(get|run|list|search)/i.test(String(name));
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function withRetry(name, task, waits = [1000, 2500, 5000]) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await inSlot(task);
+    } catch (error) {
+      if (error.status !== 429 || !isReadTool(name) || attempt >= waits.length) throw error;
+      await sleep(waits[attempt]);
+    }
+  }
+}
+
 export async function callTool(name, args) {
   const started = Date.now();
   const source = sourceStore.getStore() || "app";
   try {
-    const result = await mcp("tools/call", { name, arguments: args || {} }, name);
+    const result = await withRetry(name, () => mcp("tools/call", { name, arguments: args || {} }, name));
     const payload = payloadOf(result);
     if (result.isError) {
       throw new Error(plainSuiteqlError(payload?.error || payload?.text || "The tool failed."));

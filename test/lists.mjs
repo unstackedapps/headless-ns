@@ -21,6 +21,8 @@ test("status filters take open, all, or a letter from the list", () => {
   assert.equal(statusWhere(TX_LISTS.orders, "all"), "");
   assert.equal(statusWhere(TX_LISTS.orders, "G"), " AND t.status IN ('G')");
   assert.equal(statusWhere(TX_LISTS.receipts, "G"), "");
+  assert.equal(statusWhere(TX_LISTS.payments, "open"), "");
+  assert.equal(statusWhere(TX_LISTS.payments, "C"), " AND t.status IN ('C')");
   for (const bad of ["Z", "SalesOrd:G", "G') OR ('1'='1", "constructor", "toString", "__proto__"]) {
     assert.throws(() => statusWhere(TX_LISTS.orders, bad), /status/, bad);
   }

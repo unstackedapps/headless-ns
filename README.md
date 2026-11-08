@@ -38,3 +38,17 @@ Ask can use Claude, Grok, Gemini, OpenAI, Groq, Mistral, or an OpenAI-compatible
 ```bash
 npm test
 ```
+
+Screen tests click through the app in Chromium with NetSuite's answers faked. Start `npm run dev` first; they use https://localhost:5173.
+
+```bash
+npm run e2e
+```
+
+Live tests run the same screens against NetSuite and save screenshots to `e2e/shots`. `order-to-cash.live.ts` creates a quote, sales order, fulfillment, invoice and payment with the memo "headless-ns workflow test". Sign in once in a browser first.
+
+```bash
+npm run e2e:live
+```
+
+The first run needs `npx playwright install chromium`.

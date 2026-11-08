@@ -39,6 +39,7 @@ export const FLOW_LABELS: Record<string, string> = {
 };
 const VENDOR_SIDE = new Set(["purchaseorder", "itemreceipt", "vendorbill", "vendorpayment"]);
 const ORDERS = new Set(["salesorder", "purchaseorder"]);
+const PAYMENTS = new Set(["customerpayment", "vendorpayment"]);
 const NEW_FIELDS = ["entity", "tranDate", "location", "memo"];
 
 // The transaction page opens from #/transaction?type=salesorder&id=123, or ?type=estimate&new=1 for a blank one.
@@ -59,6 +60,7 @@ type FlowLine = {
   amount: number | null;
   closed: boolean;
   done: number;
+  picked?: number;
   billed: number;
   remaining: number;
   location: { id: string; name: string } | null;
@@ -196,6 +198,13 @@ function FlowView({ type, id }: { type: string; id: string }) {
 
           <section className="section">
             <h2>Next steps</h2>
+            {flow.linked
+              .filter((row) => row.type === "itemfulfillment" && /picked|packed/i.test(row.status))
+              .map((row) => (
+                <p key={row.id} className="status">
+                  <a href={flowLink(row.type, row.id)}>{row.number}</a> is {row.status.replace(/^[^:]*:\s*/, "").toLowerCase()}. Open it to pack or ship it.
+                </p>
+              ))}
             {flow.steps.length === 0 ? (
               <p>{flow.status ? `Nothing to do here at status ${flow.status.name}.` : "Nothing to do here."}</p>
             ) : (
@@ -223,6 +232,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
             )}
           </section>
 
+          {(flow.lines.length > 0 || !PAYMENTS.has(type)) && (
           <section className="section">
             <h2>Lines</h2>
             <div className="table-wrap">
@@ -245,7 +255,12 @@ function FlowView({ type, id }: { type: string; id: string }) {
                       <td>{line.line}</td>
                       <td>{line.item?.name || line.description || "—"}</td>
                       <td className="num">{line.quantity}</td>
-                      {isOrder && <td className="num">{line.done}</td>}
+                      {isOrder && (
+                        <td className="num">
+                          {line.done}
+                          {line.picked ? <span className="field-hint">{line.picked} on a fulfillment not shipped yet</span> : null}
+                        </td>
+                      )}
                       {isOrder && <td className="num">{line.billed}</td>}
                       <td className="num">{line.rate == null ? "—" : amount(line.rate)}</td>
                       <td className="num">{line.amount == null ? "—" : amount(line.amount)}</td>
@@ -263,6 +278,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
               </table>
             </div>
           </section>
+          )}
 
           {flow.linked.length > 0 && (
             <section className="section">
@@ -621,7 +637,12 @@ function NewTransaction({ type }: { type: string }) {
   useEffect(() => {
     api<{ fields: Field[]; sublists: Sublist[] }>(`/api/records/fields?type=${encodeURIComponent(type)}`)
       .then((shape) => {
-        setFields(NEW_FIELDS.map((id) => shape.fields.find((field) => field.id === id)).filter((field): field is Field => Boolean(field)));
+        const party = VENDOR_SIDE.has(type) ? "Vendor" : "Customer";
+        setFields(
+          NEW_FIELDS.map((id) => shape.fields.find((field) => field.id === id))
+            .filter((field): field is Field => Boolean(field))
+            .map((field) => (field.id === "entity" ? { ...field, title: party } : field)),
+        );
         setSublist(shape.sublists.find((item) => item.id === "item") || null);
       })
       .catch((reason: Error) => setError(reason.message));
@@ -665,7 +686,7 @@ function NewTransaction({ type }: { type: string }) {
           <div className="record-form">
             {fields.map((field) => (
               <label key={field.id}>
-                {field.id === "entity" ? (VENDOR_SIDE.has(type) ? "Vendor" : "Customer") : field.title}
+                {field.title}
                 {field.id === "tranDate" ? (
                   <DatePick label="Date" value={draft.tranDate?.value || ""} onChange={(value) => setDraft((current) => ({ ...current, tranDate: { value } }))} />
                 ) : (

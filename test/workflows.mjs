@@ -76,15 +76,16 @@ test("lines merge record cells with SuiteQL quantities by line id", () => {
   ];
   const rows = [
     { id: 1, quantityshiprecv: 2, quantitybilled: 1 },
-    { id: 2, quantityshiprecv: -1, quantitybilled: 0 },
+    { id: 2, quantityshiprecv: -1, quantitypicked: 2, quantitybilled: 0 },
   ];
   const lines = mergeLines(cells, rows);
   assert.equal(lines.length, 2);
+  assert.equal(lines[1].picked, 1);
   assert.deepEqual(
     lines.map((line) => [line.line, line.item.name, line.quantity, line.done, line.billed, line.remaining, line.closed]),
     [
       [1, "SPC002", 2, 2, 1, 0, false],
-      [2, "GAR002", 3, 1, 0, 2, true],
+      [2, "GAR002", 3, 1, 0, 1, true],
     ],
   );
 });

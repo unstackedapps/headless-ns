@@ -1185,3 +1185,7 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .numbers .check { margin: 0; }
 .list-filter .pick { min-width: 180px; }
 .filters .pick, .record-form .pick { min-width: 180px; }
+.step-form .filters label, .step-form .filters label:first-child { flex: 0 1 auto; min-width: 180px; max-width: 320px; }
+.step-form .filters label.check { max-width: none; }
+.step-form .filters > label > input:not([type="checkbox"]):not([type="radio"]) { width: 160px; }
+.step-form .ship-line .filters { justify-content: flex-start; gap: 24px; }

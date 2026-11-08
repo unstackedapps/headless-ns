@@ -900,6 +900,7 @@ async function txList(req, res, url) {
     ...meta(session),
     page,
     statuses: spec.statuses ? Object.entries(spec.statuses).map(([id, label]) => ({ id, label })) : [],
+    hasOpen: Boolean(spec.open),
     ...rowsOf(result, (row) => ({
       id: idOf(row),
       number: field(row, "tranid") || "",

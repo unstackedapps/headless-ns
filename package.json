@@ -7,7 +7,9 @@
     "dev": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --test test/**/*.mjs"
+    "test": "node --test test/**/*.mjs",
+    "e2e": "playwright test --project=screens",
+    "e2e:live": "playwright test --project=live"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.99",
@@ -28,6 +30,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",

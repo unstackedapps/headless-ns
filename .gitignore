@@ -4,3 +4,6 @@ dist
 .env
 certs/
 data/
+e2e/results/
+e2e/shots/
+playwright-report/

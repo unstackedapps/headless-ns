@@ -16,7 +16,7 @@ type Row = {
   unpaid: number | null;
   href: string;
 };
-type Payload = ListPayload<Row> & { statuses: { id: string; label: string }[] };
+type Payload = ListPayload<Row> & { statuses: { id: string; label: string }[]; hasOpen: boolean };
 
 // Every transaction list: /api/tx?list=orders&status=open&q=&page=0.
 export function TransactionList({
@@ -44,12 +44,15 @@ export function TransactionList({
   const live = useLive<Payload>(path);
   const statuses = live.data?.statuses || [];
   const hasStatus = statuses.length > 0;
+  const hasOpen = live.data?.hasOpen ?? true;
+  // Lists without an open set (payments) treat "open" as all.
+  const shown = !hasOpen && status === "open" ? "all" : status;
   const columns = 5 + (money ? 2 : 0) + (hasStatus ? 1 : 0);
   const label = FLOW_LABELS[recordType] || title;
   return (
     <ListFrame
       title={title}
-      viewName={hasStatus ? (status === "open" ? `Open ${title.toLowerCase()}` : status === "all" ? `All ${title.toLowerCase()}` : title) : `All ${title.toLowerCase()}`}
+      viewName={hasStatus ? (shown === "open" ? `Open ${title.toLowerCase()}` : shown === "all" ? `All ${title.toLowerCase()}` : title) : `All ${title.toLowerCase()}`}
       status={listStatus(live)}
       error={live.error}
       loading={live.loading}
@@ -74,12 +77,16 @@ export function TransactionList({
             Status
             <Pick
               label="Status"
-              value={status}
+              value={shown}
               onChange={(value) => {
                 setStatus(value);
                 setPage(0);
               }}
-              options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }, ...statuses.map((item) => ({ value: item.id, label: item.label }))]}
+              options={[
+                ...(hasOpen ? [{ value: "open", label: "Open" }] : []),
+                { value: "all", label: "All" },
+                ...statuses.map((item) => ({ value: item.id, label: item.label })),
+              ]}
             />
           </label>
         ) : undefined

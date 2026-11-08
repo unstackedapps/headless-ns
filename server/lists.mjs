@@ -37,8 +37,8 @@ export const TX_LISTS = {
     type: "CustPymt",
     recordType: "customerpayment",
     party: "customer",
+    // No "open" set: almost every payment is Deposited, so the list starts with all of them.
     statuses: { A: "Unapproved", B: "Not deposited", C: "Deposited" },
-    open: ["A", "B"],
   },
   returns: {
     type: "RtnAuth",
@@ -80,7 +80,7 @@ export function pageOf(raw) {
 export function statusWhere(spec, raw) {
   if (!spec.statuses) return "";
   const status = String(raw || "open");
-  if (status === "all") return "";
+  if (status === "all" || (status === "open" && !spec.open)) return "";
   const letters = status === "open" ? spec.open : Object.hasOwn(spec.statuses, status) ? [status] : null;
   if (!letters) fail("That status is not on this list.");
   return ` AND t.status IN (${letters.map((letter) => `'${letter}'`).join(", ")})`;

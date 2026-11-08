@@ -217,6 +217,8 @@ export function LineGrid({
         const fill: Values = {};
         if (found.rate != null) fill.rate = { value: String(found.rate) };
         if (found.description) fill.description = { value: found.description };
+        const current = linesRef.current[index];
+        if (current && !current.values.quantity?.value && sublist.fields.some((field) => field.id === "quantity")) fill.quantity = { value: "1" };
         onChange?.(linesRef.current.map((line, at) => (at === index ? { ...line, values: { ...line.values, ...fill } } : line)));
       })
       .catch(() => setDefaults((current) => ({ ...current, [index]: { rate: null, description: "", rateLabel: "Price" } })));
@@ -240,7 +242,7 @@ export function LineGrid({
               {(onChange ? editColumns : columns).map((field) => (
                 <th key={field.id}>{field.title}</th>
               ))}
-              {onChange && <th>{canClose ? "Closed" : ""}</th>}
+              {onChange && <th>{canClose && lines.some((line) => line.original) ? "Closed" : ""}</th>}
             </tr>
           </thead>
           <tbody>
