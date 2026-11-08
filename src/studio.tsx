@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { Glyph, glyph } from "./icons";
 import { Markdown } from "./formatted";
 import { Button, Lookup, SkeletonTable } from "./load";
 import { ConfirmCheck } from "./records";
-import { ConnectionPanel } from "./connect";
+import { ConnectionSettings } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
 import { ShapeSelect, ThemeSelect } from "./theme";
-import { api } from "./api";
+import { api, postJson } from "./api";
 
 type Step = { name: string; ok: boolean; error?: string };
 type PendingCall = {
@@ -77,7 +77,7 @@ type ModelConnection = {
   keyMask: string;
 };
 type ProviderChoice = { id: string; label: string; defaultModel: string; needsBaseUrl: boolean };
-type ModelsPayload = { activeId: string | null; connections: ModelConnection[]; providers: ProviderChoice[] };
+export type ModelsPayload = { activeId: string | null; connections: ModelConnection[]; providers: ProviderChoice[] };
 type Policy = { allowWrites: boolean; disabled: string[] };
 type Config = {
   accountId: string;
@@ -261,7 +261,7 @@ export function AskPage({
           label="Model"
           value={llm?.id || models.activeId || ""}
           onChange={(id) => {
-            api<ModelsPayload>("/api/models/active", { method: "POST", body: JSON.stringify({ id }) })
+            postJson<ModelsPayload>("/api/models/active", { id })
               .then((next) => {
                 setModels(next);
                 const active = next.connections.find((row) => row.id === next.activeId);
@@ -286,13 +286,23 @@ export function AskPage({
         />
       ) : llm?.configured ? (
         `Using ${llm.model}.`
-      ) : llm ? (
-        "No model key yet. Add one under Settings."
-      ) : (
+      ) : llm ? null : (
         "Looking up the model."
       )}
     </div>
   );
+
+  if (llm && !llm.configured) {
+    return (
+      <section className="panel ask-connect">
+        <h2>Connect an AI model</h2>
+        <p>Ask needs a model to answer questions. The NetSuite screens work without one.</p>
+        <a className="primary" href="#/setup/ai">
+          Connect an AI model
+        </a>
+      </section>
+    );
+  }
 
   const conversation = (
     <>
@@ -914,7 +924,6 @@ export function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [models, setModels] = useState<ModelsPayload | null>(null);
-  const [draft, setDraft] = useState({ id: "", label: "", provider: "openai", model: "gpt-5.2", baseUrl: "", apiKey: "" });
   const [allowWrites, setAllowWrites] = useState(false);
   const [disabled, setDisabled] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -953,21 +962,6 @@ export function SettingsPage() {
     };
   }, []);
 
-  function chooseConnection(id: string) {
-    const row = models?.connections.find((item) => item.id === id);
-    const provider = models?.providers.find((item) => item.id === (row?.provider || "openai"));
-    setDraft({
-      id: row?.id || "",
-      label: row?.label || "",
-      provider: row?.provider || "openai",
-      model: row?.model || provider?.defaultModel || "",
-      baseUrl: row?.baseUrl || "",
-      apiKey: "",
-    });
-    setMessage(null);
-    setError(null);
-  }
-
   function llmFrom(payload: ModelsPayload): LlmConfig | null {
     const active = payload.connections.find((row) => row.id === payload.activeId);
     if (!active) return null;
@@ -983,27 +977,14 @@ export function SettingsPage() {
     };
   }
 
-  async function saveModel(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
+  async function rename(row: ModelConnection, label: string) {
+    if (!label.trim() || label === row.label) return;
     setError(null);
-    setMessage(null);
     try {
-      const next = await api<ModelsPayload>("/api/models", { method: "POST", body: JSON.stringify(draft) });
-      setModels(next);
-      setDraft((current) => ({ ...current, apiKey: "" }));
-      const llm = llmFrom(next);
-      if (llm) {
-        setConfig((current) => (current ? { ...current, llm, models: next } : current));
-        window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: llm }));
-      }
-      const saved = next.connections.find((row) => row.model === draft.model && row.provider === draft.provider);
-      if (saved) setDraft((current) => ({ ...current, id: saved.id, apiKey: "" }));
-      setMessage(saved?.keyMask ? `Saved. Key ${saved.keyMask}.` : "Saved.");
+      setModels(await postJson<ModelsPayload>("/api/models", { id: row.id, label, provider: row.provider, model: row.model, baseUrl: row.baseUrl }));
+      setMessage("Renamed.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save the model.");
-    } finally {
-      setBusy(false);
+      setError(reason instanceof Error ? reason.message : "Could not rename the model.");
     }
   }
 
@@ -1011,7 +992,7 @@ export function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      const next = await api<ModelsPayload>("/api/models/active", { method: "POST", body: JSON.stringify({ id }) });
+      const next = await postJson<ModelsPayload>("/api/models/active", { id });
       setModels(next);
       const llm = llmFrom(next);
       if (llm) {
@@ -1030,31 +1011,13 @@ export function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      const next = await api<ModelsPayload>("/api/models/remove", { method: "POST", body: JSON.stringify({ id }) });
+      const next = await postJson<ModelsPayload>("/api/models/remove", { id });
       setModels(next);
-      if (draft.id === id) chooseConnection("");
       const llm = llmFrom(next);
       if (llm) window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: llm }));
       setMessage("Removed.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not remove the model.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function testModel() {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const body = await api<{ reply: string }>("/api/models/test", {
-        method: "POST",
-        body: JSON.stringify({ id: draft.id || models?.activeId }),
-      });
-      setMessage(`The model replied: ${body.reply}`);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The model test failed.");
     } finally {
       setBusy(false);
     }
@@ -1092,8 +1055,7 @@ export function SettingsPage() {
       {message && <p className="status">{message}</p>}
       <section className="section">
         <h2>Connection</h2>
-        <p className="status">The token is not stored in the browser.</p>
-        <ConnectionPanel />
+        <ConnectionSettings />
       </section>
       <section className="section">
         <h2>Appearance</h2>
@@ -1150,7 +1112,6 @@ export function SettingsPage() {
       )}
       <section className="section">
         <h2>Models</h2>
-        <p className="status">The key is not stored in the browser. Leave the field blank to keep the saved key.</p>
         {models && models.connections.length > 0 && (
           <ul className="model-list">
             {models.connections.map((row) => (
@@ -1158,10 +1119,15 @@ export function SettingsPage() {
                 <button className={row.id === models.activeId ? "quiet on" : "quiet"} type="button" onClick={() => activate(row.id)}>
                   {row.id === models.activeId ? "In use" : "Use"}
                 </button>
-                <button className="linkish" type="button" onClick={() => chooseConnection(row.id)}>
-                  {row.label} · {row.providerLabel} · {row.model}
-                </button>
-                <span className="note">{row.keyMask}</span>
+                <input
+                  className="model-name"
+                  aria-label={`Name for ${row.model}`}
+                  defaultValue={row.label}
+                  onBlur={(event) => rename(row, event.target.value)}
+                />
+                <span className="note">
+                  {row.providerLabel} · {row.model} · {row.keyMask}
+                </span>
                 <button className="quiet" type="button" onClick={() => removeModel(row.id)}>
                   Remove
                 </button>
@@ -1169,57 +1135,9 @@ export function SettingsPage() {
             ))}
           </ul>
         )}
-        <form className="form" onSubmit={saveModel}>
-          <label>
-            Name
-            <input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
-          </label>
-          <label>
-            Provider
-            <Pick
-              label="Provider"
-              value={draft.provider}
-              onChange={(next) => {
-                const spec = models?.providers.find((item) => item.id === next);
-                setDraft({ ...draft, provider: next, model: draft.id ? draft.model : spec?.defaultModel || "" });
-              }}
-              options={(models?.providers || []).map((item) => ({ value: item.id, label: item.label }))}
-            />
-          </label>
-          <label>
-            Model
-            <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
-          </label>
-          {models?.providers.find((item) => item.id === draft.provider)?.needsBaseUrl && (
-            <label>
-              Base URL
-              <input value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} />
-            </label>
-          )}
-          <label>
-            API key
-            <input
-              type="password"
-              value={draft.apiKey}
-              autoComplete="off"
-              placeholder={models?.connections.find((row) => row.id === draft.id)?.keyMask || "API key"}
-              onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-            />
-          </label>
-          <div className="actions">
-            <button className="primary" type="submit" disabled={busy}>
-              {draft.id ? "Save model" : "Add model"}
-            </button>
-            <button className="quiet" type="button" disabled={busy || !(draft.id || models?.activeId)} onClick={testModel}>
-              Test model
-            </button>
-            {draft.id && (
-              <button className="quiet" type="button" onClick={() => chooseConnection("")}>
-                New model
-              </button>
-            )}
-          </div>
-        </form>
+        <a className="quiet" href="#/setup/ai">
+          Add or change a model
+        </a>
       </section>
       <section className="section">
         <h2>Assistant</h2>

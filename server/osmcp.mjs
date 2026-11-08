@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { connector, customMcpToken, customMcpUrl, netsuiteMcpUrl, osmcpToken, osmcpUrl, rememberAccount } from "./env.mjs";
+import { connector, customMcpToken, customMcpUrl, netsuiteMcpUrl, rememberAccount } from "./env.mjs";
 import { recordTrace } from "./trace.mjs";
 
 const authStore = new AsyncLocalStorage();
@@ -30,6 +30,20 @@ function plainSuiteqlError(message) {
   const name = record[1];
   const permission = recordPermissions[name.toLowerCase()] || `the ${name} record`;
   return `This role cannot see ${name}. Add View for ${permission} on that role, then reload.`;
+}
+
+// Setup's test read shows this in place of the raw MCP or HTTP error.
+export function plainConnectionError(error) {
+  const message = String(error?.message || error || "");
+  if (error?.status === 401 || /invalid[_ ]token|invalid_login|unauthori[sz]ed|expired/i.test(message)) {
+    return "NetSuite did not accept the sign-in. Sign in again.";
+  }
+  if (error?.status === 403 || /forbidden|insufficient permission|not allowed|MCP Server Connection/i.test(message)) {
+    return "The role you signed in with is missing a permission. Add MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web Services to that role, then sign in again.";
+  }
+  if (error?.status === 404) return "The connection URL did not answer. Check the URL, and on NetSuite check that the MCP Standard Tools SuiteApp is installed.";
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|timed? ?out/i.test(message)) return "The app could not reach the server. Check the URL and your network.";
+  return message ? `NetSuite said: ${message}` : "The test read failed.";
 }
 
 // NetSuite MCP write tools answer {success:false, error:"HTTP 400: {...}"} without isError.
@@ -66,10 +80,7 @@ function activeAuth() {
   if (stored?.token) return stored;
   const kind = connector();
   if (kind === "custom") {
-    return { url: customMcpUrl(), token: customMcpToken(), label: "MCP server", protocol: "2025-06-18", handshake: false };
-  }
-  if (kind === "opensuitemcp") {
-    return { url: osmcpUrl(), token: osmcpToken(), label: "OpenSuiteMCP", protocol: PROTOCOL, handshake: false };
+    return { url: customMcpUrl(), token: customMcpToken(), label: "MCP server", protocol: PROTOCOL, handshake: false };
   }
   return { url: netsuiteMcpUrl(), token: "", label: "NetSuite", protocol: "2025-06-18", handshake: true };
 }
@@ -110,7 +121,8 @@ async function postRpc(auth, method, params, name, sessionId) {
     Accept: "application/json, text/event-stream",
     "MCP-Protocol-Version": auth.protocol,
   };
-  if (auth.label === "OpenSuiteMCP") {
+  // Custom servers such as OpenSuiteMCP route on these. NetSuite's own endpoint does not take them.
+  if (!auth.handshake) {
     headers["Mcp-Method"] = method;
     if (name) headers["Mcp-Name"] = name;
   }

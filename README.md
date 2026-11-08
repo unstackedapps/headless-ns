@@ -21,17 +21,16 @@ Open https://localhost:5173. The first run uses a certificate in `certs/`, which
 
 ## Connect
 
-Settings can use one of three hosts. Each one exposes the same `ns_*` tools.
+The first run opens a two-step setup. Step 1 connects NetSuite and runs a test read. Step 2 connects an AI model and sends a test message. You can skip step 2: the NetSuite screens work without a model, and Ask stays off until you connect one. Settings reopens either step.
 
-- OpenSuiteMCP, with a bearer token from an agent app.
-- NetSuite itself. This login uses only the `mcp` scope, through the AI Connector. It is a different sign-in from REST Web Services.
-- Another MCP host, such as Mint, with a URL and a bearer token.
+Step 1 offers two connections. Both expose the same `ns_*` tools.
 
-Setup steps for each host are on the Settings page.
+- NetSuite OAuth. Enter the account ID and the integration's client ID, and pick a public or confidential client. A confidential client also needs its secret. This login uses only the `mcp` scope, through the AI Connector.
+- Custom MCP server, with a URL and a bearer token. Use it for OpenSuiteMCP (hosted at `https://app.opensuitemcp.com/api/mcp`, or self-hosted), Mint, or any other host of the NetSuite tools.
 
 ## Models
 
-Ask can use Claude, Grok, Gemini, OpenAI, Groq, Mistral, or an OpenAI-compatible host. Saved keys live in `data/models.json`.
+Ask can use Claude, Grok, Gemini, OpenAI, Groq, Mistral, or an OpenAI-compatible host. Step 2 lists the models from the provider's own model list. Saved keys live in `data/models.json`.
 
 ## Check
 

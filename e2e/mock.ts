@@ -2,6 +2,13 @@ import type { Page, Request } from "@playwright/test";
 
 type Handler = (request: Request, url: URL) => unknown;
 
+const STATUS = Symbol("status");
+
+// A handler result that answers with an error status, like the server's { error } replies.
+export function failWith(status: number, error: string) {
+  return { [STATUS]: status, error };
+}
+
 // Answers every /api/ call from the given handlers, so screen tests never reach NetSuite.
 // Returns the write requests the page sent, for assertions.
 export async function mockApi(page: Page, handlers: Record<string, Handler | unknown>) {
@@ -13,7 +20,7 @@ export async function mockApi(page: Page, handlers: Record<string, Handler | unk
     if (request.method() === "POST") writes.push({ path: url.pathname, body: request.postDataJSON() });
     const handler = handlers[key] ?? handlers[url.pathname];
     const body = typeof handler === "function" ? await (handler as Handler)(request, url) : handler ?? {};
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    await route.fulfill({ status: (body as { [STATUS]?: number })?.[STATUS] ?? 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   return writes;
 }
@@ -24,6 +31,7 @@ export const session = {
   accountId: "TD3138390",
   roleId: "customrole_test",
   configured: true,
+  ai: true,
   discovery: {},
 };
 

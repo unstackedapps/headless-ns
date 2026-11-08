@@ -124,46 +124,50 @@ export function openModelStore(file, { seed = true } = {}) {
     return store.connections.find((row) => row.id === id) || null;
   }
 
-  function validate(input, { creating, current }) {
+  // The provider, URL, and key to use. A blank key reuses the key saved for the same provider and URL.
+  function credentials(store, input) {
     const provider = String(input.provider || "");
     const spec = providerById(provider);
     if (!spec) fail(400, "Choose a model provider.");
-    const model = String(input.model || "").trim();
-    if (!model) fail(400, "Add the model id.");
-    const baseUrl = String(input.baseUrl || "").trim().replace(/\/$/, "");
-    if (spec.needsBaseUrl) {
-      if (!/^https?:\/\//.test(baseUrl)) fail(400, "The base URL must start with http:// or https://.");
-    }
-    const label = String(input.label || spec.label).trim().slice(0, 60) || spec.label;
+    const baseUrl = spec.needsBaseUrl ? String(input.baseUrl || "").trim().replace(/\/$/, "") : "";
+    if (spec.needsBaseUrl && !/^https?:\/\//.test(baseUrl)) fail(400, "The provider URL must start with http:// or https://.");
+    const current = input.id ? find(store, String(input.id)) : null;
+    if (input.id && !current) fail(400, "That model is no longer saved.");
+    const twin = current || store.connections.find((row) => row.provider === provider && row.baseUrl === baseUrl);
     const submitted = String(input.apiKey || "");
-    let apiKey = current?.apiKey || "";
-    if (creating || !keepsExistingKey(submitted, current?.apiKey)) {
-      apiKey = submitted.trim();
-      if (!apiKey) fail(400, "Add an API key.");
-      if (/^•+$/.test(apiKey) || apiKey === redactKey(current?.apiKey)) fail(400, "Type the API key. The dotted value is only a preview.");
-    }
-    return {
-      id: current?.id || randomBytes(8).toString("hex"),
-      label,
-      provider,
-      model: model.slice(0, 120),
-      baseUrl: spec.needsBaseUrl ? baseUrl : "",
-      apiKey,
-    };
+    const apiKey = keepsExistingKey(submitted, twin?.apiKey) ? twin?.apiKey || "" : submitted.trim();
+    if (!apiKey) fail(400, "Add an API key.");
+    return { spec, provider, baseUrl, apiKey, current };
+  }
+
+  function validate(store, input) {
+    const { spec, provider, baseUrl, apiKey, current } = credentials(store, input);
+    const model = String(input.model || "").trim().slice(0, 120);
+    if (!model) fail(400, "Choose a model.");
+    const same = current || store.connections.find((row) => row.provider === provider && row.baseUrl === baseUrl && row.model === model);
+    const label = String(input.label || same?.label || spec.label).trim().slice(0, 60) || spec.label;
+    return { id: same?.id || randomBytes(8).toString("hex"), label, provider, model, baseUrl, apiKey };
   }
 
   return {
     read,
     view,
-    save(input) {
+    // A connection checked but not saved, for a test before Finish.
+    draft(input) {
+      return validate(read(), input);
+    },
+    credentials(input) {
+      const { provider, baseUrl, apiKey } = credentials(read(), input);
+      return { provider, baseUrl, apiKey };
+    },
+    save(input, { activate = false } = {}) {
       const store = read();
-      const current = input.id ? find(store, String(input.id)) : null;
-      if (input.id && !current) fail(400, "That model is no longer saved.");
-      if (!current && store.connections.length >= 12) fail(400, "Twelve models are saved. Remove one before adding another.");
-      const row = validate(input, { creating: !current, current });
-      const connections = current ? store.connections.map((item) => (item.id === row.id ? row : item)) : [...store.connections, row];
-      const activeId = store.activeId && connections.some((item) => item.id === store.activeId) ? store.activeId : row.id;
-      return view(persist({ activeId, connections }));
+      const row = validate(store, input);
+      const existing = find(store, row.id);
+      if (!existing && store.connections.length >= 12) fail(400, "Twelve models are saved. Remove one before adding another.");
+      const connections = existing ? store.connections.map((item) => (item.id === row.id ? row : item)) : [...store.connections, row];
+      const keep = !activate && store.activeId && connections.some((item) => item.id === store.activeId);
+      return view(persist({ activeId: keep ? store.activeId : row.id, connections }));
     },
     activate(id) {
       const store = read();

@@ -7,7 +7,8 @@ export async function api<T>(path: string, init: RequestInit & { signInOn401?: b
   });
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && signInOn401) {
-    location.href = "/api/auth/login";
+    location.hash = "#/setup/netsuite";
+    location.reload();
     throw new Error("Sign in with NetSuite.");
   }
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);

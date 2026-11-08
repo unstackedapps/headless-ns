@@ -17,14 +17,13 @@ import {
   mcpClientSecret,
   mcpSuite,
   netsuiteMcpUrl,
-  osmcpToken,
-  osmcpUrl,
   updateEnv,
   sessionSecret,
   sessionSecretIsEphemeral,
   validAccountId,
 } from "./env.mjs";
-import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { clearMcpCache, osmcpIdentity, plainConnectionError, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { modelStore } from "./models.mjs";
 import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
 import { ITEM_TYPES, PAGE_SIZE, TX_LISTS, itemListSql, itemRecordType, pageOf, txListSql, vendorListSql } from "./lists.mjs";
@@ -170,9 +169,7 @@ function meta(session) {
     fetchedAt: new Date().toISOString(),
     tokenExpiresAt: session.expiresAt ? new Date(session.expiresAt).toISOString() : null,
     source:
-      session.via === "opensuitemcp" || session.via === "osmcp"
-        ? "OpenSuiteMCP"
-        : session.via === "custom"
+      session.via === "custom"
           ? "MCP server"
           : session.via === "netsuite"
             ? "NetSuite MCP"
@@ -208,7 +205,7 @@ async function authorized(req, res) {
   const kind = connector();
   // These hosts use a token from .env, so there is no browser session to check. The server
   // listens on 127.0.0.1 and handle() refuses cross-site writes; any local process could read .env anyway.
-  if (kind === "opensuitemcp" || kind === "custom") return { via: kind, expiresAt: 0 };
+  if (kind === "custom") return { via: kind, expiresAt: 0 };
   const sid = cookies(req).hn_sid;
   const session = sid ? sessions.get(sid) : null;
   if (!session?.mcp) {
@@ -261,7 +258,7 @@ async function runQuery(session, sql, limit, page = 0) {
 }
 
 function query(session, sql, limit, source = "ledger", page = 0) {
-  if (session.via === "opensuitemcp" || session.via === "osmcp" || session.via === "custom" || session.via === "netsuite") {
+  if (session.via === "custom" || session.via === "netsuite") {
     return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit, page)));
   }
   return schedule(() => runQuery(session, sql, limit, page));
@@ -361,11 +358,12 @@ const routes = {
       redirectUri: REDIRECT_URI,
       scopes: "openid email rest_webservices",
       ephemeralSecret: sessionSecretIsEphemeral(),
+      ai: modelStore.view().connections.some((row) => row.configured),
       discovery,
       discoveryError,
     };
     const kind = connector();
-    if (kind === "opensuitemcp" || kind === "custom") {
+    if (kind === "custom") {
       try {
         const identity = await osmcpIdentity();
         sendJson(res, 200, {
@@ -498,7 +496,7 @@ const routes = {
         mcp: true,
       });
       saveSessions();
-      redirect(res, "/#/overview", [
+      redirect(res, "/#/setup/netsuite", [
         cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
         cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
       ]);
@@ -1115,12 +1113,11 @@ function connectorPayload(req) {
     accountId: accountId(),
     accountMissing: !accountId(),
     redirectUri: REDIRECT_URI,
-    osmcpUrl: osmcpUrl(),
-    osmcpHint: hint(osmcpToken()),
     customUrl: customMcpUrl(),
     customHint: hint(customMcpToken()),
     mcpClientId: mcpClientId(),
     mcpSecretHint: hint(mcpClientSecret()),
+    mcpConfidential: Boolean(mcpClientSecret()),
     suite: mcpSuite(),
     netsuiteMcpUrl: netsuiteMcpUrl(),
     mcpSignedIn: Boolean(session?.mcp),
@@ -1130,18 +1127,13 @@ function connectorPayload(req) {
 async function saveConnector(req, res) {
   const body = await readJsonBody(req);
   const kind = String(body.kind || "");
-  if (!["opensuitemcp", "netsuite", "custom"].includes(kind)) {
-    sendJson(res, 400, { error: "Choose OpenSuiteMCP, NetSuite, or another MCP server." });
+  if (!["netsuite", "custom"].includes(kind)) {
+    sendJson(res, 400, { error: "Choose NetSuite OAuth or a custom MCP server." });
     return;
   }
   const customUrl = String(body.customUrl || "").trim();
-  const nextOsmcpUrl = String(body.osmcpUrl || "").trim();
   if (customUrl && !/^https:\/\//.test(customUrl)) {
     sendJson(res, 400, { error: "The MCP server URL must start with https://." });
-    return;
-  }
-  if (nextOsmcpUrl && !/^https:\/\//.test(nextOsmcpUrl)) {
-    sendJson(res, 400, { error: "The OpenSuiteMCP URL must start with https://." });
     return;
   }
   const nextAccountId = String(body.accountId || "").trim();
@@ -1149,22 +1141,40 @@ async function saveConnector(req, res) {
     sendJson(res, 400, { error: "The account ID can use letters, numbers, _ and -, up to 40 characters." });
     return;
   }
+  // clientType is sent only by setup. Public clears the secret. Confidential needs one.
+  const secret = String(body.mcpClientSecret || "");
+  if (body.clientType === "confidential" && !secret.trim() && !mcpClientSecret()) {
+    sendJson(res, 400, { error: "Add the client secret. A confidential client needs it." });
+    return;
+  }
   updateEnv(
-    ["CONNECTOR", "NETSUITE_ACCOUNT_ID", "OSMCP_URL", "OSMCP_TOKEN", "MCP_URL", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_ID", "NETSUITE_MCP_CLIENT_SECRET", "NETSUITE_MCP_SUITE"],
+    ["CONNECTOR", "NETSUITE_ACCOUNT_ID", "MCP_URL", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_ID", "NETSUITE_MCP_CLIENT_SECRET", "NETSUITE_MCP_SUITE"],
     {
       CONNECTOR: kind,
       NETSUITE_ACCOUNT_ID: nextAccountId,
-      OSMCP_URL: nextOsmcpUrl,
-      OSMCP_TOKEN: String(body.osmcpToken || ""),
       MCP_URL: customUrl,
       MCP_TOKEN: String(body.customToken || ""),
       NETSUITE_MCP_CLIENT_ID: String(body.mcpClientId || "").trim(),
-      NETSUITE_MCP_CLIENT_SECRET: String(body.mcpClientSecret || ""),
+      NETSUITE_MCP_CLIENT_SECRET: body.clientType === "public" ? null : secret,
       NETSUITE_MCP_SUITE: body.suite === "all" ? "all" : "standard",
     },
   );
   clearMcpCache();
   sendJson(res, 200, connectorPayload(req));
+}
+
+// Setup's first step: one identity call and one SuiteQL read must both pass before Next.
+async function testConnection(req, res) {
+  const session = await authorized(req, res);
+  if (!session) return;
+  clearMcpCache();
+  try {
+    const identity = await withSource("setup", () => osmcpIdentity());
+    const { n } = await countOf(session, `SELECT COUNT(id) AS n FROM customer WHERE isinactive = 'F'`);
+    sendJson(res, 200, { accountId: identity.accountId || accountLabel(), roleId: identity.roleId, customers: n });
+  } catch (error) {
+    sendJson(res, 400, { error: plainConnectionError(error) });
+  }
 }
 
 async function mcpLogin(_req, res) {
@@ -1198,6 +1208,7 @@ const apiRoutes = {
   "GET /api/auth/mcp/login": mcpLogin,
   "GET /api/connector": (req, res) => sendJson(res, 200, connectorPayload(req)),
   "POST /api/config/connector": saveConnector,
+  "POST /api/setup/test": testConnection,
   "GET /api/overview": routes.overview,
   "GET /api/activity": routes.activity,
   "GET /api/customers": routes.customers,
@@ -1283,7 +1294,7 @@ httpsServer.listen(PORT, "127.0.0.1", () => {
   console.log(`[headless] redirect ${REDIRECT_URI}`);
   const kind = connector();
   console.log(`[headless] connector ${kind}`);
-  if (kind === "opensuitemcp" || kind === "custom") {
+  if (kind === "custom") {
     osmcpIdentity()
       .then((identity) => {
         console.log(`[headless] ${kind} connected · ${identity.accountId || "account not reported"} · ${identity.roleId}`);

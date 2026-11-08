@@ -17,7 +17,7 @@ import { ItemsPage } from "./items";
 import { SideNav, currentView, hashName } from "./nav";
 import { OverviewPage } from "./overview";
 import { PeoplePage } from "./people";
-import { SignIn, type SessionInfo } from "./signin";
+import { Setup, needsSetup, setupStepFromHash, type SessionInfo } from "./setup";
 import { TransactionList } from "./transactions";
 import { TransactionPage } from "./transaction";
 import { VendorsPage } from "./vendors";
@@ -34,18 +34,25 @@ export function App() {
   const refreshing = useRefreshBusy();
   const [askOpen, setAskOpen] = useState(() => hashName() === "ask");
   const [shellOpen, setShellOpen] = useState(false);
+  // A failed NetSuite sign-in comes back with ?auth_error, so it opens the NetSuite step to show why.
+  const [setupStep, setSetupStep] = useState(() => setupStepFromHash(hashName()) ?? (authError ? "netsuite" : null));
 
-  useEffect(() => {
-    if (authError) history.replaceState(null, "", location.pathname);
-    api<SessionInfo>("/api/session", { signInOn401: true })
+  function loadSession() {
+    return api<SessionInfo>("/api/session")
       .then(setSession)
       .catch((reason: Error) => setSessionError(reason.message));
+  }
+
+  useEffect(() => {
+    if (authError) history.replaceState(null, "", location.pathname + location.hash);
+    loadSession();
   }, [authError]);
 
   useEffect(() => {
     const onHash = () => {
       if (hashName() === "ask") setAskOpen(true);
       setView(currentView());
+      setSetupStep(setupStepFromHash(hashName()));
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -75,7 +82,22 @@ export function App() {
 
   if (!session) return <LoadingPage cover />;
 
-  if (!session.signedIn) return <SignIn session={session} authError={authError} />;
+  const firstRun = needsSetup(session);
+  if (firstRun || setupStep) {
+    return (
+      <Setup
+        key={firstRun ? "first-run" : setupStep}
+        session={session}
+        only={firstRun ? null : setupStep}
+        authError={authError}
+        onFinish={() => {
+          setSetupStep(null);
+          location.hash = "#/overview";
+          loadSession();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app">

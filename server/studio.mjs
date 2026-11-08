@@ -1,8 +1,8 @@
-import { llmApiKey, llmBaseUrl, llmKeyHint, llmModel, updateLlmEnv } from "./env.mjs";
 import { readJsonBody } from "./http.mjs";
 import { toolKind } from "./kinds.mjs";
 import { ask, confirmAsk, pingModel } from "./llm.mjs";
 import { modelStore } from "./models.mjs";
+import { listModels } from "./providers.mjs";
 import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
 import { readPolicy, writePolicy } from "./policy.mjs";
 import { recordRoutes } from "./records.mjs";
@@ -225,7 +225,7 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/models": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      sendJson(res, 200, modelStore.save(body));
+      sendJson(res, 200, modelStore.save(body, { activate: body.activate === true }));
     },
 
     "POST /api/models/active": async (req, res) => {
@@ -243,35 +243,18 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/models/test": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      const reply = await pingModel(body.id);
-      sendJson(res, 200, { reply });
-    },
-
-    "POST /api/config/llm": async (req, res) => {
-      if (!(await authorized(req, res))) return;
-      const body = await readJsonBody(req);
-      const baseUrl = String(body.baseUrl || "").trim();
-      if (baseUrl && !/^https?:\/\//.test(baseUrl)) {
-        sendJson(res, 400, { error: "The model URL must start with http:// or https://." });
+      const reply = await pingModel(body.provider ? body : body.id);
+      if (!reply) {
+        sendJson(res, 400, { error: "The model answered with an empty reply. Pick another model." });
         return;
       }
-      updateLlmEnv({
-        LLM_BASE_URL: baseUrl,
-        LLM_MODEL: String(body.model || "").trim(),
-        LLM_API_KEY: String(body.apiKey || ""),
-      });
-      sendJson(res, 200, {
-        configured: Boolean(llmApiKey()),
-        baseUrl: llmBaseUrl(),
-        model: llmModel(),
-        keyHint: llmKeyHint(),
-      });
+      sendJson(res, 200, { reply });
     },
 
-    "POST /api/config/llm/test": async (req, res) => {
+    "POST /api/models/list": async (req, res) => {
       if (!(await authorized(req, res))) return;
-      const reply = await pingModel();
-      sendJson(res, 200, { reply });
+      const body = await readJsonBody(req);
+      sendJson(res, 200, { models: await listModels(modelStore.credentials(body)) });
     },
 
     "POST /api/config/policy": async (req, res) => {

@@ -16,10 +16,12 @@ export function Combobox({
   search,
   onChange,
   disabled = false,
+  searching = "Searching NetSuite.",
 }: {
   label: string;
   value: Option | null;
   placeholder?: string;
+  searching?: string;
   search: (text: string, signal: AbortSignal) => Promise<Option[]>;
   onChange: (option: Option) => void;
   disabled?: boolean;
@@ -118,7 +120,7 @@ export function Combobox({
           <ul id={listId} role="listbox" className="pick-view">
             {error && <li className="error">{error}</li>}
             {!error && !loading && options.length === 0 && <li className="combo-empty">Nothing matched.</li>}
-            {!error && loading && options.length === 0 && <li className="combo-empty">Searching NetSuite.</li>}
+            {!error && loading && options.length === 0 && <li className="combo-empty">{searching}</li>}
             {options.map((option, index) => (
               <li
                 key={option.id}

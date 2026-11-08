@@ -365,8 +365,9 @@ export async function confirmAsk({ id, approved, ...options }) {
   });
 }
 
-export async function pingModel(modelId) {
-  const connection = modelStore.require(modelId);
+// Tests a saved model by id, or an unsaved one from the setup form.
+export async function pingModel(input) {
+  const connection = input && typeof input === "object" ? modelStore.draft(input) : modelStore.require(input);
   const result = await step(
     languageModel(connection),
     [{ role: "user", content: "Reply with the single word ready." }],

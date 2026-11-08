@@ -1117,6 +1117,10 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 }
 .model-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .model-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.model-name { width: 14ch; }
+.setup-steps { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 20px; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
+.setup-steps [aria-current="step"] { color: var(--ink); border-bottom: 1px solid var(--accent); }
+.ask-connect { margin: 14px 16px; }
 @media (prefers-reduced-motion: reduce) {
   .ask-drawer, .cli, nav { transition: none; }
 }

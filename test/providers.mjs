@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { generateText } from "ai";
-import { languageModel } from "../server/providers.mjs";
+import { languageModel, listModels } from "../server/providers.mjs";
 
 function chatReply() {
   return {
@@ -85,4 +85,39 @@ test("Grok uses the responses API", async () => {
   assert.match(result.call.url, /^https:\/\/api\.x\.ai\/v1\/responses/);
   assert.equal(result.call.body.model, "grok-4.7");
   assert.equal(result.text, "ready");
+});
+
+test("the model list comes from each provider's own endpoint", async () => {
+  const seen = [];
+  const reply = (body, status = 200) => async (url, init) => {
+    seen.push({ url: String(url), headers: init.headers });
+    return new Response(JSON.stringify(body), { status });
+  };
+  const compatible = await listModels({ provider: "compatible", baseUrl: "https://gemma.example/v1", apiKey: "sk-test" }, reply({ data: [{ id: "gemma-4-27b" }, { id: "gemma-4-9b" }, { id: "gemma-4-27b" }] }));
+  assert.deepEqual(compatible, ["gemma-4-27b", "gemma-4-9b"]);
+  assert.equal(seen[0].url, "https://gemma.example/v1/models");
+  assert.equal(seen[0].headers.Authorization, "Bearer sk-test");
+
+  await listModels({ provider: "anthropic", apiKey: "sk-ant" }, reply({ data: [{ id: "claude-sonnet-5-5" }] }));
+  assert.match(seen[1].url, /^https:\/\/api\.anthropic\.com\/v1\/models/);
+  assert.equal(seen[1].headers["x-api-key"], "sk-ant");
+
+  const gemini = await listModels(
+    { provider: "google", apiKey: "g-key" },
+    reply({ models: [{ name: "models/gemini-4-argon", supportedGenerationMethods: ["generateContent"] }, { name: "models/embedding-9", supportedGenerationMethods: ["embedContent"] }] }),
+  );
+  assert.deepEqual(gemini, ["gemini-4-argon"]);
+});
+
+test("a rejected key or a wrong URL comes back in plain words, without the key", async () => {
+  const denied = async () => new Response("{}", { status: 401 });
+  await assert.rejects(listModels({ provider: "openai", apiKey: "sk-bad" }, denied), { message: "The provider did not accept this API key.", status: 400 });
+  const html = async () => new Response("<html>sk-secret-key</html>", { status: 200 });
+  await assert.rejects(listModels({ provider: "compatible", baseUrl: "https://x.example", apiKey: "sk-secret-key" }, html), /did not send a model list/);
+  const broken = async () => new Response("bad key sk-secret-key", { status: 500 });
+  await assert.rejects(listModels({ provider: "compatible", baseUrl: "https://x.example", apiKey: "sk-secret-key" }, broken), (error) => !error.message.includes("sk-secret-key"));
+  const offline = async () => {
+    throw new TypeError("fetch failed");
+  };
+  await assert.rejects(listModels({ provider: "compatible", baseUrl: "https://x.example/v1", apiKey: "k" }, offline), /could not reach x\.example/);
 });

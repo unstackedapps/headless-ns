@@ -1,158 +1,223 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Glyph, glyph } from "./icons";
+import { Button, Lookup } from "./load";
 import { Pick } from "./pick";
 import { api, postJson } from "./api";
 
-type Kind = "opensuitemcp" | "netsuite" | "custom";
+export type Kind = "netsuite" | "custom";
 
-type Connection = {
+export type Connection = {
   kind: Kind;
   accountId: string;
   accountMissing: boolean;
   redirectUri: string;
-  osmcpUrl: string;
-  osmcpHint: string;
   customUrl: string;
   customHint: string;
   mcpClientId: string;
   mcpSecretHint: string;
+  mcpConfidential: boolean;
   suite: "standard" | "all";
   netsuiteMcpUrl: string;
   mcpSignedIn: boolean;
 };
 
-const names: Record<Kind, string> = {
-  opensuitemcp: "OpenSuiteMCP",
-  netsuite: "NetSuite",
-  custom: "Another MCP server",
+type Edits = Partial<{
+  kind: Kind;
+  accountId: string;
+  customUrl: string;
+  customToken: string;
+  mcpClientId: string;
+  mcpClientSecret: string;
+  clientType: "public" | "confidential";
+  suite: "standard" | "all";
+}>;
+
+type TestResult = { accountId: string; roleId: string; customers: number };
+
+export const kindNames: Record<Kind, string> = {
+  netsuite: "NetSuite OAuth",
+  custom: "Custom MCP server",
 };
 
-export function ConnectionPanel() {
+function useConnection() {
   const [saved, setSaved] = useState<Connection | null>(null);
-  const [kind, setKind] = useState<Kind>("opensuitemcp");
-  const [accountId, setAccountId] = useState("");
-  const [osmcpUrl, setOsmcpUrl] = useState("https://app.opensuitemcp.com/api/mcp");
-  const [osmcpToken, setOsmcpToken] = useState("");
-  const [customUrl, setCustomUrl] = useState("");
-  const [customToken, setCustomToken] = useState("");
-  const [mcpClientId, setMcpClientId] = useState("");
-  const [mcpClientSecret, setMcpClientSecret] = useState("");
-  const [suite, setSuite] = useState<"standard" | "all">("standard");
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<Connection>("/api/connector")
+      .then(setSaved)
+      .catch(() => setError("The connection settings did not load."));
+  }, []);
+  return { saved, setSaved, error };
+}
+
+// The server rewrites every connection key on save, so send the saved values with the edits.
+function saveConnection(saved: Connection, edits: Edits) {
+  const { kind, accountId, customUrl, mcpClientId, suite } = saved;
+  return postJson<Connection>("/api/config/connector", { kind, accountId, customUrl, mcpClientId, suite, ...edits });
+}
+
+function savedHint(hint: string) {
+  return hint ? `Saved ${hint}. Leave blank to keep it.` : "";
+}
+
+const setupSteps: Record<Kind, (redirectUri: string) => ReactNode[]> = {
+  netsuite: (redirectUri) => [
+    <li key="1">Under Setup &gt; Company &gt; Enable Features, turn on Server SuiteScript, OAuth 2.0, and REST Web Services.</li>,
+    <li key="2">From the SuiteApps tab, install MCP Standard Tools.</li>,
+    <li key="3">On the role, add MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web Services. The Administrator role cannot use this connection.</li>,
+    <li key="4">
+      Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns. Turn on Authorization Code Grant and the NetSuite AI Connector Service scope. Use this redirect URI:
+      <span className="uri">{redirectUri}</span>
+    </li>,
+    <li key="5">Paste the client ID here. If the integration is confidential (Public Client unchecked), choose Confidential and paste the client secret too.</li>,
+  ],
+  custom: () => [
+    <li key="1">Use this for OpenSuiteMCP, hosted or self-hosted, or any other server that exposes the NetSuite MCP tools.</li>,
+    <li key="2">For OpenSuiteMCP, create an agent app in the app portal and choose bearer auth. The hosted URL is https://app.opensuitemcp.com/api/mcp.</li>,
+    <li key="3">The NetSuite role behind that server needs MCP Server Connection, Log in using OAuth 2.0 Access Tokens, REST Web Services, and the MCP Standard Tools SuiteApp. Use a role other than Administrator.</li>,
+  ],
+};
+
+// Setup step 1. Only the fields the chosen connection needs. A test read must pass before Next.
+export function ConnectStep({
+  signedInVia,
+  authError,
+  onNext,
+  nextLabel,
+}: {
+  signedInVia: Kind | null;
+  authError: string | null;
+  onNext: () => void;
+  nextLabel: string;
+}) {
+  const { saved, setSaved, error: loadError } = useConnection();
+  const [kind, setKind] = useState<Kind>("netsuite");
+  const [accountId, setAccountId] = useState("");
+  const [mcpClientId, setMcpClientId] = useState("");
+  const [url, setUrl] = useState("");
+  const [clientType, setClientType] = useState<"public" | "confidential">("public");
+  const [secret, setSecret] = useState("");
+  const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(authError);
+  const [passed, setPassed] = useState<TestResult | null>(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
-    let ignore = false;
-    function load(hintsOnly: boolean) {
-      api<Connection>("/api/connector")
-        .then((body) => {
-          if (ignore) return;
-          setSaved(body);
-          if (hintsOnly) return;
-          setKind(body.kind);
-          setAccountId(body.accountId);
-          setOsmcpUrl(body.osmcpUrl);
-          setCustomUrl(body.customUrl);
-          setMcpClientId(body.mcpClientId);
-          setSuite(body.suite);
-        })
-        .catch(() => {
-          if (!ignore) setError("The connection settings did not load.");
-        });
+    if (!saved) return;
+    setKind(saved.kind);
+    setAccountId(saved.accountId);
+    setMcpClientId(saved.mcpClientId);
+    setUrl(saved.customUrl);
+    setClientType(saved.mcpConfidential ? "confidential" : "public");
+  }, [saved]);
+
+  const connected = saved != null && signedInVia === kind && saved.kind === kind;
+
+  const test = useCallback(async () => {
+    setTesting(true);
+    setError(null);
+    setPassed(null);
+    try {
+      setPassed(await postJson<TestResult>("/api/setup/test", {}));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The test read failed.");
+    } finally {
+      setTesting(false);
     }
-    load(false);
-    const onRefresh = (event: Event) => {
-      const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
-      if (!scope || scope === "settings") load(true);
-    };
-    window.addEventListener("hn-refresh", onRefresh);
-    return () => {
-      ignore = true;
-      window.removeEventListener("hn-refresh", onRefresh);
-    };
   }, []);
 
-  async function save(event: FormEvent) {
+  useEffect(() => {
+    if (connected && !authError) test();
+  }, [connected, authError, test]);
+
+  async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!saved) return;
     setBusy(true);
     setError(null);
-    setMessage(null);
+    setPassed(null);
     try {
-      await postJson("/api/config/connector", { kind, accountId, osmcpUrl, osmcpToken, customUrl, customToken, mcpClientId, mcpClientSecret, suite });
-      setMessage("Saved. Reloading so the server uses this connection.");
-      location.reload();
+      if (kind === "netsuite") {
+        await saveConnection(saved, { kind, accountId: accountId.trim(), mcpClientId: mcpClientId.trim(), clientType, mcpClientSecret: secret });
+        location.href = "/api/auth/mcp/login";
+        return;
+      }
+      setSaved(await saveConnection(saved, { kind, customUrl: url.trim(), customToken: token }));
+      setToken("");
+      await test();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the connection.");
+    } finally {
       setBusy(false);
     }
   }
 
+  if (loadError) return <p className="error">{loadError}</p>;
+  if (!saved) return <Lookup label="Loading the connection." />;
+
+  const changed =
+    kind !== saved.kind ||
+    (kind === "netsuite" &&
+      (accountId.trim() !== saved.accountId || mcpClientId.trim() !== saved.mcpClientId || secret !== "" || (clientType === "confidential") !== saved.mcpConfidential));
+
   return (
-    <form className="form" onSubmit={save}>
+    <form className="form" onSubmit={submit}>
       <label>
         Connection
         <Pick
           label="Connection"
           value={kind}
-          onChange={(next) => setKind(next as Kind)}
-          options={[
-            { value: "opensuitemcp", label: "OpenSuiteMCP" },
-            { value: "netsuite", label: "NetSuite" },
-            { value: "custom", label: "Another MCP server" },
-          ]}
+          onChange={(next) => {
+            setKind(next as Kind);
+            setPassed(null);
+            setError(null);
+          }}
+          options={(Object.keys(kindNames) as Kind[]).map((value) => ({ value, label: kindNames[value] }))}
         />
       </label>
-      <label>
-        Account ID
-        <input
-          value={accountId}
-          autoComplete="off"
-          maxLength={40}
-          pattern="[A-Za-z0-9_\-]+"
-          placeholder={kind === "netsuite" ? "1234567 or 1234567_SB1" : "Optional. The connection reports it."}
-          onChange={(event) => setAccountId(event.target.value)}
-        />
-      </label>
-      {kind === "opensuitemcp" && (
-        <>
-          <label>
-            Server URL
-            <input value={osmcpUrl} onChange={(event) => setOsmcpUrl(event.target.value)} />
-          </label>
-          <label>
-            Bearer token {saved?.osmcpHint ? `(${saved.osmcpHint})` : ""}
-            <input type="password" value={osmcpToken} autoComplete="off" placeholder="Leave blank to keep the saved token" onChange={(event) => setOsmcpToken(event.target.value)} />
-          </label>
-        </>
-      )}
       {kind === "netsuite" && (
         <>
-          <p className="status">{saved?.netsuiteMcpUrl ? `Tool URL ${saved.netsuiteMcpUrl}` : "Add the account ID to get the tool URL."}</p>
+          <label>
+            Account ID
+            <input
+              value={accountId}
+              required
+              autoComplete="off"
+              maxLength={40}
+              pattern="[A-Za-z0-9_\-]+"
+              placeholder="1234567 or 1234567_SB1"
+              onChange={(event) => setAccountId(event.target.value)}
+            />
+          </label>
           <label>
             Client ID
-            <input value={mcpClientId} autoComplete="off" onChange={(event) => setMcpClientId(event.target.value)} />
+            <input value={mcpClientId} required autoComplete="off" onChange={(event) => setMcpClientId(event.target.value)} />
           </label>
           <label>
-            Client secret {saved?.mcpSecretHint ? `(${saved.mcpSecretHint})` : ""}
-            <input type="password" value={mcpClientSecret} autoComplete="off" placeholder="Leave blank to keep the saved secret" onChange={(event) => setMcpClientSecret(event.target.value)} />
-          </label>
-          <label>
-            Tools
+            Client type
             <Pick
-              label="Tools"
-              value={suite}
-              onChange={(next) => setSuite(next as "standard" | "all")}
+              label="Client type"
+              value={clientType}
+              onChange={(next) => setClientType(next as "public" | "confidential")}
               options={[
-                { value: "standard", label: "Standard tools" },
-                { value: "all", label: "Every SuiteApp" },
+                { value: "public", label: "Public, no secret" },
+                { value: "confidential", label: "Confidential, with a secret" },
               ]}
             />
           </label>
-          {saved?.mcpSignedIn ? (
-            <p className="status">Signed in to NetSuite.</p>
-          ) : (
-            <p className="status">Save the client ID, then sign in.</p>
+          {clientType === "confidential" && (
+            <label>
+              Client secret
+              <input
+                type="password"
+                value={secret}
+                required={!saved.mcpSecretHint}
+                autoComplete="off"
+                placeholder={savedHint(saved.mcpSecretHint)}
+                onChange={(event) => setSecret(event.target.value)}
+              />
+            </label>
           )}
         </>
       )}
@@ -160,67 +225,140 @@ export function ConnectionPanel() {
         <>
           <label>
             Server URL
-            <input value={customUrl} placeholder="https://" onChange={(event) => setCustomUrl(event.target.value)} />
+            <input
+              value={url}
+              required
+              type="url"
+              pattern="https://.*"
+              placeholder="https://app.opensuitemcp.com/api/mcp"
+              onChange={(event) => setUrl(event.target.value)}
+            />
           </label>
           <label>
-            Bearer token {saved?.customHint ? `(${saved.customHint})` : ""}
-            <input type="password" value={customToken} autoComplete="off" placeholder="Leave blank to keep the saved token" onChange={(event) => setCustomToken(event.target.value)} />
+            Bearer token
+            <input
+              type="password"
+              value={token}
+              required={!saved.customHint}
+              autoComplete="off"
+              placeholder={savedHint(saved.customHint)}
+              onChange={(event) => setToken(event.target.value)}
+            />
           </label>
         </>
+      )}
+      {testing && <Lookup label="Reading from NetSuite." />}
+      {passed && (
+        <p className="live-line" role="status">
+          Connected. Read {passed.customers} active customers from <strong>{passed.accountId.toUpperCase()}</strong> as {passed.roleId}.
+        </p>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        {kind === "netsuite" ? (
+          connected && !changed ? (
+            <a className="quiet" href="/api/auth/mcp/login">
+              <Glyph icon={glyph.signIn} />
+              Sign in again
+            </a>
+          ) : (
+            <Button className="primary" type="submit" busy={busy}>
+              <Glyph icon={glyph.signIn} />
+              Sign in with NetSuite
+            </Button>
+          )
+        ) : (
+          <Button className={connected && passed ? "quiet" : "primary"} type="submit" busy={busy}>
+            Save and test
+          </Button>
+        )}
+        {connected && !passed && !testing && (
+          <Button className="quiet" onClick={test}>
+            Test again
+          </Button>
+        )}
+        <Button className="primary" disabled={!passed} onClick={onNext}>
+          {nextLabel}
+        </Button>
+      </div>
+      <details className="panel">
+        <summary>{kindNames[kind]} setup in NetSuite</summary>
+        <ol className="steps">{setupSteps[kind](saved.redirectUri)}</ol>
+      </details>
+    </form>
+  );
+}
+
+// Settings: the connection fields setup leaves out, plus a way back into setup.
+export function ConnectionSettings() {
+  const { saved, setSaved, error: loadError } = useConnection();
+  const [edits, setEdits] = useState<Edits>({});
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!saved) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      setSaved(await saveConnection(saved, edits));
+      setEdits({});
+      setMessage("Saved.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save the connection.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loadError) return <p className="error">{loadError}</p>;
+  if (!saved) return <Lookup label="Loading the connection." />;
+
+  const value = <K extends keyof Edits>(key: K, fallback: string) => (edits[key] ?? fallback) as string;
+  const set = (key: keyof Edits) => (next: string) => setEdits((current) => ({ ...current, [key]: next }));
+
+  return (
+    <form className="form" onSubmit={save}>
+      <p className="status">
+        {kindNames[saved.kind]}
+        {saved.accountId ? ` · account ${saved.accountId.toUpperCase()}` : ""}. <a href="#/setup/netsuite">Change connection</a>
+      </p>
+      {saved.kind === "netsuite" && (
+        <label>
+          Tools
+          <Pick
+            label="Tools"
+            value={value("suite", saved.suite)}
+            onChange={set("suite")}
+            options={[
+              { value: "standard", label: "Standard tools" },
+              { value: "all", label: "Every SuiteApp" },
+            ]}
+          />
+        </label>
+      )}
+      {saved.kind === "custom" && (
+        <label>
+          Account ID, for record links
+          <input
+            value={value("accountId", saved.accountId)}
+            autoComplete="off"
+            maxLength={40}
+            pattern="[A-Za-z0-9_\-]+"
+            placeholder="The connection reports it"
+            onChange={(event) => set("accountId")(event.target.value)}
+          />
+        </label>
       )}
       {error && <p className="error">{error}</p>}
       {message && <p className="status">{message}</p>}
       <div className="actions">
-        <button className="primary" type="submit" disabled={busy}>
-          Save connection
-        </button>
-        {kind === "netsuite" &&
-          (saved?.accountMissing ? (
-            <>
-              <button className="quiet" type="button" disabled>
-                Sign in with NetSuite
-              </button>
-              <span className="note">Save the account ID first.</span>
-            </>
-          ) : (
-            <a className="quiet" href="/api/auth/mcp/login">
-              <Glyph icon={glyph.signIn} />
-              Sign in with NetSuite
-            </a>
-          ))}
-      </div>
-      <div key={kind}>
-        <details className="panel" open={kind === "opensuitemcp"}>
-          <summary>OpenSuiteMCP setup</summary>
-          <ol className="steps">
-            <li>In the OpenSuiteMCP app portal, create an agent app and choose bearer auth.</li>
-            <li>Paste the server URL and the token here. A blank token keeps the one already saved.</li>
-            <li>On the NetSuite role, add the Setup permissions MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web Services.</li>
-            <li>Install the MCP Standard Tools SuiteApp. Use a role other than Administrator.</li>
-          </ol>
-        </details>
-        <details className="panel" open={kind === "netsuite"}>
-          <summary>NetSuite setup</summary>
-          <ol className="steps">
-            <li>Under Setup &gt; Company &gt; Enable Features, turn on Server SuiteScript, OAuth 2.0, and REST Web Services.</li>
-            <li>From the SuiteApps tab, install MCP Standard Tools.</li>
-            <li>On the role, add MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web Services. The Administrator role cannot use this connector.</li>
-            <li>
-              Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns. Turn on Authorization Code Grant and the NetSuite AI Connector Service scope. Leave token-based authentication and client credentials off.
-              <span className="uri">{saved?.redirectUri}</span>
-            </li>
-            <li>Paste the client ID. Add a secret only when the integration is confidential. For a public client, leave the secret blank.</li>
-            <li>Choose Standard tools, or Every SuiteApp to include tools from other installed apps. Save, then sign in.</li>
-          </ol>
-        </details>
-        <details className="panel" open={kind === "custom"}>
-          <summary>{names.custom} setup</summary>
-          <ol className="steps">
-            <li>Use this for Mint, or any other host that already exposes NetSuite MCP tools.</li>
-            <li>Paste that host's MCP URL and bearer token. A blank token keeps the one already saved.</li>
-            <li>The NetSuite role behind that host still needs MCP Server Connection and the MCP Standard Tools SuiteApp.</li>
-          </ol>
-        </details>
+        <Button className="primary" type="submit" busy={busy} disabled={!Object.keys(edits).length}>
+          Save connection settings
+        </Button>
       </div>
     </form>
   );
