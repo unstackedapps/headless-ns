@@ -43,7 +43,7 @@ const help = [
 type AskReply = {
   answer: string;
   steps: { name: string; ok: boolean; error?: string }[];
-  pending: { name: string; arguments: Record<string, unknown> }[] | null;
+  pending: { name: string; arguments: Record<string, unknown>; summary?: { title: string; details: string[] } }[] | null;
   pendingId?: string;
 };
 
@@ -137,7 +137,10 @@ export function CommandLine({
     }
     pendingId.current = result.pendingId || "";
     if (result.pending?.length) {
-      for (const call of result.pending) parts.push(`${call.name} ${JSON.stringify(call.arguments, null, 2)}`);
+      for (const call of result.pending) {
+        if (call.summary) parts.push(call.summary.title, ...call.summary.details.map((detail) => `  ${detail}`));
+        else parts.push(`${call.name} ${JSON.stringify(call.arguments, null, 2)}`);
+      }
       parts.push("Nothing was posted yet. Type confirm to run this on NetSuite, or cancel.");
     }
     push("out", parts.join("\n") || "No answer came back.");

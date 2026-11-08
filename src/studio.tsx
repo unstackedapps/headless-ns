@@ -10,7 +10,12 @@ import { ShapeSelect, ThemeSelect } from "./theme";
 import { api } from "./api";
 
 type Step = { name: string; ok: boolean; error?: string };
-type PendingCall = { id: string; name: string; arguments: Record<string, unknown> };
+type PendingCall = {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  summary?: { title: string; details: string[] };
+};
 type ChatMessage = {
   role: "user" | "assistant" | "tool";
   content?: string;
@@ -327,18 +332,30 @@ export function AskPage({
           {pending.map((call) => (
             <div key={call.id}>
               <p>
-                <code>{call.name}</code>
+                <strong>{call.summary?.title || call.name}</strong>
               </p>
-              <pre className="result">{JSON.stringify(call.arguments, null, 2)}</pre>
+              {call.summary && call.summary.details.length > 0 && (
+                <ul className="steps">
+                  {call.summary.details.map((detail, index) => (
+                    <li key={index}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+              <details>
+                <summary>
+                  Payload for <code>{call.name}</code>
+                </summary>
+                <pre className="result">{JSON.stringify(call.arguments, null, 2)}</pre>
+              </details>
             </div>
           ))}
           <div className="actions">
-            <button className="primary" type="button" disabled={busy} onClick={() => decide(true)}>
+            <Button className="primary" busy={busy} onClick={() => decide(true)}>
               Run on NetSuite
-            </button>
-            <button className="quiet" type="button" disabled={busy} onClick={() => decide(false)}>
+            </Button>
+            <Button className="quiet" disabled={busy} onClick={() => decide(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </section>
       )}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { PENDING_TTL_MS, ask, confirmAsk } from "../server/llm.mjs";
+import { MAX_MS, MAX_TURNS, PENDING_TTL_MS, ask, confirmAsk } from "../server/llm.mjs";
 
 const usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
@@ -14,6 +14,7 @@ function model(doGenerate) {
 
 const connection = { apiKey: "sk-test-secret", provider: "openai", model: "mock" };
 const identity = { accountId: "TD0000000", roleId: "customrole" };
+const query = async () => [];
 
 test("a write tool pauses the whole batch before anything runs", async () => {
   let ran = false;
@@ -26,6 +27,7 @@ test("a write tool pauses the whole batch before anything runs", async () => {
     })),
     connection,
     identity,
+    query,
     policy: { allowWrites: true, disabled: [] },
     catalog: [{ name: "ns_createRecord", description: "Create a record", schema: { type: "object", properties: {} } }],
     runTool: async () => {
@@ -57,6 +59,7 @@ test("a read tool runs and the next reply becomes the answer", async () => {
     }),
     connection,
     identity,
+    query,
     policy: { allowWrites: false, disabled: [] },
     catalog: [{ name: "ns_runCustomSuiteQL", description: "Run SuiteQL", schema: { type: "object", properties: {} } }],
     runTool: async (name, args) => {
@@ -95,6 +98,7 @@ async function propose() {
     model: writeThenAnswer(),
     connection,
     identity,
+    query,
     policy: { allowWrites: true, disabled: [] },
     catalog: createTool,
     runTool: async () => assert.fail("nothing runs before confirm"),
@@ -104,7 +108,7 @@ async function propose() {
 }
 
 function confirmWith(id, policy, runTool, seen = []) {
-  return confirmAsk({ id, approved: true, model: writeThenAnswer(seen), connection, identity, policy, catalog: createTool, runTool });
+  return confirmAsk({ id, approved: true, model: writeThenAnswer(seen), connection, identity, query, policy, catalog: createTool, runTool });
 }
 
 test("confirm runs the stored write once", async () => {
@@ -143,4 +147,113 @@ test("confirm re-checks the policy: tool disabled", async () => {
   const seen = [];
   await confirmWith(id, { allowWrites: true, disabled: ["ns_createRecord"] }, async () => assert.fail("must not run"), seen);
   assert.match(JSON.stringify(seen), /turned off for Ask/);
+});
+
+const sqlTool = [{ name: "ns_runCustomSuiteQL", description: "Run SuiteQL", schema: { type: "object", properties: {} } }];
+
+// Calls SuiteQL with a new query every turn, so it never repeats and never answers.
+function endlessReads() {
+  let n = 0;
+  return model(async () => {
+    n += 1;
+    return {
+      content: [{ type: "tool-call", toolCallId: `call-${n}`, toolName: "ns_runCustomSuiteQL", input: { sqlQuery: `select ${n}` } }],
+      finishReason: "tool-calls",
+      usage,
+    };
+  });
+}
+
+test("one request can take many steps, then stops at the turn limit", async () => {
+  let ran = 0;
+  const result = await ask({
+    text: "Keep reading.",
+    model: endlessReads(),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: false, disabled: [] },
+    catalog: sqlTool,
+    runTool: async () => {
+      ran += 1;
+      return { rows: [] };
+    },
+  });
+  assert.ok(MAX_TURNS >= 10, "room for quote, order and fulfillment reads");
+  assert.equal(ran, MAX_TURNS);
+  assert.match(result.answer, new RegExp(`after ${MAX_TURNS} steps`));
+});
+
+test("a request stops when it runs out of time", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  let ran = 0;
+  const result = await ask({
+    text: "Keep reading.",
+    model: endlessReads(),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: false, disabled: [] },
+    catalog: sqlTool,
+    runTool: async () => {
+      ran += 1;
+      if (ran === 2) t.mock.timers.tick(MAX_MS + 1);
+      return { rows: [] };
+    },
+  });
+  assert.equal(ran, 2);
+  assert.match(result.answer, /ran out of time/);
+});
+
+test("the same failing call twice stops the request", async () => {
+  let ran = 0;
+  const result = await ask({
+    text: "Read it.",
+    model: model(async () => ({
+      content: [{ type: "tool-call", toolCallId: `call-x${ran}`, toolName: "ns_runCustomSuiteQL", input: { sqlQuery: "select bad" } }],
+      finishReason: "tool-calls",
+      usage,
+    })),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: false, disabled: [] },
+    catalog: sqlTool,
+    runTool: async () => {
+      ran += 1;
+      throw new Error("Invalid search query");
+    },
+  });
+  assert.equal(ran, 1);
+  assert.match(result.answer, /failed twice with the same input/);
+});
+
+test("a pending write carries a readable summary with looked-up names", async () => {
+  const data = {
+    entity: { id: "341" },
+    location: { id: "2" },
+    externalId: "hns-ask-estimate-1",
+    item: { items: [{ item: { id: "248" }, quantity: 2, rate: 10 }, { item: { id: "243" }, quantity: 3, rate: 5 }] },
+  };
+  const result = await ask({
+    text: "Make a quote.",
+    model: model(async () => ({
+      content: [{ type: "tool-call", toolCallId: "call-q", toolName: "ns_createRecord", input: { recordType: "estimate", data: JSON.stringify(data) } }],
+      finishReason: "tool-calls",
+      usage,
+    })),
+    connection,
+    identity,
+    query: async (sql) => {
+      if (/FROM entity/.test(sql)) return [{ id: "341", name: "Acme" }];
+      if (/FROM location/.test(sql)) return [{ id: "2", name: "Boston" }];
+      if (/FROM item/.test(sql)) return [{ id: "248", name: "SPC002" }, { id: "243", name: "GAR002" }];
+      return [];
+    },
+    policy: { allowWrites: true, disabled: [] },
+    catalog: createTool,
+    runTool: async () => assert.fail("nothing runs before confirm"),
+  });
+  assert.equal(result.pending[0].summary.title, "Create quote for Acme: 2 lines, Boston, total $35.00");
+  assert.deepEqual(result.pending[0].summary.details.slice(0, 2), ["2 × SPC002 at $10.00", "3 × GAR002 at $5.00"]);
 });

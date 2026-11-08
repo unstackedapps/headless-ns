@@ -1,12 +1,18 @@
 import { randomBytes } from "node:crypto";
 import { APICallError, dynamicTool, generateText, jsonSchema } from "ai";
 import { WRITE_TOOLS, assistantCanCall } from "./kinds.mjs";
-import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
+import { callTool, listTools, osmcpIdentity, suiteqlOsmcp, withSource } from "./osmcp.mjs";
 import { modelStore } from "./models.mjs";
 import { readPolicy } from "./policy.mjs";
 import { languageModel, scrub } from "./providers.mjs";
+import { describeWrites } from "./summary.mjs";
 
 const ROLES = new Set(["user", "assistant", "tool"]);
+
+// One request may read, then propose a write. A quote, order and fulfillment take three
+// requests (one per confirm), each with a few reads, so 12 model turns per request is plenty.
+export const MAX_TURNS = 12;
+export const MAX_MS = 4 * 60_000;
 
 // Writes the model proposed, held here until the person confirms them by id.
 // The client never sends the tool calls back, so it cannot change what runs.
@@ -46,14 +52,22 @@ function systemPrompt(identity) {
     "Call tools for every figure. Do not invent amounts, names, or record ids.",
     "Use ns_runCustomSuiteQL for lists and counts. Call ns_getSuiteQLMetadata before using a column you have not seen.",
     "Use ns_listAllReports, ns_getSubsidiaries, and ns_runReport for saved reports. Dates are YYYY-MM-DD.",
-    "A write tool posts a record. Call it only when the person asked to change NetSuite. The server pauses for confirmation before it runs.",
+    "A write tool posts a record. Call it only when the person asked to change NetSuite. The server pauses for confirmation before it runs. Propose one write at a time and continue after it runs.",
+    "Write payloads: `data` is a JSON string. References are {\"id\":\"341\"}. Lines go in {\"item\":{\"items\":[{\"item\":{\"id\":\"248\"},\"quantity\":2,\"rate\":10}]}}. Always send a rate.",
+    "Set a new \"externalId\" like \"hns-ask-<type>-<random>\" inside `data` on every ns_createRecord and ns_transformRecord.",
+    "ns_transformRecord takes sourceRecordType, sourceRecordId, targetRecordType and optional `data` that overrides the copied values. Quote to order: estimate to salesorder.",
+    "Sales order to itemfulfillment: data {\"generateIntegratedShipperLabel\":false,\"shipMethod\":null,\"shipStatus\":{\"id\":\"C\"}}. To ship only some lines add item.items with {\"orderLine\":1,\"itemReceive\":true,\"quantity\":2}.",
+    "Success returns {\"success\":true,\"recordId\":\"...\"}. On failure read the error and fix the payload.",
+    "If a create or transform times out it may still have saved. Never retry it. Look it up with SELECT id, tranid FROM transaction WHERE externalid = '<the externalId>'.",
     "Keep the reply short. Name the figure and the tool that produced it.",
   ].join(" ");
 }
 
 function sanitize(transcript) {
   if (!Array.isArray(transcript)) return [];
-  return transcript.slice(-30).flatMap((message) => {
+  const recent = transcript.slice(-30);
+  while (recent.length && recent[0]?.role === "tool") recent.shift();
+  return recent.flatMap((message) => {
     if (!message || !ROLES.has(message.role)) return [];
     const next = { role: message.role };
     if (message.role === "tool") {
@@ -161,7 +175,7 @@ function sdkTools(catalog) {
   return tools;
 }
 
-async function step(model, messages, tools, secret) {
+async function step(model, messages, tools, secret, timeoutMs = 90_000) {
   const instructions = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
   const prompt = messages.filter((message) => message.role !== "system");
   try {
@@ -171,7 +185,7 @@ async function step(model, messages, tools, secret) {
       messages: prompt,
       tools: Object.keys(tools).length ? tools : undefined,
       temperature: 0.1,
-      abortSignal: AbortSignal.timeout(90_000),
+      abortSignal: AbortSignal.timeout(Math.max(1000, timeoutMs)),
     });
   } catch (error) {
     const message = scrub(error instanceof Error ? error.message : "The model request failed.", secret);
@@ -181,12 +195,20 @@ async function step(model, messages, tools, secret) {
   }
 }
 
-async function loop(clientMessages, { model, secret, policy, runTool, catalog }) {
+function stopped(answer, steps, clientMessages) {
+  return { answer, steps, pending: null, transcript: clientMessages.filter((item) => item.role !== "system") };
+}
+
+async function loop(clientMessages, { model, secret, policy, runTool, catalog, query }) {
   const tools = sdkTools(catalog);
   const messages = toModelMessages(clientMessages);
   const steps = [];
-  for (let turn = 0; turn < 4; turn += 1) {
-    const result = await step(model, messages, tools, secret);
+  const failed = new Set();
+  const deadline = Date.now() + MAX_MS;
+  for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+    const left = deadline - Date.now();
+    if (left <= 0) return stopped("I ran out of time on this request. Ask me to continue.", steps, clientMessages);
+    const result = await step(model, messages, tools, secret, Math.min(90_000, left));
     const calls = result.toolCalls || [];
     const assistant = {
       role: "assistant",
@@ -194,21 +216,24 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog })
       ...(calls.length ? { tool_calls: calls.map(clientCall) } : {}),
     };
     clientMessages.push(assistant);
-    if (!calls.length) {
-      return { answer: result.text || "", steps, pending: null, transcript: clientMessages.filter((item) => item.role !== "system") };
-    }
+    if (!calls.length) return stopped(result.text || "", steps, clientMessages);
     const writes = calls.filter((call) => WRITE_TOOLS.has(call.toolName) && !refusal(call.toolName, policy));
     if (writes.length) {
       const transcript = clientMessages.filter((item) => item.role !== "system");
+      const pending = calls.map((call) => ({ id: call.toolCallId, name: call.toolName, arguments: call.input ?? {} }));
       return {
         answer: result.text || "",
         steps,
-        pending: calls.map((call) => ({ id: call.toolCallId, name: call.toolName, arguments: call.input ?? {} })),
+        pending: await describeWrites(pending, query),
         pendingId: holdPending(transcript),
         transcript,
       };
     }
     for (const call of calls) {
+      const key = `${call.toolName} ${JSON.stringify(call.input ?? {})}`;
+      if (failed.has(key)) {
+        return stopped(`I stopped because ${call.toolName} failed twice with the same input.`, steps, clientMessages);
+      }
       const blocked = refusal(call.toolName, policy);
       let payload;
       let ok = true;
@@ -226,6 +251,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog })
           error = payload.error;
         }
       }
+      if (!ok) failed.add(key);
       const content = JSON.stringify(payload).slice(0, 14000);
       clientMessages.push({ role: "tool", tool_call_id: call.toolCallId, name: call.toolName, content });
       steps.push({ name: call.toolName, ok, ...(error ? { error } : {}) });
@@ -233,12 +259,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog })
     messages.length = 0;
     messages.push(...toModelMessages(clientMessages));
   }
-  return {
-    answer: "I stopped after several tool calls. Ask a narrower question.",
-    steps,
-    pending: null,
-    transcript: clientMessages.filter((item) => item.role !== "system"),
-  };
+  return stopped(`I stopped after ${MAX_TURNS} steps. Ask me to continue, or ask a narrower question.`, steps, clientMessages);
 }
 
 async function context(options) {
@@ -248,7 +269,8 @@ async function context(options) {
   const identity = options.identity === undefined ? await osmcpIdentity().catch(() => null) : options.identity;
   const model = options.model || languageModel(connection);
   const runTool = options.runTool || ((name, args) => withSource("ask", () => callTool(name, args)));
-  return { connection, policy, catalog, identity, model, runTool };
+  const query = options.query || (async (sql) => (await withSource("ask", () => suiteqlOsmcp(sql, 100))).items);
+  return { connection, policy, catalog, identity, model, runTool, query };
 }
 
 export async function ask({ text, transcript, ...options }) {
@@ -267,6 +289,7 @@ export async function ask({ text, transcript, ...options }) {
     policy: ready.policy,
     runTool: ready.runTool,
     catalog: ready.catalog,
+    query: ready.query,
   });
 }
 
@@ -297,6 +320,7 @@ export async function confirmAsk({ id, approved, ...options }) {
     policy: ready.policy,
     runTool: ready.runTool,
     catalog: ready.catalog,
+    query: ready.query,
   });
 }
 
