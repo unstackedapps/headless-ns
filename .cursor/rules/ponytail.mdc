@@ -1,0 +1,12 @@
+---
+description: Follow the ponytail skill when writing, fixing, or refactoring code in this repo.
+alwaysApply: true
+---
+
+# Ponytail for code
+
+Before writing, fixing, or refactoring code, read and follow `.cursor/skills/ponytail/SKILL.md` at level full.
+
+Solve the whole task with the smallest change that works. Use what this codebase, the platform, or an installed dependency already provides. Skip abstractions, options, and dependencies nobody asked for. Finish every caller, test, and fixture the change breaks.
+
+Leave prose to `.cursor/skills/natural-cadence-editor/SKILL.md`.

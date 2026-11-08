@@ -15,6 +15,8 @@ const screens = [
   "items",
   "people",
   "reports",
+  "searches",
+  "files",
   "workbench",
   "trace",
   "settings",
@@ -68,6 +70,7 @@ export function AskDrawer({ open, onClose }: { open: boolean; onClose: () => voi
 
   return (
     <aside className={open ? "ask-drawer open" : "ask-drawer"} aria-hidden={!open} inert={!open} aria-label="Ask">
+      <div className="ask-frame">
       <header className="drawer-bar">
         <strong>Ask</strong>
         {label && (
@@ -87,6 +90,7 @@ export function AskDrawer({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
       </header>
       <AskPage docked onLlm={setLlm} clearRef={clearRef} onDirty={setDirty} />
+      </div>
     </aside>
   );
 }
@@ -305,22 +309,20 @@ export function CommandLine({
         </div>
       </header>
       {!minimized && (
-        <>
-          <div className="cli-log" ref={logRef}>
-            {lines.map((line) => (
-              <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
-                {line.tone === "in" ? `hn> ${line.text}` : line.text}
-              </pre>
-            ))}
-          </div>
+        <div className="cli-log" ref={logRef} onClick={() => inputRef.current?.focus()}>
+          {lines.map((line) => (
+            <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
+              {line.tone === "in" ? `hns> ${line.text}` : line.text}
+            </pre>
+          ))}
           <form
-            className="cli-line"
+            className="cli-prompt"
             onSubmit={(event) => {
               event.preventDefault();
               run(input);
             }}
           >
-            <span>hn&gt;</span>
+            <span>hns&gt;</span>
             <input
               ref={inputRef}
               value={input}
@@ -332,7 +334,7 @@ export function CommandLine({
               onKeyDown={onKey}
             />
           </form>
-        </>
+        </div>
       )}
     </section>
   );

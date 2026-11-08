@@ -1,0 +1,12 @@
+---
+description: Follow the natural cadence editor before writing or editing any prose in this repo, including the README, technical docs, and UI copy.
+alwaysApply: true
+---
+
+# Natural cadence for copy
+
+Before writing or revising prose a person is meant to read, read and follow `.cursor/skills/natural-cadence-editor/SKILL.md`.
+
+That includes the README, technical docs, changelogs, release notes, UI copy, and in-code strings shown to a user. Leave code, commands, identifiers, and config unchanged.
+
+Do not finish the draft until it passes that skill: read each sentence aloud, break stacked clauses, and remove repeated stems, echoed nouns and verbs, and accidental alliteration.

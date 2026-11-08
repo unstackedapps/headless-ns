@@ -9,9 +9,49 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <style>
+      .hns-screen {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .hns-mark { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+      .hns-name { margin: 0; font: 600 16px/1.2 "IBM Plex Sans", "Segoe UI", sans-serif; letter-spacing: -0.02em; }
+      .hns-hdr, .hns-r1, .hns-r2 {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: 1.6s cubic-bezier(.65, 0, .35, 1) infinite;
+      }
+      .hns-hdr { transform: rotate(-8deg); opacity: .4; animation-name: hns-hdr; }
+      .hns-r1 { animation-name: hns-r1; animation-delay: .08s; }
+      .hns-r2 { animation-name: hns-r2; animation-delay: .16s; }
+      @keyframes hns-hdr { 50% { transform: translateY(8px) rotate(0); opacity: 1; } }
+      @keyframes hns-r1 { 50% { transform: translateY(4px); } }
+      @keyframes hns-r2 { 50% { transform: translateY(2px); } }
+      @media (prefers-reduced-motion: reduce) {
+        .hns-hdr, .hns-r1, .hns-r2 { animation: none; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="hns-screen is-cover" role="status" aria-label="Loading">
+        <div class="hns-mark">
+        <svg class="hns-loader" viewBox="0 0 32 32" width="96" height="96" aria-hidden="true">
+          <rect width="32" height="32" rx="3" fill="#1E4B80"/>
+          <g fill="#fff">
+            <rect class="hns-hdr" x="7" y="4.5" width="18" height="3"/>
+            <g class="hns-r1"><rect x="7" y="13" width="11" height="3"/><rect x="20" y="13" width="5" height="3"/></g>
+            <g class="hns-r2"><rect x="7" y="18.5" width="11" height="3"/><rect x="20" y="18.5" width="5" height="3"/></g>
+            <rect x="7" y="24" width="11" height="3"/><rect x="20" y="24" width="5" height="3"/>
+          </g>
+        </svg>
+        <p class="hns-name">headless-ns</p>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

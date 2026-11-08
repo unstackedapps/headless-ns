@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "opensuitemcp": {
+      "url": "https://app.opensuitemcp.com/api/mcp"
+    }
+  }
+}

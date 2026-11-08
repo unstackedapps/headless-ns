@@ -44,27 +44,14 @@ export function useRefreshInterval() {
   return [id, choose] as const;
 }
 
-type RefreshDetail = { scope?: string };
+type RefreshDetail = { scope?: string; quiet?: boolean };
 
 export function refreshAll() {
   window.dispatchEvent(new CustomEvent<RefreshDetail>("hn-refresh", { detail: {} }));
 }
 
-export function refreshScope(scope: string) {
-  window.dispatchEvent(new CustomEvent<RefreshDetail>("hn-refresh", { detail: { scope } }));
-}
-
-export function useRefreshTick(scope: string) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const onRefresh = (event: Event) => {
-      const next = (event as CustomEvent<RefreshDetail>).detail?.scope;
-      if (!next || next === scope) setTick((value) => value + 1);
-    };
-    window.addEventListener("hn-refresh", onRefresh);
-    return () => window.removeEventListener("hn-refresh", onRefresh);
-  }, [scope]);
-  return tick;
+export function refreshScope(scope: string, quiet = false) {
+  window.dispatchEvent(new CustomEvent<RefreshDetail>("hn-refresh", { detail: { scope, quiet } }));
 }
 
 let busy = 0;

@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { amount, clock, count, dateLabel } from "./format";
 import { SeriesChart } from "./chart";
 import { UserMenu } from "./account";
 import { AskDrawer, CommandLine } from "./chrome";
 import { ConnectionPanel } from "./connect";
+import { FilesPage } from "./files";
+import { RelatedHost, RelatedLink } from "./related";
+import { SearchesPage } from "./searches";
 import { Glyph, glyph, navIcons } from "./icons";
 import { Pick, Tip } from "./pick";
 import { portletCatalog, useLayout, widthWord, type MeasureId, type PortletPref, type RangeId, type Span, type VisualId } from "./layout";
-import { Lookup, SkeletonPortlets, SkeletonRecord, SkeletonTable } from "./load";
+import { LoadingPage, Lookup, SkeletonPortlets, SkeletonRecord, SkeletonTable } from "./load";
 import { markBusy, refreshAll, refreshMs, refreshScope, RefreshButton, RefreshIntervalSelect, useRefreshBusy, useRefreshInterval } from "./refresh";
 import { ReportsPage, SettingsPage, TracePage, WorkbenchPage } from "./studio";
 
@@ -143,6 +146,8 @@ const ledgerViews = [
   ["bills", "Bills"],
   ["items", "Items"],
   ["people", "People"],
+  ["searches", "Searches"],
+  ["files", "Files"],
 ] as const;
 
 const studioViews = [
@@ -423,16 +428,7 @@ export function App() {
     );
   }
 
-  if (!session) {
-    return (
-      <main className="signin">
-        <section className="card">
-          <h1>headless-ns</h1>
-          <Lookup label="Checking the NetSuite account." />
-        </section>
-      </main>
-    );
-  }
+  if (!session) return <LoadingPage cover />;
 
   if (!session.signedIn) return <SignIn session={session} authError={authError} />;
 
@@ -471,7 +467,7 @@ export function App() {
           />
         </div>
       </header>
-      <div className="shell">
+      <div className={askOpen ? "shell ask-open" : "shell"}>
         <SideNav view={view} />
         <main>
           {view === "overview" && <OverviewPage />}
@@ -486,13 +482,16 @@ export function App() {
           {view === "bills" && <BillsPage title="Bills" path="/api/bills" party="Vendor" />}
           {view === "items" && <ItemsPage />}
           {view === "people" && <PeoplePage />}
-          {view === "reports" && <ReportsPage />}
-          {view === "workbench" && <WorkbenchPage />}
+        {view === "reports" && <ReportsPage />}
+        {view === "searches" && <SearchesPage />}
+        {view === "workbench" && <WorkbenchPage />}
           {view === "trace" && <TracePage />}
+          {view === "files" && <FilesPage />}
           {view === "settings" && <SettingsPage />}
         </main>
+        <AskDrawer open={askOpen} onClose={() => setAskOpen(false)} />
       </div>
-      <AskDrawer open={askOpen} onClose={() => setAskOpen(false)} />
+      <RelatedHost />
       <CommandLine
         open={shellOpen}
         onClose={() => setShellOpen(false)}
@@ -527,7 +526,7 @@ function SignIn({ session, authError }: { session: SessionInfo; authError: strin
             {session.discovery.issuer.replace("https://", "")}. Scopes include {scopes.join(", ")}.{" "}
             {session.discovery.signingKeys > 0
               ? `${session.discovery.signingKeys} signing keys are published.`
-              : "Signing keys are not published yet, so sign-in checks issuer, audience, nonce, and expiry on the ID token."}
+              : "No signing keys are published yet. Sign-in still checks the issuer, audience, nonce, and expiry."}
           </p>
         ) : (
           <p className="error">{session.discoveryError || "OIDC discovery did not respond."}</p>
@@ -535,9 +534,10 @@ function SignIn({ session, authError }: { session: SessionInfo; authError: strin
         <ol className="steps">
           <li>The role you sign in with needs the Setup permission Log in using OAuth 2.0 Access Tokens.</li>
           <li>
-            Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns, set State to Enabled, and on
-            Authentication check Authorization Code Grant and REST Web Services. Leave Public Client and Client Credentials
-            unchecked. Save, then copy the client ID and client secret into <code>.env</code>. NetSuite shows them once.
+            Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns and set State to Enabled.
+            Under Authentication, check Authorization Code Grant and REST Web Services. Leave Public Client and Client
+            Credentials unchecked. Save, then copy the client ID and client secret into <code>.env</code>. NetSuite shows
+            them once.
             <span className="uri">{session.redirectUri}</span>
           </li>
           <li>
@@ -602,25 +602,43 @@ function metricView(metric: Metric | undefined, measure: MeasureId) {
   return { figure: count(metric?.n ?? 0), note: "Active", failed: false, points: [] as { label: string; value: number }[] };
 }
 
-function useRangeData<T>(path: string, ranges: string[], prefix: string) {
+function useRangeData<T>(path: string, ranges: string[]) {
   const key = [...new Set(ranges)].sort().join(",");
   const [bundle, setBundle] = useState<Record<string, { data: T | null; error: string | null; loading: boolean }>>({});
   const [generation, setGeneration] = useState(0);
-  const [focus, setFocus] = useState<{ range: string; n: number } | null>(null);
+
+  const reload = useCallback(
+    async (range: string, quiet = false) => {
+      if (!quiet) {
+        setBundle((current) => ({
+          ...current,
+          [range]: { data: current[range]?.data ?? null, error: null, loading: true },
+        }));
+      }
+      try {
+        const response = await fetch(`${path}?range=${range}`);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
+        setBundle((current) => ({ ...current, [range]: { data: body as T, error: null, loading: false } }));
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : "Refresh failed.";
+        setBundle((current) => ({
+          ...current,
+          [range]: { data: current[range]?.data ?? null, error: message, loading: false },
+        }));
+      }
+    },
+    [path],
+  );
 
   useEffect(() => {
     const onRefresh = (event: Event) => {
       const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
-      if (!scope || scope === "dashboard") {
-        setGeneration((value) => value + 1);
-        return;
-      }
-      const marker = `${prefix}:`;
-      if (scope.startsWith(marker)) setFocus({ range: scope.slice(marker.length), n: Date.now() });
+      if (!scope || scope === "dashboard") setGeneration((value) => value + 1);
     };
     window.addEventListener("hn-refresh", onRefresh);
     return () => window.removeEventListener("hn-refresh", onRefresh);
-  }, [prefix]);
+  }, []);
 
   useEffect(() => {
     const list = key ? key.split(",") : [];
@@ -669,55 +687,21 @@ function useRangeData<T>(path: string, ranges: string[], prefix: string) {
     };
   }, [path, key, generation]);
 
-  useEffect(() => {
-    if (!focus || !key.split(",").includes(focus.range)) return;
-    const range = focus.range;
-    const controller = new AbortController();
-    let settled = false;
-    const done = () => {
-      if (settled) return;
-      settled = true;
-      markBusy(false);
-    };
-    markBusy(true);
-    setBundle((current) => ({
-      ...current,
-      [range]: { data: current[range]?.data ?? null, error: null, loading: true },
-    }));
-    fetch(`${path}?range=${range}`, { signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-        setBundle((current) => ({ ...current, [range]: { data: body as T, error: null, loading: false } }));
-      })
-      .catch((reason: Error) => {
-        if (reason.name === "AbortError") return;
-        setBundle((current) => ({
-          ...current,
-          [range]: { data: current[range]?.data ?? null, error: reason.message, loading: false },
-        }));
-      })
-      .finally(done);
-    return () => {
-      controller.abort();
-      done();
-    };
-  }, [focus, path, key]);
-
-  return bundle;
+  return [bundle, reload] as const;
 }
 
 function OverviewPage() {
   const { layout, editing, setEditing, update } = useLayout();
   const overviewRanges = ["all", ...layout.filter((item) => moneyIds.has(item.id)).map((item) => item.range)];
   const activityRanges = layout.filter((item) => item.id === "activity").map((item) => item.range);
-  const overviews = useRangeData<Overview>("/api/overview", overviewRanges, "overview");
-  const activities = useRangeData<Activity>("/api/activity", activityRanges.length ? activityRanges : ["year"], "activity");
+  const [overviews, reloadOverview] = useRangeData<Overview>("/api/overview", overviewRanges);
+  const [activities, reloadActivity] = useRangeData<Activity>("/api/activity", activityRanges.length ? activityRanges : ["year"]);
   const overview = overviews.all ?? { data: null, error: null, loading: true };
   const activity = activities[layout.find((item) => item.id === "activity")?.range || "year"] ?? { data: null, error: null, loading: true };
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [refreshEvery] = useRefreshInterval();
+  const [spinId, setSpinId] = useState<string | null>(null);
 
   useEffect(() => {
     const ms = refreshMs(refreshEvery);
@@ -760,6 +744,8 @@ function OverviewPage() {
 
   const hidden = layout.filter((item) => item.hidden);
 
+  const firstLoad = overview.loading && !overview.data && !overview.error;
+
   return (
     <>
       <header className="page-head">
@@ -777,13 +763,10 @@ function OverviewPage() {
       </header>
       {editing && <p className="status">Drag a card to reorder it. Each card can change its dates, figure, and chart. This browser keeps the layout.</p>}
       {overview.error && <p className="error">{overview.error}</p>}
-      {overview.loading && !overview.data ? (
-        <>
-          <Lookup label="Looking up the ledger." />
-          <SkeletonPortlets />
-        </>
+      {firstLoad ? (
+        <SkeletonPortlets />
       ) : (
-        <section className={overview.loading ? "portlets is-loading" : "portlets"} aria-label="Home cards">
+      <section className={overview.loading ? "portlets is-loading" : "portlets"} aria-label="Home cards">
           {layout.map((pref, index) => {
             if (pref.hidden && !editing) return null;
             const card = portletCatalog.find((item) => item.id === pref.id);
@@ -805,8 +788,8 @@ function OverviewPage() {
                     : count(activityTotal);
             const chartable = card.kind === "activity" ? activityPoints.length > 1 : (metric?.points.length ?? 0) > 1;
             const visual: VisualId = chartable ? pref.visual : "number";
-            const scope = card.kind === "activity" ? `activity:${pref.range}` : `overview:${moneyIds.has(pref.id) ? pref.range : "all"}`;
-            const reloading = card.kind === "activity" ? Boolean(activityCard?.loading && activityCard.data) : Boolean(source.loading && source.data);
+            const sharedLoading = card.kind === "activity" ? Boolean(activityCard?.loading && activityCard.data) : Boolean(source.loading && source.data);
+            const reloading = spinId === pref.id || (spinId === null && sharedLoading);
             const className = [
               "portlet",
               !editing && card.href ? "is-link" : "",
@@ -948,7 +931,18 @@ function OverviewPage() {
                 <header>
                   <span>{card.kind === "activity" ? `Transactions, ${rangeLabel[pref.range].toLowerCase()}` : card.label}</span>
                   <div className="portlet-end">
-                    {!editing && <RefreshButton label={card.label} scope={scope} busy={reloading} />}
+                    {!editing && (
+                      <RefreshButton
+                        label={card.label}
+                        busy={spinId === pref.id}
+                        onClick={() => {
+                          const range = card.kind === "activity" ? pref.range : moneyIds.has(pref.id) ? pref.range : "all";
+                          const run = card.kind === "activity" ? reloadActivity : reloadOverview;
+                          setSpinId(pref.id);
+                          run(range, true).finally(() => setSpinId((current) => (current === pref.id ? null : current)));
+                        }}
+                      />
+                    )}
                     {tools}
                   </div>
                 </header>
@@ -981,9 +975,13 @@ function OverviewPage() {
               </section>
             );
           })}
-        </section>
+      </section>
       )}
-      {editing && hidden.length > 0 && <p className="status">{hidden.length} hidden. Use Show on a card to bring it back.</p>}
+      {editing && hidden.length > 0 && (
+        <p className="status">
+          {hidden.length} {hidden.length === 1 ? "card is" : "cards are"} hidden. Use Show on a card to bring it back.
+        </p>
+      )}
     </>
   );
 }
@@ -1041,14 +1039,7 @@ function ListFrame({
             />
           </label>
         </div>
-        {loading && !ready ? (
-          <>
-            <Lookup label={`Looking up ${title.toLowerCase()}.`} />
-            <SkeletonTable />
-          </>
-        ) : (
-          children
-        )}
+        {loading && !ready ? <SkeletonTable /> : children}
       </section>
     </>
   );
@@ -1084,9 +1075,28 @@ function explain(message: string) {
   }
   const missing = /Record '([^']+)' was not found/i.exec(message);
   if (missing) {
-    return `The OpenSuiteMCP role cannot see ${missing[1]}. Add View for that record on the role, then reload.`;
+    return `This role cannot see ${missing[1]}. Add View for that record on the role, then reload.`;
   }
   return message;
+}
+
+function RecordActions({
+  kind,
+  id,
+  title,
+  href,
+}: {
+  kind: "customer" | "transaction" | "item" | "employee";
+  id: string;
+  title: string;
+  href: string;
+}) {
+  return (
+    <div className="row-actions">
+      <RelatedLink kind={kind} id={id} title={title} />
+      <NetSuiteLink href={href} label={title} />
+    </div>
+  );
 }
 
 function NetSuiteLink({ href, label }: { href: string; label: string }) {
@@ -1142,7 +1152,7 @@ function CustomersPage() {
                 <td>{row.email || "—"}</td>
                 <td>{row.phone || "—"}</td>
                 <td>
-                  <NetSuiteLink href={row.href} label={row.name} />
+                  <RecordActions kind="customer" id={row.id} title={row.name} href={row.href} />
                 </td>
               </tr>
             ))}
@@ -1189,10 +1199,13 @@ function CustomerFilePanel({
             </div>
             <div className="actions">
               {customer && (
-                <a className="quiet" href={customer.href} target="_blank" rel="noreferrer">
-                  <Glyph icon={glyph.external} size={14} />
-                  Open in NetSuite
-                </a>
+                <>
+                  <RelatedLink kind="customer" id={customer.id} title={customer.name} />
+                  <a className="quiet" href={customer.href} target="_blank" rel="noreferrer">
+                    <Glyph icon={glyph.external} size={14} />
+                    Open in NetSuite
+                  </a>
+                </>
               )}
               <RefreshButton label="customer" scope={scope} busy={file.loading && Boolean(customer)} />
               <button className="quiet" type="button" onClick={onClose}>
@@ -1260,7 +1273,7 @@ function CustomerFilePanel({
                   </td>
                   <td className="num">{amount(row.amount, row.currency)}</td>
                   <td>
-                    <NetSuiteLink href={row.href} label={row.number} />
+                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
                   </td>
                 </>
               )}
@@ -1278,7 +1291,7 @@ function CustomerFilePanel({
                   <td>{dateLabel(row.due)}</td>
                   <td className="num">{amount(row.unpaid, row.currency)}</td>
                   <td>
-                    <NetSuiteLink href={row.href} label={row.number} />
+                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
                   </td>
                 </>
               )}
@@ -1376,7 +1389,7 @@ function TransactionList({
                 </td>
                 <td className="num">{amount(row.amount, row.currency)}</td>
                 <td>
-                  <NetSuiteLink href={row.href} label={row.number} />
+                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
                 </td>
               </tr>
             ))}
@@ -1434,7 +1447,7 @@ function BillsPage({ title, path, party }: { title: string; path: string; party:
                 <td className="num">{amount(row.amount, row.currency)}</td>
                 <td className="num">{amount(row.unpaid, row.currency)}</td>
                 <td>
-                  <NetSuiteLink href={row.href} label={row.number} />
+                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
                 </td>
               </tr>
             ))}
@@ -1489,7 +1502,7 @@ function ItemsPage() {
                 <td className="num">{row.onHand == null ? "—" : count(row.onHand)}</td>
                 <td className="num">{row.available == null ? "—" : count(row.available)}</td>
                 <td>
-                  <NetSuiteLink href={row.href} label={row.name} />
+                  <RecordActions kind="item" id={row.id} title={row.name} href={row.href} />
                 </td>
               </tr>
             ))}
@@ -1549,7 +1562,7 @@ function PeoplePage() {
                   <StatusPill value={row.salesRep === "Yes" || row.salesRep === "T" ? "Yes" : row.salesRep || "No"} />
                 </td>
                 <td>
-                  <NetSuiteLink href={row.href} label={row.name} />
+                  <RecordActions kind="employee" id={row.id} title={row.name} href={row.href} />
                 </td>
               </tr>
             ))}

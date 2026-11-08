@@ -913,6 +913,156 @@ function assertReadQuery(sql) {
   return one;
 }
 
+const TYPE_LABELS = {
+  CustInvc: "Invoice",
+  SalesOrd: "Sales order",
+  CashSale: "Cash sale",
+  CustCred: "Credit memo",
+  CustPymt: "Payment",
+  VendBill: "Bill",
+  VendPymt: "Bill payment",
+  VendCred: "Bill credit",
+  ItemShip: "Fulfillment",
+  ItemRcpt: "Receipt",
+  Journal: "Journal",
+  PurchOrd: "Purchase order",
+  Estimate: "Estimate",
+  RtnAuth: "Return",
+};
+
+function typeLabel(type) {
+  return TYPE_LABELS[type] || type || "Transaction";
+}
+
+function txNode(row, focusId) {
+  const id = String(field(row, "id") || "");
+  return {
+    id: `transaction:${id}`,
+    label: `${typeLabel(String(field(row, "type") || ""))} ${field(row, "tranid") || id}`.trim(),
+    detail: String(field(row, "trandate") || ""),
+    focus: id === focusId,
+    kind: "transaction",
+    recordId: id,
+  };
+}
+
+async function relatedGraph(req, res, url) {
+  const session = await authorized(req, res);
+  if (!session) return;
+  const kind = url.searchParams.get("kind") || "";
+  const id = String(url.searchParams.get("id") || "");
+  if (!["customer", "transaction", "item", "employee"].includes(kind) || !/^-?\d+$/.test(id)) {
+    sendJson(res, 400, { error: "Choose a customer, transaction, item, or employee." });
+    return;
+  }
+  const nodes = [];
+  const edges = [];
+  let txIds = [];
+
+  if (kind === "customer" || kind === "employee") {
+    const table = kind === "customer" ? "customer" : "employee";
+    const who = await query(session, `SELECT id, entityid FROM ${table} WHERE id = ${id}`, 1, "related");
+    const name = field(who.items?.[0], "entityid") || (kind === "customer" ? "Customer" : "Employee");
+    nodes.push({
+      id: `${kind}:${id}`,
+      label: String(name),
+      detail: kind === "customer" ? "Customer" : "Employee",
+      focus: true,
+      kind,
+      recordId: id,
+    });
+    const column = kind === "customer" ? "entity" : "employee";
+    const txs = await query(
+      session,
+      `SELECT id, tranid, type, trandate FROM transaction WHERE ${column} = ${id} AND NVL(voided, 'F') = 'F' ORDER BY trandate DESC`,
+      24,
+      "related",
+    );
+    for (const row of txs.items || []) {
+      const node = txNode(row, "");
+      nodes.push(node);
+      txIds.push(node.recordId);
+    }
+  } else if (kind === "item") {
+    const item = await query(session, `SELECT id, itemid FROM item WHERE id = ${id}`, 1, "related");
+    nodes.push({
+      id: `item:${id}`,
+      label: String(field(item.items?.[0], "itemid") || "Item"),
+      detail: "Item",
+      focus: true,
+      kind: "item",
+      recordId: id,
+    });
+    const txs = await query(
+      session,
+      `SELECT DISTINCT t.id, t.tranid, t.type, t.trandate FROM transaction t INNER JOIN transactionline tl ON tl.transaction = t.id WHERE tl.item = ${id} ORDER BY t.trandate DESC`,
+      24,
+      "related",
+    );
+    for (const row of txs.items || []) {
+      const node = txNode(row, "");
+      nodes.push(node);
+      txIds.push(node.recordId);
+    }
+  } else {
+    const links = await query(
+      session,
+      `SELECT previousdoc, nextdoc, linktype FROM NextTransactionLink WHERE previousdoc = ${id} OR nextdoc = ${id}`,
+      40,
+      "related",
+    );
+    const ids = new Set([id]);
+    for (const link of links.items || []) {
+      ids.add(String(field(link, "previousdoc")));
+      ids.add(String(field(link, "nextdoc")));
+    }
+    const txs = await query(
+      session,
+      `SELECT id, tranid, type, trandate FROM transaction WHERE id IN (${[...ids].join(",")})`,
+      40,
+      "related",
+    );
+    for (const row of txs.items || []) {
+      const node = txNode(row, id);
+      nodes.push(node);
+      txIds.push(node.recordId);
+    }
+    for (const link of links.items || []) {
+      const source = `transaction:${field(link, "previousdoc")}`;
+      const target = `transaction:${field(link, "nextdoc")}`;
+      edges.push({ id: `${source}>${target}`, source, target, label: String(field(link, "linktype") || "") });
+    }
+  }
+
+  if (kind !== "transaction" && txIds.length) {
+    const links = await query(
+      session,
+      `SELECT previousdoc, nextdoc, linktype FROM NextTransactionLink WHERE previousdoc IN (${txIds.join(",")}) OR nextdoc IN (${txIds.join(",")})`,
+      80,
+      "related",
+    );
+    const known = new Set(nodes.map((node) => node.id));
+    const seen = new Set();
+    for (const link of links.items || []) {
+      const source = `transaction:${field(link, "previousdoc")}`;
+      const target = `transaction:${field(link, "nextdoc")}`;
+      if (!known.has(source) || !known.has(target) || seen.has(`${source}>${target}`)) continue;
+      seen.add(`${source}>${target}`);
+      edges.push({ id: `${source}>${target}`, source, target, label: String(field(link, "linktype") || "") });
+    }
+    const pointed = new Set(edges.map((edge) => edge.target));
+    const root = nodes.find((node) => node.focus);
+    if (root) {
+      for (const node of nodes) {
+        if (node.id === root.id || !node.id.startsWith("transaction:") || pointed.has(node.id)) continue;
+        edges.push({ id: `${root.id}>${node.id}`, source: root.id, target: node.id, label: "" });
+      }
+    }
+  }
+
+  sendJson(res, 200, { nodes, edges });
+}
+
 async function querySql(req, res) {
   const session = await authorized(req, res);
   if (!session) return;
@@ -1019,6 +1169,7 @@ const apiRoutes = {
   "GET /api/employees": routes.employees,
   "GET /api/me": routes.me,
   "POST /api/query": querySql,
+  "GET /api/related": (req, res, url) => relatedGraph(req, res, url),
   ...studioRoutes({ sendJson, authorized }),
 };
 

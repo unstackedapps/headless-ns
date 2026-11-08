@@ -459,8 +459,22 @@ export function WorkbenchPage() {
     }
   }
 
+  if (!ready && !loadError) {
+    return (
+      <>
+        <header className="page-head">
+          <div>
+            <div className="kicker">Tools</div>
+            <h1>Workbench</h1>
+          </div>
+        </header>
+        <SkeletonTable rows={8} cols={2} />
+      </>
+    );
+  }
+
   return (
-    <>
+    <div className="split-page">
       <header className="page-head">
         <div>
           <div className="kicker">Tools</div>
@@ -468,16 +482,10 @@ export function WorkbenchPage() {
         </div>
         <RefreshButton label="tools" scope="workbench" />
       </header>
-      <p className="status">Run any tool on the OpenSuiteMCP connection. Reads run immediately. Writes, file bytes, and chat apps wait for the confirm box.</p>
+      <p className="status">Use any tool on the current connection. A read starts immediately. A write, a file, or a chat app waits until you check confirm.</p>
       {loadError && <p className="error">{loadError}</p>}
-      {!ready && !loadError && (
-        <section className="list-view">
-          <Lookup label="Looking up tools." />
-          <SkeletonTable rows={8} cols={2} />
-        </section>
-      )}
-      {ready && <div className="workbench">
-        <div>
+      {ready && <div className="split">
+        <div className="split-rail">
           <label className="search-field">
             <Glyph icon={glyph.search} size={14} />
             <input className="search" value={query} placeholder="Filter tools" aria-label="Filter tools" onChange={(event) => setQuery(event.target.value)} />
@@ -504,7 +512,7 @@ export function WorkbenchPage() {
           </div>
         </div>
         {tool && (
-          <div className="panel">
+          <div className="split-main">
             <h2>{tool.name}</h2>
             <p className="status">{tool.description}</p>
             <label className="check">
@@ -545,7 +553,7 @@ export function WorkbenchPage() {
             {needsConfirm && (
               <label className="check">
                 <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
-                I confirm this call. It can change NetSuite, or it is a chat app that will not render here.
+                I confirm this call. It can change NetSuite, or it is a chat app. This page cannot show a chat app.
               </label>
             )}
             <div className="actions">
@@ -559,7 +567,7 @@ export function WorkbenchPage() {
           </div>
         )}
       </div>}
-    </>
+    </div>
   );
 }
 
@@ -633,6 +641,20 @@ export function ReportsPage() {
     }
   }
 
+  if (!ready && !error) {
+    return (
+      <>
+        <header className="page-head">
+          <div>
+            <div className="kicker">Saved reports</div>
+            <h1>Reports</h1>
+          </div>
+        </header>
+        <SkeletonTable rows={8} cols={3} />
+      </>
+    );
+  }
+
   return (
     <>
       <header className="page-head">
@@ -642,13 +664,7 @@ export function ReportsPage() {
         </div>
         <RefreshButton label="reports" scope="reports" />
       </header>
-      <p className="status">Saved NetSuite reports through ns_runReport. This role can see {reports.length || "…"} of them. The summary line is the report total.</p>
-      {!ready && !error && (
-        <section className="list-view">
-          <Lookup label="Looking up reports." />
-          <SkeletonTable rows={5} cols={2} />
-        </section>
-      )}
+      <p className="status">Saved reports run through ns_runReport. This role can see {reports.length || "…"} of them. The summary line is the total.</p>
       {ready && <div className="filters">
         <label>
           Report
@@ -770,6 +786,20 @@ export function TracePage() {
     };
   }, []);
 
+  if (!ready) {
+    return (
+      <>
+        <header className="page-head">
+          <div>
+            <div className="kicker">Audit</div>
+            <h1>Trace</h1>
+          </div>
+        </header>
+        <SkeletonTable rows={8} cols={4} />
+      </>
+    );
+  }
+
   return (
     <>
       <header className="page-head">
@@ -779,19 +809,13 @@ export function TracePage() {
         </div>
         <RefreshButton label="trace" scope="trace" />
       </header>
-      <p className="status">Every OpenSuiteMCP call from this server, including the ledger pages. The list refreshes on its own.</p>
+      <p className="status">This page shows every tool call from this server, including the ledger pages. It refreshes by itself.</p>
       {error && <p className="error">{error}</p>}
-      {!ready && (
-        <section className="list-view">
-          <Lookup label="Looking up the call trace." />
-          <SkeletonTable rows={6} cols={4} />
-        </section>
-      )}
-      {ready && <div className="table-wrap loose">
+      <div className="table-wrap loose">
         <table>
           <thead>
             <tr>
-              <th>When</th>
+              <th className="when">When</th>
               <th>Source</th>
               <th>Tool</th>
               <th className="num">ms</th>
@@ -802,7 +826,7 @@ export function TracePage() {
           <tbody>
             {entries.map((entry) => (
               <tr key={entry.id}>
-                <td>{new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}</td>
+                <td className="when">{new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}</td>
                 <td>{entry.source}</td>
                 <td>{entry.name}</td>
                 <td className="num">{entry.ms}</td>
@@ -819,7 +843,7 @@ export function TracePage() {
             )}
           </tbody>
         </table>
-      </div>}
+      </div>
     </>
   );
 }
@@ -932,7 +956,7 @@ export function SettingsPage() {
         setConfig((current) => (current ? { ...current, llm, models: next } : current));
         window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: llm }));
       }
-      setMessage("That model is the one Ask uses.");
+      setMessage("Ask now uses this model.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not switch models.");
     } finally {
@@ -1009,19 +1033,14 @@ export function SettingsPage() {
       </section>
       <section className="section">
         <h2>Appearance</h2>
-        <p className="status">Choose a light or dark theme. Square keeps hard edges. Round softens buttons, cards, chips, and menus. This browser remembers it. Home cards can load again on a timer. Off leaves them until you use the header button.</p>
+        <p className="status">Choose a light or dark theme. Square keeps hard edges. Round softens buttons, cards, chips, and menus. This browser remembers these choices. Home cards can reload on a timer. Off keeps the cards until you press Refresh.</p>
         <ThemeSelect labelled />
         <ShapeSelect labelled />
         <RefreshIntervalSelect />
       </section>
       {error && <p className="error">{error}</p>}
       {message && <p className="status">{message}</p>}
-      {!config && !error && (
-        <section className="list-view">
-          <Lookup label="Looking up this connection." />
-          <SkeletonTable rows={6} cols={2} />
-        </section>
-      )}
+      {!config && !error && <SkeletonTable rows={4} cols={2} />}
       {config && (
         <section className="section">
           <h2>Connection</h2>
@@ -1033,7 +1052,7 @@ export function SettingsPage() {
               {config.environment} {config.version} · {config.features.length} features enabled · model {config.llm.configured ? config.llm.keyMask : "not connected"}
             </p>
             <p className="status">
-              headless-ns calls the standard NetSuite MCP tools. Open this with OpenSuiteMCP, NetSuite itself, or another host such as Mint. The connection above is the one in use.
+              headless-ns calls the standard NetSuite MCP tools. Reach NetSuite through OpenSuiteMCP, NetSuite itself, or another host such as Mint. The connection above is the one in use.
             </p>
           </div>
           <div className="perm-grid">
@@ -1135,7 +1154,7 @@ export function SettingsPage() {
         <h2>Assistant tools</h2>
         <label className="check">
           <input type="checkbox" checked={allowWrites} onChange={(event) => setAllowWrites(event.target.checked)} />
-          Let the assistant propose writes. Ask still requires a confirm before anything posts.
+          Let the assistant propose writes. Ask still waits for you to confirm before anything posts.
         </label>
         <div className="tool-picks">
           {assistantTools.map((tool) => {

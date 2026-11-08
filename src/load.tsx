@@ -1,3 +1,29 @@
+export function LoadingPage({ cover = false }: { cover?: boolean }) {
+  return (
+    <div className={cover ? "hns-screen is-cover" : "hns-screen"} role="status" aria-label="Loading">
+      <div className="hns-mark">
+      <svg className="hns-loader" viewBox="0 0 32 32" width="96" height="96" aria-hidden="true">
+        <rect width="32" height="32" rx="3" fill="#1E4B80" />
+        <g fill="#fff">
+          <rect className="hns-hdr" x="7" y="4.5" width="18" height="3" />
+          <g className="hns-r1">
+            <rect x="7" y="13" width="11" height="3" />
+            <rect x="20" y="13" width="5" height="3" />
+          </g>
+          <g className="hns-r2">
+            <rect x="7" y="18.5" width="11" height="3" />
+            <rect x="20" y="18.5" width="5" height="3" />
+          </g>
+          <rect x="7" y="24" width="11" height="3" />
+          <rect x="20" y="24" width="5" height="3" />
+        </g>
+      </svg>
+      {cover && <p className="hns-name">headless-ns</p>}
+      </div>
+    </div>
+  );
+}
+
 export function Lookup({ label }: { label: string }) {
   return (
     <p className="lookup" role="status">

@@ -61,10 +61,12 @@ export function Pick({
   return (
     <Select.Root value={value || undefined} onValueChange={onChange} disabled={disabled}>
       <Select.Trigger className="pick" aria-label={label}>
-        <Select.Value placeholder={placeholder} />
-        <Select.Icon className="pick-icon">
-          <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-        </Select.Icon>
+        <span className="pick-face">
+          <Select.Value placeholder={placeholder} />
+          <Select.Icon className="pick-icon">
+            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+          </Select.Icon>
+        </span>
       </Select.Trigger>
       <Select.Portal>
         <Select.Content className="pick-menu" position="popper" sideOffset={4} align="start">
@@ -129,8 +131,10 @@ export function DatePick({ label, value, onChange }: { label: string; value: str
       }}
     >
       <Popover.Trigger className="pick" aria-label={label}>
-        <span>{showDate(value)}</span>
-        <ChevronDown className="pick-icon" size={14} strokeWidth={1.75} aria-hidden="true" />
+        <span className="pick-face">
+          <span>{showDate(value)}</span>
+          <ChevronDown className="pick-icon" size={14} strokeWidth={1.75} aria-hidden="true" />
+        </span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content className="date-menu" sideOffset={4} align="start">

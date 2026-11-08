@@ -126,7 +126,7 @@ export function ConnectionPanel() {
           </label>
           <label>
             Client secret {saved?.mcpSecretHint ? `(${saved.mcpSecretHint})` : ""}
-            <input type="password" value={mcpClientSecret} autoComplete="off" placeholder="Leave blank for a public client, or to keep the saved secret" onChange={(event) => setMcpClientSecret(event.target.value)} />
+            <input type="password" value={mcpClientSecret} autoComplete="off" placeholder="Leave blank to keep the saved secret" onChange={(event) => setMcpClientSecret(event.target.value)} />
           </label>
           <label>
             Tools
@@ -143,7 +143,7 @@ export function ConnectionPanel() {
           {saved?.mcpSignedIn ? (
             <p className="status">This browser has a NetSuite MCP session.</p>
           ) : (
-            <p className="status">Save the client ID, then sign in. That login asks NetSuite for the mcp scope on its own.</p>
+            <p className="status">Save the client ID, then sign in. That login requests only the mcp scope.</p>
           )}
         </>
       )}
@@ -193,7 +193,7 @@ export function ConnectionPanel() {
               <span className="uri">{saved?.redirectUri}</span>
             </li>
             <li>Paste the client ID. Add a secret only when the integration is confidential. For a public client, leave the secret blank.</li>
-            <li>Choose Standard tools, or Every SuiteApp when you want tools from every installed SuiteApp. Save, then sign in.</li>
+            <li>Choose Standard tools, or Every SuiteApp to include tools from other installed apps. Save, then sign in.</li>
           </ol>
         </details>
         <details className="panel" open={kind === "custom"}>

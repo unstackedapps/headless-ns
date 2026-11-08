@@ -172,7 +172,7 @@ export async function callTool(name, args) {
     const result = await mcp("tools/call", { name, arguments: args || {} }, name);
     const payload = payloadOf(result);
     if (result.isError) {
-      throw new Error(plainSuiteqlError(payload?.error || payload?.text || "OpenSuiteMCP tool failed."));
+      throw new Error(plainSuiteqlError(payload?.error || payload?.text || "The tool failed."));
     }
     recordTrace({ source, name, ms: Date.now() - started, ok: true, detail: traceDetail(name, args) });
     return payload;

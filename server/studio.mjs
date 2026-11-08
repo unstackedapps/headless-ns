@@ -97,6 +97,89 @@ function normalizeReport(payload) {
   return { columns, rows, summary };
 }
 
+function plainText(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function cabinetPath(value) {
+  const path = String(value || "/").trim() || "/";
+  if (path.length > 500 || /[\u0000-\u001f\\]/.test(path) || path.split("/").some((part) => part === "..")) {
+    const error = new Error("That folder path is not valid.");
+    error.status = 400;
+    throw error;
+  }
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+export function folderTail(path) {
+  return String(path || "").split("/").filter(Boolean).pop() || "File";
+}
+
+function fileNameOf(value) {
+  const name = String(value || "").trim();
+  if (!name || name.length > 199 || /[\\/\u0000-\u001f]/.test(name) || name === "." || name === "..") {
+    const error = new Error("That file name is not valid.");
+    error.status = 400;
+    throw error;
+  }
+  return name;
+}
+
+export function joinCabinetFile(folder, name) {
+  const dir = cabinetPath(folder);
+  if (dir === "/") {
+    const error = new Error("Pick a folder inside the cabinet. The top level cannot hold a file.");
+    error.status = 400;
+    throw error;
+  }
+  return `${dir.replace(/\/$/, "")}/${fileNameOf(name)}`;
+}
+
+export function classifyPreview(base64, mime = "") {
+  const clean = String(base64 || "").replace(/\s/g, "");
+  const bytes = Buffer.from(clean, "base64");
+  if (!clean || bytes.length === 0) return { kind: "binary", note: "The file came back empty." };
+  // shortcut: previews stop at 1.5 MB so a large cabinet file is not sent to the browser
+  if (bytes.length > 1_500_000) return { kind: "binary", note: "This file is too large to show here." };
+  const type = String(mime || "").toLowerCase();
+  if (type.startsWith("image/") && type !== "image/svg+xml") return { kind: "image", image: `data:${type};base64,${clean}` };
+  const textType = type.startsWith("text/") || /json|xml|csv|javascript/.test(type) || type === "image/svg+xml";
+  if (textType || !bytes.includes(0)) return { kind: "text", text: bytes.toString("utf8") };
+  return { kind: "binary", note: "Only text and pictures can be shown here." };
+}
+
+function fileBytes(result) {
+  if (!result || typeof result !== "object") return { base64: "", mime: "", text: "" };
+  const base64 = ["contentBase64", "content", "base64", "data"].find((key) => typeof result[key] === "string" && result[key].length > 0);
+  return {
+    base64: base64 ? result[base64] : "",
+    mime: String(result.mimeType || result.mediaType || result.contentType || ""),
+    text: typeof result.text === "string" ? result.text : "",
+  };
+}
+
+function cabinetEntries(payload) {
+  return (payload?.entries || []).map((entry) => ({
+    id: String(entry.id ?? ""),
+    kind: entry.kind === "folder" ? "folder" : "file",
+    name: plainText(entry.name),
+    path: String(entry.path || ""),
+  }));
+}
+
+function listedSearches(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+}
+
 function llmPayload() {
   const models = modelStore.view();
   const active = models.connections.find((row) => row.id === models.activeId) || null;
@@ -191,6 +274,106 @@ export function studioRoutes({ sendJson, authorized }) {
       sendJson(res, 200, writePolicy(body));
     },
 
+    "GET /api/searches": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const result = await withSource("searches", () => callTool("ns_listSavedSearches", {}));
+      const rows = listedSearches(result)
+        .map((row) => ({
+          id: String(row.id || ""),
+          title: plainText(row.title),
+          recordType: plainText(row.recordtype),
+          shared: Boolean(row.public),
+        }))
+        .filter((row) => row.id)
+        .sort((a, b) => a.title.localeCompare(b.title));
+      sendJson(res, 200, { rows });
+    },
+
+    "POST /api/searches/run": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      const searchId = String(body.id || "").trim();
+      if (!searchId) {
+        sendJson(res, 400, { error: "Choose a saved search." });
+        return;
+      }
+      const result = await withSource("searches", () =>
+        callTool("ns_runSavedSearch", { searchId, range_start: 0, range_end: 50 }),
+      );
+      const data = listedSearches(result).slice(0, 50);
+      const columns = data[0] && typeof data[0] === "object" ? Object.keys(data[0]) : [];
+      sendJson(res, 200, { columns, rows: data, total: data.length });
+    },
+
+    "GET /api/files": async (req, res, url) => {
+      if (!(await authorized(req, res))) return;
+      const path = cabinetPath(url.searchParams.get("path"));
+      const cursor = url.searchParams.get("cursor");
+      const result = await withSource("files", () =>
+        callTool("ns_getFolderByPath", { path, pageSize: 100, ...(cursor ? { cursor } : {}) }),
+      );
+      sendJson(res, 200, {
+        path: result?.path || path,
+        entries: cabinetEntries(result),
+        hasMore: Boolean(result?.hasMore),
+        cursor: result?.nextCursor || null,
+      });
+    },
+
+    "GET /api/files/search": async (req, res, url) => {
+      if (!(await authorized(req, res))) return;
+      const search = String(url.searchParams.get("q") || "").trim();
+      if (!search || search.length > 200) {
+        sendJson(res, 400, { error: "Enter a file name to search." });
+        return;
+      }
+      let cursor = url.searchParams.get("cursor");
+      const entries = [];
+      let hasMore = false;
+      let next = null;
+      for (let page = 0; page < 4 && entries.length < 40; page += 1) {
+        const result = await withSource("files", () =>
+          callTool("ns_searchFiles", { search, pageSize: 50, ...(cursor ? { cursor } : {}) }),
+        );
+        entries.push(...cabinetEntries(result));
+        hasMore = Boolean(result?.hasMore);
+        next = result?.nextCursor || null;
+        if (!hasMore || !next) break;
+        cursor = next;
+      }
+      sendJson(res, 200, { entries: entries.slice(0, 40), hasMore, cursor: next });
+    },
+
+    "POST /api/files/upload": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req, 12_000_000);
+      const path = joinCabinetFile(body.folder, body.name);
+      const contentBase64 = String(body.contentBase64 || "").replace(/\s/g, "");
+      if (!contentBase64 || Buffer.from(contentBase64, "base64").length > 8_000_000) {
+        sendJson(res, 400, { error: "That file is empty or too large to upload." });
+        return;
+      }
+      await withSource("files", () => callTool("ns_uploadFile", { path, contentBase64, override: false }));
+      sendJson(res, 200, { path });
+    },
+
+    "POST /api/files/read": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      const path = cabinetPath(body.path);
+      const result = await withSource("files", () => callTool("ns_getFile", { path }));
+      const found = fileBytes(result);
+      if (found.text && !found.base64) {
+        sendJson(res, 200, { name: folderTail(path), path, kind: "text", text: found.text });
+        return;
+      }
+      if (!found.base64) {
+        sendJson(res, 502, { error: "NetSuite did not return the file contents." });
+        return;
+      }
+      sendJson(res, 200, { name: folderTail(path), path, ...classifyPreview(found.base64, found.mime) });
+    },
+
     "GET /api/tools": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const tools = await listTools();
@@ -212,7 +395,7 @@ export function studioRoutes({ sendJson, authorized }) {
       }
       if (NEEDS_CONFIRM.has(kind) && !body.confirm) {
         sendJson(res, 400, {
-          error: "This tool can change NetSuite or is meant for a chat app. Check confirm to run it.",
+          error: "This tool can change NetSuite, or it is only for a chat app. Turn on confirm before it runs.",
         });
         return;
       }
