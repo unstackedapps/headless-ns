@@ -84,3 +84,15 @@ Sales order actions: `allocatesalesorder`, `approve`, `closeremaining`. Each has
 ## ns_getRecordTransformMetadata
 
 Returns `{"transformations": {"items": [{"source": "salesorder", "target": "invoice"}, ...]}}`. Sales order targets: cashsale, fulfillmentrequest, invoice, itemfulfillment, returnauthorization.
+
+## Records UI demo
+
+Made through the Records screen on 2026-11-08, memo "headless-ns Records UI demo":
+
+| Record | Internal id | Number | Result |
+|---|---|---|---|
+| Estimate | 16192 | QUO99 | Two lines, now Processed |
+| Sales order | 16290 | SO627 | Partially fulfilled: SPC002 shipped 2, GAR002 open 0 of 3 |
+| Item fulfillment | 16193 | IF466 | Line 1 only, Shipped, ship method left empty |
+
+Each has an `hns-<type>-<uuid>` external id set by the server.
