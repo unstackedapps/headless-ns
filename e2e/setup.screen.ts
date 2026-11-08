@@ -81,7 +81,7 @@ test("Next waits for a passing test read, and a failed read shows NetSuite's rea
   await expect(page.getByText("The role you signed in with is missing a permission.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
   await page.getByRole("button", { name: "Test again" }).click();
-  await expect(page.getByText("Read 42 active customers from TD3138390 as customrole_opensuitemcp.")).toBeVisible();
+  await expect(page.getByText("Connected to TD3138390 as customrole_opensuitemcp.")).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.locator("[aria-current=step]")).toHaveText("2. Connect the AI");
 });
@@ -185,7 +185,7 @@ test("a custom MCP server, such as self-hosted OpenSuiteMCP, takes a URL and a t
   await page.getByLabel("Server URL").fill("https://mcp.example.com/api/mcp");
   await page.getByLabel("Bearer token").fill("osmcp-token");
   await page.getByRole("button", { name: "Save and test" }).click();
-  await expect(page.getByText("Read 42 active customers")).toBeVisible();
+  await expect(page.getByText("Connected to TD3138390")).toBeVisible();
   await expect(page.getByRole("button", { name: "Next" })).toBeEnabled();
   expect(writes.find((write) => write.path === "/api/config/connector")?.body).toMatchObject({
     kind: "custom",

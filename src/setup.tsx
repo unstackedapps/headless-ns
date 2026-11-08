@@ -80,7 +80,9 @@ export function Setup({
           <>
             <p className="callout">
               <Glyph icon={glyph.info} size={16} />
-              <span>Ask uses this model to answer questions about your account. You can skip this step. Everything else works without it.</span>
+              <span>
+                <strong>Ask</strong> is the AI assistant in headless-ns. Set it up now, or later in Settings.
+              </span>
             </p>
             <AiStep
               finishLabel={only ? "Save model" : "Finish"}

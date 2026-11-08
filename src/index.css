@@ -1124,6 +1124,7 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .setup-title { display: flex; align-items: center; gap: 10px; }
 .callout { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 20px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--accent); font-size: 13px; color: var(--muted); }
 .callout svg { flex: none; margin-top: 2px; color: var(--accent); }
+.callout strong { color: var(--ink); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
   .ask-drawer, .cli, nav { transition: none; }
 }

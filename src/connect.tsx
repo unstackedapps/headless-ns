@@ -32,7 +32,7 @@ type Edits = Partial<{
   suite: "standard" | "all";
 }>;
 
-type TestResult = { accountId: string; roleId: string; customers: number };
+type TestResult = { accountId: string; roleId: string };
 
 export const kindNames: Record<Kind, string> = {
   netsuite: "NetSuite OAuth",
@@ -246,7 +246,7 @@ export function ConnectStep({
       {testing && <Lookup label="Reading from NetSuite." />}
       {passed && (
         <p className="live-line" role="status">
-          Connected. Read {passed.customers} active customers from <strong>{passed.accountId.toUpperCase()}</strong> as {passed.roleId}.
+          Connected to <strong>{passed.accountId.toUpperCase()}</strong> as {passed.roleId}.
         </p>
       )}
       {error && <p className="error">{error}</p>}
