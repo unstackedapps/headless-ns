@@ -270,3 +270,30 @@ Receipts take one `receiptInventoryNumber` per unit with quantity 1, the same sh
 Started Pay bill on bill 420 (17107, 10.00), unticked it and paid 0.50 of bill 419 instead. Bill payment 430 (17108) applied 0.50 to 17103 only, and bill 420 still shows 10.00 open.
 
 The first try failed in the browser before anything was written: the bill list loads twice in development, and the second load wiped the tick on bill 419. The list now keeps ticks and amounts when it reloads.
+
+## Ask with serial items, missing stock and other currencies (Phase 4b)
+
+Run on 2026-11-08 through the Ask drawer (`e2e/ask.live.ts`) with Gemma 4 in LM Studio, memo "headless-ns ask test".
+
+### What went wrong before the fixes
+
+- Gemma did not follow the prompt's stock check. For an order at Boston (location 1) for item 761, which has stock only at San Francisco, it proposed three fulfillments in a row. It also used a San Francisco serial number. NetSuite answered "You must have at least one valid line item for this transaction" each time, so only SO639 (17389) was written.
+- It also left the location off that order, though the request named one. SO638 (17192) and SO639 have no location on any line.
+- On a serial item, the first fulfillment proposal had no serial numbers and would have failed. The second one, after it looked up numbers, worked: QUO106 (17109) was created once, then SO641 (17391) and IF474 (17392) with serial HNS-MW8BJ0DH-S1.
+
+### What the server does now
+
+- Before Ask shows a sales order fulfillment for approval, the server reads the order's open inventory lines (`shipLinesSql`: line location, else the mainline location) and stock (`stockSql`). A short line, or an order with no location, goes back to the model as the tool's error. The error names the locations that have enough. The person never sees a Run button for it.
+- If stock is fine, serial and lot lines that ship without `inventoryDetail` go back the same way. The error lists up to 10 numbers in stock at that location (`numbersSql`).
+- The repeat check ignores `externalId`, which is new on every proposal. So two identical proposals now stop the request.
+- The prompt asks for the stock check, the serial `inventoryDetail` shape and the header `location`.
+
+### Runs after the fixes
+
+| Request | Result |
+|---|---|
+| Sales order at Boston for item 761, then fulfill | SO640 (17489) at Boston. No fulfillment proposed. Ask answered that location 1 has no stock of item 761. |
+| Quote, order and fulfillment of serial item 761 at San Francisco | QUO108 (17393), SO642 (17394), IF475 (17490) with serial HNS-MW8BJ0DH-S2. Only one fulfillment proposal, with its serial number shown in the summary. |
+| Quote for customer 1194 "388 United Kingdom (buys from US)" | Summary read "total 20.00 British pound" and "2 × SPC002 at 10.00 British pound". Cancelled, nothing written. |
+
+Write summaries now name the currency from the customer or vendor (`customer.currency` or `vendor.currency`), or from `data.currency` when the payload sets one. A transform has no amount in its summary. Without a known currency the figure has no symbol.
