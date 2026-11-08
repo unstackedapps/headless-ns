@@ -32,6 +32,15 @@ function plainSuiteqlError(message) {
   return `This role cannot see ${name}. Add View for ${permission} on that role, then reload.`;
 }
 
+// NetSuite MCP write tools answer {success:false, error:"HTTP 400: {...}"} without isError.
+export function toolFailure(payload) {
+  if (payload?.success !== false) return "";
+  const raw = String(payload.error || payload.message || "The tool failed.");
+  const details = [...raw.matchAll(/"detail"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1].replace(/\\"/g, '"'));
+  const text = details.length ? details.join(" ") : raw;
+  return text.replace(/^Error while accessing a resource\.\s*/i, "").replace(/^API call failed:\s*/i, "").trim();
+}
+
 function payloadOf(result) {
   if (result?.structuredContent && typeof result.structuredContent === "object") {
     return result.structuredContent;
@@ -174,6 +183,8 @@ export async function callTool(name, args) {
     if (result.isError) {
       throw new Error(plainSuiteqlError(payload?.error || payload?.text || "The tool failed."));
     }
+    const failure = toolFailure(payload);
+    if (failure) throw new Error(failure);
     recordTrace({ source, name, ms: Date.now() - started, ok: true, detail: traceDetail(name, args) });
     return payload;
   } catch (error) {
