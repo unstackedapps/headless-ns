@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ConnectStep, type Kind } from "./connect";
+import { Glyph, glyph } from "./icons";
 import { Button, Lookup } from "./load";
 import { Combobox, Pick, type Option } from "./pick";
 import { api, postJson } from "./api";
@@ -54,8 +55,10 @@ export function Setup({
   return (
     <main className="signin">
       <section className="card">
-        <img className="mark" src="/favicon.svg" alt="" width="28" height="28" />
-        <h1>{only ? titles[only] : "Set up headless-ns"}</h1>
+        <h1 className="setup-title">
+          <img className="mark" src="/favicon.svg" alt="" width="28" height="28" />
+          {only ? titles[only] : "Set up headless-ns"}
+        </h1>
         {!only && (
           <ol className="setup-steps">
             {(["netsuite", "ai", "done"] as const).map((id, index) => (
@@ -66,19 +69,19 @@ export function Setup({
           </ol>
         )}
         {step === "netsuite" && (
-          <>
-            {!only && <p className="lede">headless-ns reads and writes NetSuite through MCP tools. Pick how it connects.</p>}
-            <ConnectStep
-              signedInVia={signedInVia}
-              authError={authError}
-              nextLabel={only ? "Done" : "Next"}
-              onNext={() => (only ? onFinish() : setStep("ai"))}
-            />
-          </>
+          <ConnectStep
+            signedInVia={signedInVia}
+            authError={authError}
+            nextLabel={only ? "Done" : "Next"}
+            onNext={() => (only ? onFinish() : setStep("ai"))}
+          />
         )}
         {step === "ai" && (
           <>
-            <p className="lede">Ask uses this model to answer questions and draft records. The NetSuite screens work without it.</p>
+            <p className="callout">
+              <Glyph icon={glyph.info} size={16} />
+              <span>Ask uses this model to answer questions about your account. You can skip this step. Everything else works without it.</span>
+            </p>
             <AiStep
               finishLabel={only ? "Save model" : "Finish"}
               onFinish={() => {
@@ -101,9 +104,7 @@ export function Setup({
         {step === "done" && (
           <>
             <p className="lede">
-              {skipped
-                ? "NetSuite is connected. Ask stays off until you connect an AI model from Settings."
-                : "NetSuite and the AI model are connected."}
+              {skipped ? "NetSuite is ready. To turn on Ask later, add a model in Settings." : "You're all set. NetSuite and Ask are ready."}
             </p>
             <div className="actions">
               <Button className="primary" onClick={onFinish}>

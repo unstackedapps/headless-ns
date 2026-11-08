@@ -53,7 +53,8 @@ test("first run asks only for the NetSuite fields, then signs in with NetSuite",
   await page.getByLabel("Account ID").fill("td3138390");
   await page.getByLabel("Client ID").fill("client-123");
   await expect(page.getByLabel("Client secret")).toHaveCount(0);
-  await pick(page, "Client type", "Confidential, with a secret");
+  await expect(page.getByLabel("Public client")).toBeChecked();
+  await page.getByLabel("Public client").uncheck();
   await page.getByLabel("Client secret").fill("secret-456");
   await page.getByRole("button", { name: "Sign in with NetSuite" }).click();
   await page.waitForURL(/\/api\/auth\/mcp\/login$/);
@@ -112,7 +113,7 @@ test("the AI step lists the provider's models, and Finish waits for a test reply
   await page.getByRole("button", { name: "Send test message" }).click();
   await expect(page.getByText("The model replied: ready")).toBeVisible();
   await page.getByRole("button", { name: "Finish" }).click();
-  await expect(page.getByText("NetSuite and the AI model are connected.")).toBeVisible();
+  await expect(page.getByText("You're all set. NetSuite and Ask are ready.")).toBeVisible();
   expect(writes.find((write) => write.path === "/api/models/list")?.body).toEqual({ provider: "compatible", baseUrl: "https://gemma.example/v1", apiKey: "sk-test" });
   expect(writes.find((write) => write.path === "/api/models")?.body).toMatchObject({ model: "gemma-4-27b", activate: true });
   await page.getByRole("button", { name: "Open Overview" }).click();
@@ -131,7 +132,7 @@ test("skipping the AI step opens the app, and Ask links back to that step", asyn
   await page.goto("/");
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Skip for now" }).click();
-  await expect(page.getByText("Ask stays off until you connect an AI model")).toBeVisible();
+  await expect(page.getByText("To turn on Ask later, add a model in Settings.")).toBeVisible();
   await page.getByRole("button", { name: "Open Overview" }).click();
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const drawer = page.getByRole("complementary", { name: "Ask" });

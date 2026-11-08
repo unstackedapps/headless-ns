@@ -69,7 +69,7 @@ const setupSteps: Record<Kind, (redirectUri: string) => ReactNode[]> = {
       Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns. Turn on Authorization Code Grant and the NetSuite AI Connector Service scope. Use this redirect URI:
       <span className="uri">{redirectUri}</span>
     </li>,
-    <li key="5">Paste the client ID here. If the integration is confidential (Public Client unchecked), choose Confidential and paste the client secret too.</li>,
+    <li key="5">Paste the client ID here. If Public Client is unchecked on the integration, uncheck it here too and paste the client secret.</li>,
   ],
   custom: () => [
     <li key="1">Use this for OpenSuiteMCP, hosted or self-hosted, or any other server that exposes the NetSuite MCP tools.</li>,
@@ -194,17 +194,13 @@ export function ConnectStep({
             Client ID
             <input value={mcpClientId} required autoComplete="off" onChange={(event) => setMcpClientId(event.target.value)} />
           </label>
-          <label>
-            Client type
-            <Pick
-              label="Client type"
-              value={clientType}
-              onChange={(next) => setClientType(next as "public" | "confidential")}
-              options={[
-                { value: "public", label: "Public, no secret" },
-                { value: "confidential", label: "Confidential, with a secret" },
-              ]}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={clientType === "public"}
+              onChange={(event) => setClientType(event.target.checked ? "public" : "confidential")}
             />
+            Public client
           </label>
           {clientType === "confidential" && (
             <label>
@@ -282,7 +278,7 @@ export function ConnectStep({
         </Button>
       </div>
       <details className="panel">
-        <summary>{kindNames[kind]} setup in NetSuite</summary>
+        <summary>How to set this up</summary>
         <ol className="steps">{setupSteps[kind](saved.redirectUri)}</ol>
       </details>
     </form>

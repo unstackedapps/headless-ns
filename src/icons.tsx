@@ -15,6 +15,7 @@ import {
   File,
   FileText,
   Folder,
+  Info,
   FlaskConical,
   GripVertical,
   LayoutDashboard,
@@ -76,6 +77,7 @@ export const navIcons: Record<string, LucideIcon> = {
 };
 
 export const glyph = {
+  info: Info,
   hide: PanelLeftClose,
   show: PanelLeftOpen,
   ask: MessageSquare,

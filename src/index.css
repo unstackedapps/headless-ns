@@ -852,7 +852,7 @@ textarea.code {
 }
 .tool em, .check em { font-style: normal; color: var(--muted); font-size: 12px; }
 .tool.on { background: var(--soft); color: var(--accent); }
-.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; }
+.check, .form label.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; }
 .tool-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; margin: 8px 0 12px; }
 .perm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
 .perm-list { max-height: 220px; overflow: auto; margin: 0; padding-left: 18px; }
@@ -1121,6 +1121,9 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .setup-steps { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 20px; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
 .setup-steps [aria-current="step"] { color: var(--ink); border-bottom: 1px solid var(--accent); }
 .ask-connect { margin: 14px 16px; }
+.setup-title { display: flex; align-items: center; gap: 10px; }
+.callout { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 20px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--accent); font-size: 13px; color: var(--muted); }
+.callout svg { flex: none; margin-top: 2px; color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .ask-drawer, .cli, nav { transition: none; }
 }
