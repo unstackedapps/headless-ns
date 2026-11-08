@@ -1252,7 +1252,7 @@ httpsServer.on("request", (req, res) => {
   });
 });
 
-httpsServer.listen(PORT, () => {
+httpsServer.listen(PORT, "127.0.0.1", () => {
   console.log(`[headless] https://localhost:${PORT}`);
   console.log(`[headless] redirect ${REDIRECT_URI}`);
   const kind = connector();

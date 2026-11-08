@@ -24,7 +24,7 @@ loadEnvFile();
 
 const ephemeralSecret = randomBytes(32).toString("base64url");
 
-export const PORT = 5173;
+export const PORT = Number(process.env.PORT) || 5173;
 export const REDIRECT_URI = `https://localhost:${PORT}/api/auth/callback`;
 export const SCOPES = "openid email rest_webservices";
 
