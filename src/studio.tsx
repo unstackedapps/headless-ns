@@ -19,6 +19,7 @@ type AskResult = {
   answer: string;
   steps: Step[];
   pending: PendingCall[] | null;
+  pendingId?: string;
   transcript: ChatMessage[];
 };
 type ToolInfo = {
@@ -130,6 +131,7 @@ export function AskPage({
   const [transcript, setTranscript] = useState<ChatMessage[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [pending, setPending] = useState<PendingCall[] | null>(null);
+  const [pendingId, setPendingId] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,6 +145,7 @@ export function AskPage({
     setTranscript([]);
     setSteps([]);
     setPending(null);
+    setPendingId("");
     setText("");
     setError(null);
     setBusy(false);
@@ -184,6 +187,7 @@ export function AskPage({
     setTranscript(result.transcript);
     setSteps(result.steps);
     setPending(result.pending);
+    setPendingId(result.pendingId || "");
   }
 
   async function send(question: string) {
@@ -213,7 +217,7 @@ export function AskPage({
     try {
       const result = await api<AskResult>("/api/ask/confirm", {
         method: "POST",
-        body: JSON.stringify({ transcript, approved }),
+        body: JSON.stringify({ id: pendingId, approved }),
       });
       if (turn.current !== id) return;
       apply(result);

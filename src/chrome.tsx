@@ -9,7 +9,7 @@ const screens = menuDefaults.map((item) => item.id);
 
 type Line = { id: number; tone: "in" | "out" | "err"; text: string };
 
-const commands = new Set(["help", "clear", "themes", "theme", "open", "sql", "ask", "who", "layout"]);
+const commands = new Set(["help", "clear", "themes", "theme", "open", "sql", "ask", "confirm", "cancel", "who", "layout"]);
 
 function CommandText({ text }: { text: string }) {
   const space = text.search(/\s/);
@@ -30,12 +30,21 @@ const help = [
   "themes           List themes",
   "sql <select>     Run one SELECT",
   "ask <question>   Ask about this account",
+  "confirm          Run the change Ask proposed",
+  "cancel           Drop the change Ask proposed",
   "who              Show the account and role",
   "layout           Show the home cards",
   "layout reset     Restore the home cards",
   "clear            Clear this panel",
   "help             Show this list",
 ].join("\n");
+
+type AskReply = {
+  answer: string;
+  steps: { name: string; ok: boolean; error?: string }[];
+  pending: { name: string; arguments: Record<string, unknown> }[] | null;
+  pendingId?: string;
+};
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
@@ -104,6 +113,7 @@ export function CommandLine({
   const [lines, setLines] = useState<Line[]>([{ id: 1, tone: "out", text: "headless-ns command line. Type help." }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const pendingId = useRef("");
   const history = useRef<string[]>([]);
   const cursor = useRef(0);
   const draft = useRef("");
@@ -127,6 +137,20 @@ export function CommandLine({
   function push(tone: Line["tone"], text: string) {
     const id = nextId.current++;
     setLines((current) => [...current, { id, tone, text }].slice(-200));
+  }
+
+  function showAsk(result: AskReply) {
+    const parts = [];
+    if (result.answer) parts.push(result.answer);
+    for (const step of result.steps || []) {
+      parts.push(`${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
+    }
+    pendingId.current = result.pendingId || "";
+    if (result.pending?.length) {
+      for (const call of result.pending) parts.push(`${call.name} ${JSON.stringify(call.arguments, null, 2)}`);
+      parts.push("Nothing was posted yet. Type confirm to run this on NetSuite, or cancel.");
+    }
+    push("out", parts.join("\n") || "No answer came back.");
   }
 
   function startResize(event: ReactPointerEvent) {
@@ -244,18 +268,18 @@ export function CommandLine({
           return;
         }
         setBusy(true);
-        const result = await postJson<{
-          answer: string;
-          steps: { name: string; ok: boolean; error?: string }[];
-          pending: { name: string }[] | null;
-        }>("/api/ask", { text: rest, transcript: [] });
-        const parts = [];
-        if (result.answer) parts.push(result.answer);
-        for (const step of result.steps || []) {
-          parts.push(`${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
+        showAsk(await postJson<AskReply>("/api/ask", { text: rest, transcript: [] }));
+        return;
+      }
+      if (name === "confirm" || name === "cancel") {
+        if (!pendingId.current) {
+          push("err", "No change is waiting.");
+          return;
         }
-        if (result.pending?.length) parts.push("Nothing was posted. Confirm the change from Ask.");
-        push("out", parts.join("\n") || "No answer came back.");
+        const id = pendingId.current;
+        pendingId.current = "";
+        setBusy(true);
+        showAsk(await postJson<AskReply>("/api/ask/confirm", { id, approved: name === "confirm" }));
         return;
       }
       push("err", "No command by that name. Type help.");

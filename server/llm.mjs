@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { APICallError, dynamicTool, generateText, jsonSchema } from "ai";
 import { WRITE_TOOLS, assistantCanCall } from "./kinds.mjs";
 import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
@@ -6,6 +7,36 @@ import { readPolicy } from "./policy.mjs";
 import { languageModel, scrub } from "./providers.mjs";
 
 const ROLES = new Set(["user", "assistant", "tool"]);
+
+// Writes the model proposed, held here until the person confirms them by id.
+// The client never sends the tool calls back, so it cannot change what runs.
+export const PENDING_TTL_MS = 10 * 60_000;
+const pendingWrites = new Map();
+
+function holdPending(transcript) {
+  const now = Date.now();
+  for (const [key, entry] of pendingWrites) if (entry.expires <= now) pendingWrites.delete(key);
+  const id = randomBytes(16).toString("base64url");
+  pendingWrites.set(id, { transcript, expires: now + PENDING_TTL_MS });
+  return id;
+}
+
+function takePending(id) {
+  const entry = pendingWrites.get(String(id || ""));
+  if (entry) pendingWrites.delete(String(id));
+  if (!entry || entry.expires <= Date.now()) {
+    const error = new Error("That change expired or was already handled. Ask again.");
+    error.status = 400;
+    throw error;
+  }
+  return entry.transcript;
+}
+
+function refusal(name, policy) {
+  if (assistantCanCall(name, policy)) return "";
+  if (WRITE_TOOLS.has(name) && !policy.allowWrites) return "Writes are off in Settings.";
+  return "This tool is turned off for Ask.";
+}
 
 function systemPrompt(identity) {
   const account = identity?.accountId || "the connected account";
@@ -166,22 +197,24 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog })
     if (!calls.length) {
       return { answer: result.text || "", steps, pending: null, transcript: clientMessages.filter((item) => item.role !== "system") };
     }
-    const writes = calls.filter((call) => WRITE_TOOLS.has(call.toolName));
-    if (writes.length && policy.allowWrites) {
+    const writes = calls.filter((call) => WRITE_TOOLS.has(call.toolName) && !refusal(call.toolName, policy));
+    if (writes.length) {
+      const transcript = clientMessages.filter((item) => item.role !== "system");
       return {
         answer: result.text || "",
         steps,
         pending: calls.map((call) => ({ id: call.toolCallId, name: call.toolName, arguments: call.input ?? {} })),
-        transcript: clientMessages.filter((item) => item.role !== "system"),
+        pendingId: holdPending(transcript),
+        transcript,
       };
     }
     for (const call of calls) {
-      const blocked = WRITE_TOOLS.has(call.toolName) && !policy.allowWrites;
+      const blocked = refusal(call.toolName, policy);
       let payload;
       let ok = true;
       let error = "";
       if (blocked) {
-        payload = { error: "Writes are off in Settings." };
+        payload = { error: blocked };
         ok = false;
         error = payload.error;
       } else {
@@ -237,49 +270,26 @@ export async function ask({ text, transcript, ...options }) {
   });
 }
 
-export async function confirmAsk({ transcript, approved, ...options }) {
-  const messages = sanitize(transcript);
+export async function confirmAsk({ id, approved, ...options }) {
+  const messages = takePending(id);
   const assistant = messages[messages.length - 1];
-  if (!assistant || assistant.role !== "assistant" || !assistant.tool_calls?.length) {
-    const error = new Error("There is no tool call waiting.");
-    error.status = 400;
-    throw error;
-  }
   const ready = await context(options);
   for (const call of assistant.tool_calls) {
-    const blocked = WRITE_TOOLS.has(call.function.name) && !ready.policy.allowWrites;
-    if (approved && !blocked) {
-      try {
-        const result = await ready.runTool(call.function.name, parseArgs(call));
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          name: call.function.name,
-          content: JSON.stringify(result).slice(0, 14000),
-        });
-      } catch (error) {
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          name: call.function.name,
-          content: JSON.stringify({ error: error.message }),
-        });
-      }
+    const name = call.function.name;
+    const blocked = refusal(name, ready.policy);
+    let payload;
+    if (!approved) {
+      payload = { cancelled: true, error: "The user did not confirm this change." };
     } else if (blocked) {
-      messages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        name: call.function.name,
-        content: JSON.stringify({ error: "Writes are off in Settings." }),
-      });
+      payload = { error: blocked };
     } else {
-      messages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        name: call.function.name,
-        content: JSON.stringify({ cancelled: true, error: "The user did not confirm this change." }),
-      });
+      try {
+        payload = await ready.runTool(name, parseArgs(call));
+      } catch (error) {
+        payload = { error: error.message };
+      }
     }
+    messages.push({ role: "tool", tool_call_id: call.id, name, content: JSON.stringify(payload).slice(0, 14000) });
   }
   return loop([{ role: "system", content: systemPrompt(ready.identity) }, ...messages], {
     model: ready.model,

@@ -454,7 +454,7 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/ask/confirm": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      sendJson(res, 200, await confirmAsk({ transcript: body.transcript, approved: Boolean(body.approved) }));
+      sendJson(res, 200, await confirmAsk({ id: body.id, approved: Boolean(body.approved) }));
     },
 
     "GET /api/trace": async (req, res) => {
