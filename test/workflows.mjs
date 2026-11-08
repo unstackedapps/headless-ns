@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addStock, headerSql, itemFactsSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, stockSql } from "../server/workflows.mjs";
+import { addStock, headerSql, itemFactsSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, shipLinesSql, stockProblems, stockSql } from "../server/workflows.mjs";
 
 const ids = (steps) => steps.map((step) => step.id);
 const open = [{ closed: false, remaining: 2 }];
@@ -151,4 +151,23 @@ test("purchase order lines get serial or lot tracking without stock", () => {
 test("approving a sales order sets it to Pending Fulfillment", () => {
   const [approve] = nextSteps("salesorder", "A", [{ closed: false, remaining: 1 }]);
   assert.deepEqual(approve, { id: "approve", label: "Approve", kind: "update", data: { orderStatus: { id: "B" } } });
+});
+
+test("stock problems name the short line and where stock is", () => {
+  const line = { line: 1, item: 761, itemname: "Oral-B iO", location: null, locationname: null, headlocation: null, headlocationname: null, quantity: 2, done: 0, picked: 0 };
+  const stock = [
+    { item: 761, location: 2, name: "San Francisco", available: 3 },
+    { item: 761, location: 1, name: "Boston", available: 1 },
+  ];
+  assert.deepEqual(stockProblems([line], stock), [
+    'Line 1 (Oral-B iO) ships 2. The order has no location, so NetSuite cannot ship it. San Francisco (location id 2) has 3. Set that location on the sales order with ns_updateRecord {"location":{"id":"<id>"}}, then fulfill.',
+  ]);
+  const boston = { ...line, headlocation: 1, headlocationname: "Boston" };
+  assert.match(stockProblems([boston], stock)[0], /Only 1 available at Boston\. San Francisco/);
+  // Shipping only 1, which Boston has, is fine. A line the payload skips is not checked.
+  assert.deepEqual(stockProblems([boston], stock, new Map([[1, 1]])), []);
+  assert.deepEqual(stockProblems([boston], [], new Map([[2, 1]])), []);
+  assert.match(stockProblems([{ ...boston, quantity: 9 }], stock)[0], /No location has enough\./);
+  assert.match(shipLinesSql("17389"), /tl\.transaction = 17389 AND tl\.mainline = 'F'/);
+  assert.throws(() => shipLinesSql("1 OR 1=1"), /internal id/);
 });

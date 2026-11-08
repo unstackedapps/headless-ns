@@ -126,6 +126,61 @@ WHERE n.item = ${checkedId(item)} AND inl.location = ${checkedId(location)} AND 
 ORDER BY n.inventorynumber`;
 }
 
+// Open inventory lines of a sales order, with the line's location or else the order's (on the mainline row).
+export function shipLinesSql(id) {
+  return `SELECT tl.id AS line, tl.item, BUILTIN.DF(tl.item) AS itemname, tl.location, BUILTIN.DF(tl.location) AS locationname,
+       h.location AS headlocation, BUILTIN.DF(h.location) AS headlocationname,
+       ABS(tl.quantity) AS quantity, ABS(NVL(tl.quantityshiprecv, 0)) AS done, ABS(NVL(tl.quantitypicked, 0)) AS picked
+FROM transactionline tl JOIN transactionline h ON h.transaction = tl.transaction AND h.mainline = 'T'
+WHERE tl.transaction = ${checkedId(id)} AND tl.mainline = 'F' AND tl.itemtype IN ('InvtPart', 'Assembly') AND tl.isclosed = 'F'`;
+}
+
+// Why a fulfillment of these lines would fail for lack of stock or location, one sentence per line, or [].
+// `ship` maps order line to the quantity a payload ships; without it every open line ships what is open.
+export function stockProblems(lineRows, stockRows, ship = null) {
+  const problems = [];
+  for (const row of lineRows || []) {
+    const line = Number(row.line);
+    const open = Math.max(Number(row.quantity) - Math.max(Number(row.done) || 0, Number(row.picked) || 0), 0);
+    const quantity = ship ? (ship.get(line) ?? 0) : open;
+    if (!(quantity > 0)) continue;
+    const location = row.location ?? row.headlocation;
+    const locationName = row.location != null ? row.locationname : row.headlocationname;
+    const stock = (stockRows || []).filter((item) => String(item.item) === String(row.item) && Number(item.available) > 0);
+    const here = location == null ? 0 : Number(stock.find((item) => String(item.location) === String(location))?.available ?? 0);
+    if (location != null && here >= quantity) continue;
+    const elsewhere = stock
+      .filter((item) => String(item.location) !== String(location) && Number(item.available) >= quantity)
+      .map((item) => `${item.name} (location id ${item.location}) has ${Number(item.available)}`);
+    const where = location == null ? "The order has no location, so NetSuite cannot ship it." : `Only ${here} available at ${locationName}.`;
+    const fix = elsewhere.length
+      ? ` ${elsewhere.join("; ")}. Set that location on the sales order with ns_updateRecord {"location":{"id":"<id>"}}, then fulfill.`
+      : " No location has enough.";
+    problems.push(`Line ${line} (${row.itemname}) ships ${quantity}. ${where}${fix}`);
+  }
+  return problems;
+}
+
+// Checks stock before Ask proposes a sales order fulfillment. Returns a reason to tell the person, or "".
+export async function fulfillmentCheck(name, args, query) {
+  if (name !== "ns_transformRecord" || args?.sourceRecordType !== "salesorder" || args?.targetRecordType !== "itemfulfillment") return "";
+  let data = args.data ?? {};
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data || "{}");
+    } catch {
+      data = {};
+    }
+  }
+  const items = Array.isArray(data?.item?.items) ? data.item.items : null;
+  const ship = items ? new Map(items.filter((line) => line.itemReceive !== false).map((line) => [Number(line.orderLine), Number(line.quantity) || 0])) : null;
+  const lines = await query(shipLinesSql(args.sourceRecordId));
+  const ids = lines.map((row) => String(row.item));
+  const stock = ids.length ? await query(stockSql(ids)) : [];
+  const problems = stockProblems(lines, stock, ship);
+  return problems.length ? `Not fulfilled, nothing was written. ${problems.join(" ")} Tell the person before you change anything.` : "";
+}
+
 // Adds where each line ships from, how much is available there and elsewhere, and serial or lot tracking.
 export function addStock(lines, factRows, stockRows, { stock: withStock = true } = {}) {
   const facts = new Map((factRows || []).map((row) => [String(row.id), row]));

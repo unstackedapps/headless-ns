@@ -144,14 +144,14 @@ export function describeWrite(name, args = {}, names = {}) {
     if (status) parts.push(`status ${status}`);
     for (const line of lines) {
       if (line.itemReceive === false) {
-        details.push(`Order line ${line.orderLine}: skip`);
+        details.push(`Order line ${line.orderLine ?? "?"}: skip`);
         continue;
       }
       const numbers = numbersOf(line).map((entry) => {
         const number = entry.receiptInventoryNumber || nameOf("number", entry.issueInventoryNumber) || "?";
         return Number(entry.quantity) === 1 ? number : `${number} × ${entry.quantity}`;
       });
-      details.push(`Order line ${line.orderLine}: ${line.quantity ?? "all"}${numbers.length ? ` (${numbers.join(", ")})` : ""}`);
+      details.push(`Order line ${line.orderLine ?? "?"}: ${line.quantity ?? "all"}${numbers.length ? ` (${numbers.join(", ")})` : ""}`);
     }
     if (data.generateIntegratedShipperLabel === false) details.push("No carrier label");
     if (Object.hasOwn(data, "shipMethod") && data.shipMethod === null) details.push("Clears the ship method");

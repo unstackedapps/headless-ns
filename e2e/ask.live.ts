@@ -5,7 +5,11 @@ import { signIn } from "./session";
 // Screenshots of each write summary go to e2e/shots/<prefix>-*.png.
 const MEMO = 'memo "headless-ns ask test"';
 
+// Waits for the spinner to show (React may not have drawn it yet right after a click), then to go.
 async function settle(drawer: Locator) {
+  await expect(drawer.getByText("Looking that up."))
+    .toBeVisible({ timeout: 5_000 })
+    .catch(() => undefined);
   await expect(drawer.getByText("Looking that up.")).toBeHidden({ timeout: 300_000 });
 }
 
@@ -35,8 +39,9 @@ async function askAndRun(page: Page, request: string, prefix: string, run: (writ
     await button.click();
     await settle(drawer);
   }
-  const answer = await drawer.locator(".bubble").last().innerText();
-  console.log(`answer: ${answer}`);
+  const bubbles = await drawer.locator(".bubble").allInnerTexts();
+  for (const bubble of bubbles) console.log(`bubble: ${bubble.replace(/\s+/g, " ").slice(0, 400)}`);
+  const answer = (await drawer.locator(".bubble:not(.user)").allInnerTexts()).at(-1) ?? "";
   await page.screenshot({ path: `e2e/shots/${prefix}-done.png`, fullPage: true });
   return { writes, answer };
 }

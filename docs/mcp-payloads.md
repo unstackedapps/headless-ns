@@ -220,7 +220,7 @@ Vendor payment `apply` lines are keyed by `doc`. A transform from one bill pays 
 {"apply":{"items":[{"doc":{"id":"17091"},"apply":true,"amount":5},{"doc":{"id":"17093"},"apply":true,"amount":1.2}]}}
 ```
 
-Payment 17094 totaled 6.20 and left 5.20 open on 17091 and 3.00 on 17093. The transform pre-applies the source bill in full. When the user unticks that bill, the server also sends `{"doc":{"id":<source>},"apply":false}`. That case has not run live yet.
+Payment 17094 totaled 6.20 and left 5.20 open on 17091 and 3.00 on 17093. The transform pre-applies the source bill in full. When the user unticks that bill, the server also sends `{"doc":{"id":<source>},"apply":false}`. Bill payment 430 (17108) ran this way from bill 420 and paid only bill 419; bill 420 stayed at 10.00 open.
 
 ### Lot and serial numbers on receipts
 
@@ -239,7 +239,7 @@ Not built, because td3138390 cannot test it without a settings change.
 - Every PO here has `approvalstatus` null and starts at B Pending Receipt.
 - The PO metadata has `supervisorApproval` (boolean), and `ns_getRecordActionMetadata` lists an `approve` action. PO 17095, created with `supervisorApproval:false`, read back `true` at B Pending Receipt. The account ignores the box.
 - Approval needs an account change. Setup > Accounting > Accounting Preferences > Approval Routing > Purchase Order turns on approval routing, and it needs an approval workflow (SuiteFlow) first. Purchase orders then start at Pending Approval with `approvalstatus` 1. Sources: Oracle's help pages "Switching From the Approval Routing Feature to SuiteFlow for Purchases" and "Supervisors, Approvers, and Approval Limits". They disagree on how the preference and the older supervisor approval interact, so check the account before changing anything.
-- The page already offers Approve for a PO at status A or `approvalstatus` 1, by setting `approvalStatus` to 2. That write is untested. The `approve` action may be the better call once routing is on.
+- The page already offers Approve for a PO at status A or `approvalstatus` 1, by setting `approvalStatus` to 2. That write is untested. Do not switch it to the `approve` action: for sales orders that action answers "The approve api is not available to your company" (see below).
 
 ### UI runs (`e2e/gaps.live.ts`, memo "headless-ns phase4 test")
 
@@ -249,3 +249,24 @@ Not built, because td3138390 cannot test it without a settings change.
 | Lot fulfillment | SO634 (17096), 3 of item 759. IF473 (17097) shipped 2 from LOT-DEMO-A and 1 from LOT-DEMO-B (available went from 20 to 18 and 19). |
 
 PO450 (17189) is left at Pending Receipt from a run that stopped on a test selector before receiving.
+
+## Approval, serial receipts and payments that skip their bill (Phase 4b)
+
+Run on 2026-11-08 through the screens (`e2e/gaps.live.ts`), memo "headless-ns phase4 test".
+
+### Sales order approval
+
+- `ns_createRecord` with `"orderStatus":{"id":"A"}` makes the order at A Pending Approval. SO635 (17289), external id hns-p4b-so-appr-1. No setting change needed.
+- `ns_executeRecordAction` with `actionId: "approve"` fails with "The approve api is not available to your company", even though `ns_getRecordActionMetadata` lists the action. SO636 (17100) is left at Pending Approval from that try.
+- `ns_updateRecord` with `{"orderStatus":{"id":"B"}}` approves it: SO635 moved to B Pending Fulfillment. The Approve step now sends this.
+- UI run: SO637 (17104) created at A, then Approve on its page moved it to B.
+
+### Serial numbers on a receipt
+
+Receipts take one `receiptInventoryNumber` per unit with quantity 1, the same shape as lots. PO453 (17105), 2 of item 761 (serialized), received as IR445 (17106) with serials HNS-MW8BOH37-S1 and -S2. Both exist at San Francisco with 1 available. An earlier run that stopped at the payment step left PO452, IR444 (serials HNS-MW8BJ0DH-S1 and -S2) and bill 419 (17103).
+
+### Bill payment that leaves out its bill
+
+Started Pay bill on bill 420 (17107, 10.00), unticked it and paid 0.50 of bill 419 instead. Bill payment 430 (17108) applied 0.50 to 17103 only, and bill 420 still shows 10.00 open.
+
+The first try failed in the browser before anything was written: the bill list loads twice in development, and the second load wiped the tick on bill 419. The list now keeps ticks and amounts when it reloads.

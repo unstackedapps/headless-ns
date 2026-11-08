@@ -263,3 +263,39 @@ test("a pending write carries a readable summary with looked-up names", async ()
   assert.equal(JSON.parse(result.transcript.at(-1).tool_calls[0].function.arguments).data, result.pending[0].arguments.data);
   assert.deepEqual(result.pending[0].summary.details.slice(0, 2), ["2 × SPC002 at 10.00 British pound", "3 × GAR002 at 5.00 British pound"]);
 });
+
+test("a fulfillment without stock goes back to the model with the reason, not to the person", async () => {
+  const fulfill = {
+    sourceRecordType: "salesorder",
+    sourceRecordId: "17389",
+    targetRecordType: "itemfulfillment",
+    data: JSON.stringify({ shipStatus: { id: "C" } }),
+  };
+  const seen = [];
+  let turns = 0;
+  const result = await ask({
+    text: "Fulfill SO639.",
+    model: model(async ({ prompt }) => {
+      turns += 1;
+      seen.push(prompt);
+      if (turns === 1) return { content: [{ type: "tool-call", toolCallId: "call-f", toolName: "ns_transformRecord", input: fulfill }], finishReason: "tool-calls", usage };
+      return { content: [{ type: "text", text: "Boston has none; San Francisco has 3." }], finishReason: "stop", usage };
+    }),
+    connection,
+    identity,
+    query: async (sql) => {
+      if (/FROM transactionline tl JOIN transactionline h/.test(sql)) {
+        return [{ line: 1, item: 761, itemname: "Oral-B iO", location: 1, locationname: "Boston", headlocation: 1, headlocationname: "Boston", quantity: 1, done: 0, picked: 0 }];
+      }
+      if (/FROM inventorybalance/.test(sql)) return [{ item: 761, location: 2, name: "San Francisco", available: 3 }];
+      return [];
+    },
+    policy: { allowWrites: true, disabled: [] },
+    catalog: [{ name: "ns_transformRecord", description: "Transform", schema: { type: "object", properties: {} } }],
+    runTool: async () => assert.fail("nothing reaches NetSuite"),
+  });
+  assert.equal(result.pending, null);
+  assert.equal(result.answer, "Boston has none; San Francisco has 3.");
+  const tool = result.transcript.find((message) => message.role === "tool");
+  assert.match(tool.content, /Only 0 available at Boston\. San Francisco \(location id 2\) has 3/);
+});

@@ -7,6 +7,7 @@ import { readPolicy } from "./policy.mjs";
 import { languageModel, scrub } from "./providers.mjs";
 import { newExternalId } from "./records.mjs";
 import { describeWrites } from "./summary.mjs";
+import { fulfillmentCheck } from "./workflows.mjs";
 
 const ROLES = new Set(["user", "assistant", "tool"]);
 
@@ -54,7 +55,7 @@ function systemPrompt(identity) {
     "Use ns_runCustomSuiteQL for lists and counts. Call ns_getSuiteQLMetadata before using a column you have not seen.",
     "Use ns_listAllReports, ns_getSubsidiaries, and ns_runReport for saved reports. Dates are YYYY-MM-DD.",
     "A write tool posts a record. Call it only when the person asked to change NetSuite. The server pauses for confirmation before it runs. Propose one write at a time and continue after it runs.",
-    "Write payloads: `data` is a JSON string. References are {\"id\":\"341\"}. Lines go in {\"item\":{\"items\":[{\"item\":{\"id\":\"248\"},\"quantity\":2,\"rate\":10}]}}. Always send a rate.",
+    "Write payloads: `data` is a JSON string. References are {\"id\":\"341\"}. Lines go in {\"item\":{\"items\":[{\"item\":{\"id\":\"248\"},\"quantity\":2,\"rate\":10}]}}. Always send a rate. Put the location the person names in the body as \"location\":{\"id\":\"2\"}; an order without one cannot ship.",
     "The server sets externalId on every ns_createRecord and ns_transformRecord. The tool call you see afterwards shows it.",
     "ns_transformRecord takes sourceRecordType, sourceRecordId, targetRecordType and optional `data` that overrides the copied values. Quote to order: estimate to salesorder.",
     "Sales order to itemfulfillment: data {\"generateIntegratedShipperLabel\":false,\"shipMethod\":null,\"shipStatus\":{\"id\":\"C\"}}. To ship only some lines add item.items with {\"orderLine\":1,\"itemReceive\":true,\"quantity\":2}.",
@@ -170,6 +171,11 @@ export function withExternalId(name, input) {
   return { ...input, data: JSON.stringify(next) };
 }
 
+// Repeat detection ignores the external id, which is new on every proposal.
+function callKey(call) {
+  return `${call.toolName} ${JSON.stringify(call.input ?? {}).replace(/\\?"externalId\\?":\\?"[^"\\]*\\?"/g, "")}`;
+}
+
 function clientCall(call) {
   return {
     id: call.toolCallId,
@@ -238,6 +244,21 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
     clientMessages.push(assistant);
     if (!calls.length) return stopped(result.text || "", steps, clientMessages);
     const writes = calls.filter((call) => WRITE_TOOLS.has(call.toolName) && !refusal(call.toolName, policy));
+    // A fulfillment without stock fails in NetSuite. Answer the model with the reason instead of asking the person.
+    const problems = await Promise.all(writes.map((call) => fulfillmentCheck(call.toolName, call.input, query).catch(() => "")));
+    if (problems.some(Boolean)) {
+      for (const call of calls) {
+        const key = callKey(call);
+        if (failed.has(key)) return stopped(`I stopped because ${call.toolName} failed twice with the same input.`, steps, clientMessages);
+        failed.add(key);
+        const error = problems[writes.indexOf(call)] || "Not run: another change in this step was stopped.";
+        clientMessages.push({ role: "tool", tool_call_id: call.toolCallId, name: call.toolName, content: JSON.stringify({ error }) });
+        steps.push({ name: call.toolName, ok: false, error });
+      }
+      messages.length = 0;
+      messages.push(...toModelMessages(clientMessages));
+      continue;
+    }
     if (writes.length) {
       const transcript = clientMessages.filter((item) => item.role !== "system");
       const pending = calls.map((call) => ({ id: call.toolCallId, name: call.toolName, arguments: call.input ?? {} }));
@@ -250,7 +271,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
       };
     }
     for (const call of calls) {
-      const key = `${call.toolName} ${JSON.stringify(call.input ?? {})}`;
+      const key = callKey(call);
       if (failed.has(key)) {
         return stopped(`I stopped because ${call.toolName} failed twice with the same input.`, steps, clientMessages);
       }
