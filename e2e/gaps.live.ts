@@ -27,20 +27,40 @@ async function submit(page: Page, button: string, kicker: string) {
   await landed(page, kicker);
 }
 
-test("lot receipt, bill for the received quantity and a partial payment", async ({ page, context }) => {
-  await signIn(context);
-  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
-
+// A Core4Solutions purchase order at San Francisco, made through the new-order screen.
+async function newPurchaseOrder(page: Page, search: string, item: RegExp, quantity: string, rate: string) {
   await page.goto("/#/transaction?type=purchaseorder&new=1");
   await pick(page, "Vendor", "core4", "Core4Solutions");
   await pick(page, "Location", "san", "San Francisco");
   await page.getByLabel("Memo").fill(MEMO);
-  await pick(page, "Item", "gar002l", /GAR002L/);
-  await page.getByRole("spinbutton", { name: "Quantity" }).fill("5");
-  await page.getByRole("spinbutton", { name: "Rate" }).fill("2");
+  await pick(page, "Item", search, item);
+  await page.getByRole("spinbutton", { name: "Quantity" }).fill(quantity);
+  await page.getByRole("spinbutton", { name: "Rate" }).fill(rate);
   await page.getByLabel(/I mean to run this/).check();
   await page.getByRole("button", { name: "Create purchase order" }).click();
   await landed(page, "Purchase order");
+}
+
+// Runs a step that has no form fields (Approve, Reject) and waits for the record to reach `status`.
+async function runStep(page: Page, step: string, status: string) {
+  await page.getByRole("button", { name: step, exact: true }).click();
+  await page.getByLabel(/I mean to run this/).check();
+  await page.locator(".step-form").getByRole("button", { name: step }).click();
+  await expect(page.getByText(`${step} is done.`)).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator(".page-tools .pill", { hasText: status })).toBeVisible({ timeout: 60_000 });
+}
+
+// Purchase orders and bills wait for approval in td3138390 (workflow "headless-ns approval - PO and Bill").
+async function approve(page: Page, status: string) {
+  await runStep(page, "Approve", status);
+}
+
+test("lot receipt, bill for the received quantity and a partial payment", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+
+  await newPurchaseOrder(page, "gar002l", /GAR002L/, "5", "2");
+  await approve(page, "Pending Receipt");
 
   await page.getByRole("button", { name: "Receive", exact: true }).click();
   await page.getByRole("spinbutton", { name: "Quantity", exact: true }).fill("3");
@@ -60,7 +80,9 @@ test("lot receipt, bill for the received quantity and a partial payment", async 
   await expect(page.getByRole("spinbutton", { name: "Quantity" })).toHaveValue("3");
   await shot("3-bill-form");
   await submit(page, "Create bill", "Bill");
+  await approve(page, "Open");
   await expect(page.getByText("6.00 US Dollar").first()).toBeVisible();
+  const billUrl = page.url();
   await shot("4-bill");
 
   await page.getByRole("button", { name: "Pay bill" }).click();
@@ -76,9 +98,10 @@ test("lot receipt, bill for the received quantity and a partial payment", async 
   await submit(page, "Create bill payment", "Bill payment");
   await shot("6-bill-payment");
 
-  await page.getByRole("row", { name: /Made from .* Bill / }).first().getByRole("link").click();
+  // The payment covers two bills; go back to the one this test made.
+  await page.goto(billUrl);
   await landed(page, "Bill");
-  await expect(page.locator("dd", { hasText: "2.00 US Dollar" })).toBeVisible();
+  await expect(page.locator("dt", { hasText: "Open amount" }).locator("xpath=..").locator("dd")).toHaveText("2.00 US Dollar");
   await shot("7-bill-part-paid");
 });
 
@@ -129,12 +152,7 @@ test("a sales order waiting for approval is approved from its page", async ({ pa
   await page.goto(`/#/transaction?type=salesorder&id=${id}`);
   await landed(page, "Sales order");
   await expect(page.locator(".page-tools .pill", { hasText: "Pending Approval" })).toBeVisible();
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await page.getByLabel(/I mean to run this/).check();
-  await shot("10-approve-form");
-  await page.locator(".step-form").getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByText("Approve is done.")).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator(".page-tools .pill", { hasText: "Pending Fulfillment" })).toBeVisible({ timeout: 60_000 });
+  await runStep(page, "Approve", "Pending Fulfillment");
   await shot("11-approved");
 });
 
@@ -142,16 +160,8 @@ test("serial receipt, then a payment that leaves out the bill it started from", 
   await signIn(context);
   const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
 
-  await page.goto("/#/transaction?type=purchaseorder&new=1");
-  await pick(page, "Vendor", "core4", "Core4Solutions");
-  await pick(page, "Location", "san", "San Francisco");
-  await page.getByLabel("Memo").fill(MEMO);
-  await pick(page, "Item", "oral-b", /Oral-B/);
-  await page.getByRole("spinbutton", { name: "Quantity" }).fill("2");
-  await page.getByRole("spinbutton", { name: "Rate" }).fill("5");
-  await page.getByLabel(/I mean to run this/).check();
-  await page.getByRole("button", { name: "Create purchase order" }).click();
-  await landed(page, "Purchase order");
+  await newPurchaseOrder(page, "oral-b", /Oral-B/, "2", "5");
+  await approve(page, "Pending Receipt");
 
   await page.getByRole("button", { name: "Receive", exact: true }).click();
   await expect(page.getByText("Serial numbers: enter 2")).toBeVisible();
@@ -165,6 +175,7 @@ test("serial receipt, then a payment that leaves out the bill it started from", 
   await landed(page, "Purchase order");
   await page.getByRole("button", { name: "Bill", exact: true }).click();
   await submit(page, "Create bill", "Bill");
+  await approve(page, "Open");
   await expect(page.locator("dd", { hasText: "10.00 US Dollar" }).first()).toBeVisible();
   const billUrl = page.url();
 
@@ -184,4 +195,34 @@ test("serial receipt, then a payment that leaves out the bill it started from", 
   await landed(page, "Bill");
   await expect(page.locator("dt", { hasText: "Open amount" }).locator("xpath=..").locator("dd")).toHaveText("10.00 US Dollar");
   await shot("16-bill-still-open");
+});
+
+test("a purchase order and its bill wait for approval; Approve and Reject move them on", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/approval-${name}.png`, fullPage: true });
+
+  await newPurchaseOrder(page, "kap001", /KAP001/, "1", "2.1");
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Supervisor Approval" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Receive", exact: true })).toHaveCount(0);
+  await shot("1-po-pending");
+  await approve(page, "Pending Receipt");
+  await shot("2-po-approved");
+
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await submit(page, "Create item receipt", "Item receipt");
+  await page.getByRole("link", { name: /^PO\d+/ }).click();
+  await landed(page, "Purchase order");
+  await page.getByRole("button", { name: "Bill", exact: true }).click();
+  await submit(page, "Create bill", "Bill");
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Approval" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pay bill" })).toHaveCount(0);
+  await shot("3-bill-pending");
+  await approve(page, "Open");
+  await expect(page.getByRole("button", { name: "Pay bill" })).toBeVisible();
+  await shot("4-bill-approved");
+
+  await newPurchaseOrder(page, "kap001", /KAP001/, "1", "2.1");
+  await runStep(page, "Reject", "Rejected by Supervisor");
+  await expect(page.getByText(/Nothing to do here/)).toBeVisible();
+  await shot("5-po-rejected");
 });

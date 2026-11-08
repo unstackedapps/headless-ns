@@ -234,7 +234,7 @@ NetSuite created both lots at San Francisco with 2 and 1 available.
 
 ### Purchase order approval
 
-Not built, because td3138390 cannot test it without a settings change.
+Superseded: approval routing is now on and runs through a workflow. See "Purchase order and bill approval workflow" below. What follows is what we found before that.
 
 - Every PO here has `approvalstatus` null and starts at B Pending Receipt.
 - The PO metadata has `supervisorApproval` (boolean), and `ns_getRecordActionMetadata` lists an `approve` action. PO 17095, created with `supervisorApproval:false`, read back `true` at B Pending Receipt. The account ignores the box.
@@ -297,3 +297,44 @@ Run on 2026-11-08 through the Ask drawer (`e2e/ask.live.ts`) with Gemma 4 in LM 
 | Quote for customer 1194 "388 United Kingdom (buys from US)" | Summary read "total 20.00 British pound" and "2 × SPC002 at 10.00 British pound". Cancelled, nothing written. |
 
 Write summaries now name the currency from the customer or vendor (`customer.currency` or `vendor.currency`), or from `data.currency` when the payload sets one. A transform has no amount in its summary. Without a known currency the figure has no symbol.
+
+## Purchase order and bill approval workflow (Phase 4c)
+
+Set up on 2026-11-08 at the user's request, in the NetSuite UI as Administrator.
+
+### Account changes, and how to undo them
+
+| Where | Change | Old value | Who |
+|---|---|---|---|
+| Setup > Accounting > Accounting Preferences > Approval Routing | Purchase Order and Vendor Bill turned on | Off: every PO had `approvalstatus` null and started at B | The user |
+| Customization > Workflow > Workflows | New workflow 10 "headless-ns approval - PO and Bill", script id `customworkflow_hns_approval_po` | Did not exist | This session |
+
+The user turned on the preferences before this session's work. This session did not check or change Enable Features (SuiteFlow, Approval Routing).
+
+To undo: mark workflow 10 Inactive (or delete it), then clear Purchase Order and Vendor Bill under Approval Routing.
+
+Bundle 16707 already had "3 Way Match Vendor Bill Approval" (3), "Vendor Bill Approval Routing Workflow" (4) and "Invoice Approval Workflow" (5). All three are Not Initiating, and none was changed.
+
+### The workflow
+
+- Record type Transaction, sub types Purchase Order and Vendor Bill. One workflow covers both, so both use the same action ids. The orchestrator asked for two workflows; one does the same job.
+- Event based, On Create, all trigger types. Release status Released. Execute as Admin. Contexts: the default 40, plus Agentic Commerce.
+- State **Pending Approval** (30, start state). On entry it sets Approval Status = Pending Approval. Before record load it adds button Approve (action `workflowaction_hns_approve`) and button Reject (`workflowaction_hns_reject`), both with "Expose to Record Action API". It moves to Approved on the Approve button and to Rejected on the Reject button.
+- State **Approved** (31): on entry it sets Approval Status = Approved.
+- State **Rejected** (32): on entry it sets Approval Status = Rejected.
+
+### Calls that work
+
+- `ns_getRecordActionMetadata` for purchaseorder and vendorbill now lists `WORKFLOWACTION_HNS_APPROVE` and `WORKFLOWACTION_HNS_REJECT`.
+- `ns_executeRecordAction` `{"recordType":"purchaseorder","recordId":"17395","actionId":"WORKFLOWACTION_HNS_APPROVE"}` answers "Workflow action Approve processed." PO454 moved from A Pending Supervisor Approval (approvalstatus 1) to B Pending Receipt (approvalstatus 2).
+- The Reject action moved PO455 (17396) to C Rejected by Supervisor (approvalstatus 3).
+- Bill 421 (17398), made from PO454, started at D Pending Approval (approvalstatus 1). Approve moved it to A Open.
+- These ran as role `customrole_opensuitemcp`, the role headless-ns signs in with, so that role can approve. The Approve and Reject steps on the transaction page now call these actions. Setting `approvalStatus` directly would leave the workflow waiting in Pending Approval.
+
+### UI runs (`e2e/gaps.live.ts`)
+
+| Flow | Records |
+|---|---|
+| PO approval, receipt, bill approval | PO456 (17399) waited at Pending Supervisor Approval with no Receive step. Approve moved it to Pending Receipt. IR447 (17400). Bill 422 (17401) waited at Pending Approval with no Pay bill step. Approve moved it to Open and showed Pay bill. |
+| PO rejection | PO457 (17589). Reject moved it to Rejected by Supervisor, with nothing left to do. |
+| Earlier flows, now with approval | Lot receipt: PO460 (17591), IR450, bill 425, payment 433. Serial receipt and payment from another bill: PO459 (17689), IR449, bill 424 (10.00 still open), payment 432. Each PO and bill was approved on its page first. |
