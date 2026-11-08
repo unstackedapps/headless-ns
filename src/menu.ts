@@ -4,6 +4,8 @@ export const menuDefaults = [
   { id: "orders", label: "Orders", group: "Ledger" },
   { id: "quotes", label: "Quotes", group: "Ledger" },
   { id: "invoices", label: "Invoices", group: "Ledger" },
+  { id: "vendors", label: "Vendors", group: "Ledger" },
+  { id: "purchaseorders", label: "Purchase orders", group: "Ledger" },
   { id: "bills", label: "Bills", group: "Ledger" },
   { id: "items", label: "Items", group: "Ledger" },
   { id: "people", label: "People", group: "Ledger" },

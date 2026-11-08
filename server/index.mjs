@@ -27,6 +27,7 @@ import {
 import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
 import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
+import { PAGE_SIZE, TX_LISTS, pageOf, txListSql, vendorListSql } from "./lists.mjs";
 import { studioRoutes } from "./studio.mjs";
 import {
   accountLabel,
@@ -34,7 +35,6 @@ import {
   authorizationRedirect,
   exchangeCode,
   field,
-  likeTerm,
   getDiscovery,
   pkcePair,
   publicDiscovery,
@@ -52,7 +52,8 @@ if (sessionSecretIsEphemeral()) updateEnv(["SESSION_SECRET"], { SESSION_SECRET: 
 
 const SESSIONS_FILE = "data/sessions.json";
 const sessions = new Map();
-const OPEN_ORDER = "('SalesOrd:C','SalesOrd:G','SalesOrd:H')";
+// SuiteQL matches the bare status letter. 'SalesOrd:C' matches nothing.
+const OPEN_ORDER = "('C','G','H')";
 
 function ensureCert() {
   mkdirSync("certs", { recursive: true });
@@ -248,22 +249,22 @@ function schedule(task) {
   });
 }
 
-async function runQuery(session, sql, limit) {
+async function runQuery(session, sql, limit, page = 0) {
   try {
-    return await suiteql(session.accessToken, sql, limit);
+    return await suiteql(session.accessToken, sql, limit, page);
   } catch (error) {
     if (error.status !== 401 || !session.refreshToken) throw error;
     session.expiresAt = 0;
     await ensureFresh(session);
-    return suiteql(session.accessToken, sql, limit);
+    return suiteql(session.accessToken, sql, limit, page);
   }
 }
 
-function query(session, sql, limit, source = "ledger") {
+function query(session, sql, limit, source = "ledger", page = 0) {
   if (session.via === "opensuitemcp" || session.via === "osmcp" || session.via === "custom" || session.via === "netsuite") {
-    return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit)));
+    return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit, page)));
   }
-  return schedule(() => runQuery(session, sql, limit));
+  return schedule(() => runQuery(session, sql, limit, page));
 }
 
 function rowsOf(result, map) {
@@ -618,22 +619,6 @@ const routes = {
     });
   },
 
-  async orders(req, res, url) {
-    await salesList(req, res, url, {
-      type: "SalesOrd",
-      where: `NVL(t.voided, 'F') = 'F' AND t.status NOT IN ${OPEN_ORDER}`,
-      kind: "salesorder",
-    });
-  },
-
-  async quotes(req, res, url) {
-    await salesList(req, res, url, {
-      type: "Estimate",
-      where: `NVL(t.voided, 'F') = 'F' AND t.status = 'Estimate:A'`,
-      kind: "estimate",
-    });
-  },
-
   async customer(req, res, id) {
     const session = await authorized(req, res);
     if (!session) return;
@@ -716,14 +701,6 @@ const routes = {
     });
   },
 
-  async invoices(req, res, url) {
-    await transactionList(req, res, url, "CustInvc", "invoice", "customer");
-  },
-
-  async bills(req, res, url) {
-    await transactionList(req, res, url, "VendBill", "bill", "vendor");
-  },
-
   async items(req, res, url) {
     const session = await authorized(req, res);
     if (!session) return;
@@ -769,6 +746,80 @@ const routes = {
           href: recordHref("item", idOf(row)),
         };
       }),
+    });
+  },
+
+  async vendors(req, res, url) {
+    const session = await authorized(req, res);
+    if (!session) return;
+    const page = pageOf(url.searchParams.get("page"));
+    const result = await query(session, vendorListSql(url.searchParams.get("q")), PAGE_SIZE, "ledger", page);
+    sendJson(res, 200, {
+      ...meta(session),
+      page,
+      ...rowsOf(result, (row) => ({
+        id: idOf(row),
+        name: field(row, "entityid") || "",
+        company: field(row, "companyname") || "",
+        email: field(row, "email") || "",
+        phone: field(row, "phone") || "",
+        subsidiary: field(row, "subsidiary") || "",
+        href: recordHref("vendor", idOf(row)),
+      })),
+    });
+  },
+
+  // Vendor detail: contact fields, open balance, open purchase orders and open bills.
+  async vendor(req, res, id) {
+    const session = await authorized(req, res);
+    if (!session) return;
+    const found = await query(
+      session,
+      `SELECT v.id, v.entityid, v.companyname, v.email, v.phone, BUILTIN.DF(v.subsidiary) AS subsidiary FROM vendor v WHERE v.id = ${id}`,
+      1,
+    );
+    const row = found.items[0];
+    if (!row) {
+      sendJson(res, 404, { error: "That vendor is not in this account." });
+      return;
+    }
+    const [orders, bills, balances] = await Promise.all([
+      query(session, txListSql("purchaseorders", { status: "open", entity: id }), 25),
+      query(session, txListSql("bills", { status: "open", entity: id }), 25),
+      query(
+        session,
+        `SELECT BUILTIN.DF(currency) AS currency, NVL(SUM(foreignamountunpaid), 0) AS amount
+         FROM transaction
+         WHERE entity = ${id} AND type = 'VendBill' AND NVL(voided, 'F') = 'F' AND foreignamountunpaid <> 0
+         GROUP BY BUILTIN.DF(currency)`,
+        20,
+      ),
+    ]);
+    const tx = (type) => (item) => ({
+      id: idOf(item),
+      number: field(item, "tranid") || "",
+      date: field(item, "trandate") || "",
+      due: field(item, "duedate") || "",
+      status: String(field(item, "status") || "").replace(/^[^:]*:\s*/, ""),
+      currency: field(item, "currency") || "",
+      amount: asNumber(field(item, "amount")),
+      unpaid: asNumber(field(item, "unpaid")),
+      href: transactionHref(type, idOf(item)),
+    });
+    sendJson(res, 200, {
+      ...meta(session),
+      vendor: {
+        id,
+        name: field(row, "entityid") || "",
+        company: field(row, "companyname") || "",
+        email: field(row, "email") || "",
+        phone: field(row, "phone") || "",
+        subsidiary: field(row, "subsidiary") || "",
+        href: recordHref("vendor", id),
+      },
+      balance: balances.items.map((item) => ({ currency: String(field(item, "currency") || ""), amount: asNumber(field(item, "amount")) })),
+      orders: rowsOf(orders, tx("PurchOrd")).rows,
+      bills: rowsOf(bills, tx("VendBill")).rows,
     });
   },
 
@@ -836,64 +887,30 @@ const routes = {
   },
 };
 
-async function salesList(req, res, url, { type, where, kind }) {
+// One route for every transaction list: ?list=orders&status=open&q=&page=0.
+async function txList(req, res, url) {
   const session = await authorized(req, res);
   if (!session) return;
-  const term = likeTerm(url.searchParams.get("q"));
-  const match = term
-    ? ` AND (LOWER(t.tranid) LIKE '%${term}%' OR t.entity IN (SELECT id FROM customer WHERE LOWER(entityid) LIKE '%${term}%' OR LOWER(companyname) LIKE '%${term}%'))`
-    : "";
-  const result = await query(
-    session,
-    `SELECT t.id, t.tranid, t.trandate, BUILTIN.DF(t.entity) AS entity, BUILTIN.DF(t.status) AS status,
-            BUILTIN.DF(t.currency) AS currency, t.foreigntotal AS amount
-     FROM transaction t
-     WHERE t.type = '${type}' AND ${where}${match}
-     ORDER BY t.trandate DESC`,
-  );
+  const name = String(url.searchParams.get("list") || "");
+  const sql = txListSql(name, { status: url.searchParams.get("status"), q: url.searchParams.get("q") });
+  const spec = TX_LISTS[name];
+  const page = pageOf(url.searchParams.get("page"));
+  const result = await query(session, sql, PAGE_SIZE, "ledger", page);
   sendJson(res, 200, {
     ...meta(session),
-    ...rowsOf(result, (row) => ({
-      id: idOf(row),
-      number: field(row, "tranid") || "",
-      date: field(row, "trandate") || "",
-      customer: field(row, "entity") || "",
-      status: field(row, "status") || "",
-      currency: field(row, "currency") || "",
-      amount: asNumber(field(row, "amount")),
-      href: recordHref(kind, idOf(row)),
-    })),
-  });
-}
-
-async function transactionList(req, res, url, type, kind, party) {
-  const session = await authorized(req, res);
-  if (!session) return;
-  const term = likeTerm(url.searchParams.get("q"));
-  const partyTable = party === "vendor" ? "vendor" : "customer";
-  const match = term
-    ? ` AND (LOWER(t.tranid) LIKE '%${term}%' OR t.entity IN (SELECT id FROM ${partyTable} WHERE LOWER(entityid) LIKE '%${term}%' OR LOWER(companyname) LIKE '%${term}%'))`
-    : "";
-  const result = await query(
-    session,
-    `SELECT t.id, t.tranid, t.trandate, t.duedate, BUILTIN.DF(t.entity) AS entity,
-            BUILTIN.DF(t.currency) AS currency, t.foreigntotal AS amount, t.foreignamountunpaid AS unpaid
-     FROM transaction t
-     WHERE t.type = '${type}' AND NVL(t.voided, 'F') = 'F' AND t.foreignamountunpaid <> 0${match}
-     ORDER BY t.duedate`,
-  );
-  sendJson(res, 200, {
-    ...meta(session),
+    page,
+    statuses: spec.statuses ? Object.entries(spec.statuses).map(([id, label]) => ({ id, label })) : [],
     ...rowsOf(result, (row) => ({
       id: idOf(row),
       number: field(row, "tranid") || "",
       date: field(row, "trandate") || "",
       due: field(row, "duedate") || "",
       name: field(row, "entity") || "",
+      status: String(field(row, "status") || "").replace(/^[^:]*:\s*/, ""),
       currency: field(row, "currency") || "",
       amount: asNumber(field(row, "amount")),
       unpaid: asNumber(field(row, "unpaid")),
-      href: recordHref(kind, idOf(row)),
+      href: transactionHref(spec.type, idOf(row)),
     })),
   });
 }
@@ -1183,11 +1200,9 @@ const apiRoutes = {
   "GET /api/overview": routes.overview,
   "GET /api/activity": routes.activity,
   "GET /api/customers": routes.customers,
-  "GET /api/orders": routes.orders,
-  "GET /api/quotes": routes.quotes,
-  "GET /api/invoices": routes.invoices,
-  "GET /api/bills": routes.bills,
   "GET /api/items": routes.items,
+  "GET /api/tx": txList,
+  "GET /api/vendors": routes.vendors,
   "GET /api/employees": routes.employees,
   "GET /api/me": routes.me,
   "POST /api/query": querySql,
@@ -1197,10 +1212,13 @@ const apiRoutes = {
 
 async function handle(req, res, vite) {
   const url = new URL(req.url || "/", "https://localhost");
-  const customerMatch = req.method === "GET" ? url.pathname.match(/^\/api\/customers\/(\d+)$/) : null;
+  const customerMatch = req.method === "GET" ? url.pathname.match(/^\/api\/customers\/(\d{1,12})$/) : null;
+  const vendorMatch = req.method === "GET" ? url.pathname.match(/^\/api\/vendors\/(\d{1,12})$/) : null;
   const handler = customerMatch
     ? (request, response) => routes.customer(request, response, customerMatch[1])
-    : apiRoutes[`${req.method} ${url.pathname}`];
+    : vendorMatch
+      ? (request, response) => routes.vendor(request, response, vendorMatch[1])
+      : apiRoutes[`${req.method} ${url.pathname}`];
   if (url.pathname.startsWith("/api/")) {
     const blocked = blockedReason(req, PORT);
     if (blocked) {

@@ -15,6 +15,7 @@ export type ListPayload<T> = {
   hasMore: boolean;
   total: number | null;
   note?: string | null;
+  page?: number;
 };
 
 export function useLive<T>(path: string | null) {
@@ -92,6 +93,7 @@ export function ListFrame({
   placeholder,
   scope,
   tools,
+  bar,
   children,
 }: {
   title: string;
@@ -105,6 +107,7 @@ export function ListFrame({
   placeholder: string;
   scope: string;
   tools?: ReactNode;
+  bar?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -124,6 +127,7 @@ export function ListFrame({
       <section className={loading && ready ? "list-view is-loading" : "list-view"}>
         <div className="list-bar">
           <strong>{viewName}</strong>
+          {bar}
           <label className="search-field">
             <Glyph icon={glyph.search} size={14} />
             <input
@@ -152,9 +156,28 @@ export function listStatus<T>(payload: { data: ListPayload<T> | null; loading: b
   if (!payload.data) return "";
   const shown = payload.data.rows.length;
   const total = payload.data.total;
-  const range = total != null ? `Showing ${count(shown)} of ${count(total)}` : `Showing ${count(shown)}`;
+  const first = (payload.data.page || 0) * PAGE_SIZE;
+  const rows = first && shown ? `rows ${count(first + 1)} to ${count(first + shown)}` : count(shown);
+  const range = total != null ? `Showing ${rows} of ${count(total)}` : `Showing ${rows}`;
   const updating = payload.loading ? " · updating" : "";
   return `${range}${updating} · as of ${clock(payload.data.fetchedAt)}`;
+}
+
+export const PAGE_SIZE = 100;
+
+export function Pager({ page, hasMore, onPage }: { page: number; hasMore: boolean; onPage: (page: number) => void }) {
+  if (page === 0 && !hasMore) return null;
+  return (
+    <div className="actions">
+      <button className="quiet" type="button" disabled={page === 0} onClick={() => onPage(page - 1)}>
+        Previous
+      </button>
+      <span className="status">Page {page + 1}</span>
+      <button className="quiet" type="button" disabled={!hasMore} onClick={() => onPage(page + 1)}>
+        Next
+      </button>
+    </div>
+  );
 }
 
 export function explain(message: string) {

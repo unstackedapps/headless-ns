@@ -1180,3 +1180,5 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .line-grid .ref-options { position: static; }
 .ship-lines .filters { align-items: center; }
 .ship-lines .filters label.check { display: flex; min-width: 0; color: inherit; }
+.list-filter { display: flex; align-items: center; gap: 6px; margin-right: auto; font-size: 13px; }
+.list-view > .actions { padding: 0 16px 12px; }

@@ -178,8 +178,8 @@ function errorDetail(payload, fallback) {
   return detail || payload?.title || fallback;
 }
 
-export async function suiteql(accessToken, query, limit = 100) {
-  const url = `https://${suiteTalkHost()}/services/rest/query/v1/suiteql?limit=${limit}`;
+export async function suiteql(accessToken, query, limit = 100, page = 0) {
+  const url = `https://${suiteTalkHost()}/services/rest/query/v1/suiteql?limit=${limit}&offset=${page * limit}`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -225,6 +225,7 @@ export function asNumber(value) {
 export function recordHref(kind, id) {
   const paths = {
     customer: "/app/common/entity/custjob.nl",
+    vendor: "/app/common/entity/vendor.nl",
     salesorder: "/app/accounting/transactions/salesord.nl",
     estimate: "/app/accounting/transactions/estimate.nl",
     invoice: "/app/accounting/transactions/custinvc.nl",

@@ -24,7 +24,8 @@ const RECORD_TYPE = {
 };
 
 export function recordTypeOfCode(code) {
-  return RECORD_TYPE[String(code || "")] || "";
+  const key = String(code || "");
+  return Object.hasOwn(RECORD_TYPE, key) ? RECORD_TYPE[key] : "";
 }
 
 const ORDER_OPEN = ["A", "B", "D", "E", "F"];
@@ -155,7 +156,7 @@ export function flowRoutes({ sendJson, authorized }) {
     "GET /api/flow": async (req, res, url) => {
       if (!(await authorized(req, res))) return;
       const type = String(url.searchParams.get("type") || "");
-      if (!FLOW_TYPES[type]) {
+      if (!Object.hasOwn(FLOW_TYPES, type)) {
         sendJson(res, 400, { error: "This page opens quotes, orders, invoices, fulfillments, payments, purchase orders, receipts and bills." });
         return;
       }

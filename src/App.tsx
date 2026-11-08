@@ -12,7 +12,6 @@ import { QueryPage } from "./query";
 import { RecordsPage } from "./records";
 import { ReportsPage, SettingsPage, TracePage, WorkbenchPage } from "./studio";
 import { api, postJson } from "./api";
-import { BillsPage } from "./bills";
 import { CustomersPage } from "./customers";
 import { ItemsPage } from "./items";
 import { SideNav, currentView, hashName } from "./nav";
@@ -21,6 +20,7 @@ import { PeoplePage } from "./people";
 import { SignIn, type SessionInfo } from "./signin";
 import { TransactionList } from "./transactions";
 import { TransactionPage } from "./transaction";
+import { VendorsPage } from "./vendors";
 
 function authErrorFromUrl() {
   return new URLSearchParams(location.search).get("auth_error");
@@ -117,14 +117,14 @@ export function App() {
         <main>
           {view === "overview" && <OverviewPage />}
           {view === "customers" && <CustomersPage />}
-          {view === "orders" && (
-            <TransactionList title="Orders" path="/api/orders" recordType="salesorder" canCreate placeholder="Order number or customer" empty="No open orders matched." />
+          {view === "orders" && <TransactionList key="orders" list="orders" title="Orders" recordType="salesorder" party="Customer" canCreate />}
+          {view === "quotes" && <TransactionList key="quotes" list="quotes" title="Quotes" recordType="estimate" party="Customer" canCreate />}
+          {view === "invoices" && <TransactionList key="invoices" list="invoices" title="Invoices" recordType="invoice" party="Customer" money />}
+          {view === "vendors" && <VendorsPage />}
+          {view === "purchaseorders" && (
+            <TransactionList key="purchaseorders" list="purchaseorders" title="Purchase orders" recordType="purchaseorder" party="Vendor" canCreate />
           )}
-          {view === "quotes" && (
-            <TransactionList title="Quotes" path="/api/quotes" recordType="estimate" canCreate placeholder="Quote number or customer" empty="No open quotes matched." />
-          )}
-          {view === "invoices" && <BillsPage title="Invoices" path="/api/invoices" party="Customer" recordType="invoice" />}
-          {view === "bills" && <BillsPage title="Bills" path="/api/bills" party="Vendor" recordType="vendorbill" />}
+          {view === "bills" && <TransactionList key="bills" list="bills" title="Bills" recordType="vendorbill" party="Vendor" money />}
           {view === "items" && <ItemsPage />}
           {view === "people" && <PeoplePage />}
         {view === "reports" && <ReportsPage />}

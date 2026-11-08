@@ -95,3 +95,8 @@ test("transaction type codes map to record types", () => {
   assert.equal(recordTypeOfCode("CustCred"), "creditmemo");
   assert.equal(recordTypeOfCode("Nope"), "");
 });
+
+test("prototype names are not type codes", () => {
+  assert.equal(recordTypeOfCode("__proto__"), "");
+  assert.equal(recordTypeOfCode("constructor"), "");
+});

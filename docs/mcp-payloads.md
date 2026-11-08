@@ -132,3 +132,27 @@ Read the status letter from SuiteQL (`transaction.status`), not from the record.
 - Sales order to invoice: transform with only `memo` and `externalId`. It billed the fulfilled quantity.
 - Invoice to customer payment: transform with `{"payment":5,"tranDate":"2026-11-08","account":{"id":"122"}}`. A payment below the open amount applies that amount to the invoice and leaves it Open. No `apply` lines or `undepFunds` were needed. Without `account`, NetSuite used its default and the payment also read Deposited.
 - `NextTransactionLineLink` joined to `transaction` lists what a record was made from and turned into.
+
+## Procure to pay (Phase 2)
+
+Run on 2026-11-08 through the same routes. Vendor 628 (Core4Solutions), item 541 (KAP001), location 2.
+
+| Record | Internal id | Number | External id | Result |
+|---|---|---|---|---|
+| Purchase order | 16198 | PO446 | hns-wf-purchaseorder-p2p-1 | 4 ordered, 3 received, line closed, Closed |
+| Item receipt | 16199 | IR439 | hns-wf-itemreceipt-p2p-1 | 3 received |
+| Vendor bill | 16200 | | hns-wf-vendorbill-p2p-1 | 8.40, Paid In Full |
+| Bill payment | 16201 | 426 | hns-wf-vendorpayment-p2p-1 | 8.40 from account 122 |
+
+- Approvals: every purchase order in this account has `approvalstatus` null, and a new PO starts at B Pending Receipt. So purchase order approval is off here and the page shows no Approve step. Bills carry `approvalstatus` 2 (approved). The page shows Approve for a PO at status A or approvalstatus 1, and for a bill at status D or approvalstatus 1. Neither was run live.
+- Purchase order to item receipt: same line payload as fulfillment, `{"item":{"items":[{"orderLine":1,"itemReceive":true,"quantity":3}]}}`. No ship status or label flags.
+- Purchase order to vendor bill: transform with only `memo` and `externalId` billed the ordered quantity (4), not the received quantity (3). Edit the bill if it should match the receipt.
+- Closing the last open PO line with `isClosed: true` moved the PO to H Closed.
+- Vendor bill to vendor payment: `{"tranDate":"2026-11-08","account":{"id":"122"}}` paid the full open amount. The page does not offer a partial bill payment yet; that needs the `apply` sublist.
+- Bill payments, item receipts and bill credits have status Y "Undefined" in SuiteQL, so their lists have no status filter.
+
+## Lists (Phase 2)
+
+- Filter status with the bare letter: `t.status IN ('B','F')` matched 46 purchase orders, `t.status = 'PurchOrd:B'` matched none. The old Orders filter `NOT IN ('SalesOrd:C','SalesOrd:G','SalesOrd:H')` excluded nothing, and the old Quotes filter `= 'Estimate:A'` matched nothing.
+- `foreigntotal` is negative for purchase orders, item receipts, bills, bill payments and returns. Lists show `ABS(foreigntotal)`.
+- Paging: `ns_runCustomSuiteQL` takes `pageIndex` (0-based) with `pageSize`. The REST SuiteQL path takes `offset`.

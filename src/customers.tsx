@@ -236,7 +236,7 @@ function CustomerFilePanel({
   );
 }
 
-function RelatedList<T extends { id: string }>({
+export function RelatedList<T extends { id: string }>({
   id,
   title,
   count: total,

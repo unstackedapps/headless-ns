@@ -234,12 +234,12 @@ export async function osmcpIdentity() {
   return identityCache;
 }
 
-export async function suiteqlOsmcp(sql, limit = 100) {
+export async function suiteqlOsmcp(sql, limit = 100, page = 0) {
   const payload = await callTool("ns_runCustomSuiteQL", {
     sqlQuery: sql,
     description: "Headless NetSuite read",
     pageSize: limit,
-    pageIndex: 0,
+    pageIndex: page,
   });
   return {
     items: payload?.data ?? [],
