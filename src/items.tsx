@@ -48,7 +48,7 @@ export function ItemsPage() {
                 <td className="num">{row.onHand == null ? "—" : count(row.onHand)}</td>
                 <td className="num">{row.available == null ? "—" : count(row.available)}</td>
                 <td>
-                  <RecordActions kind="item" id={row.id} title={row.name} href={row.href} />
+                  <RecordActions kind="item" id={row.id} title={row.name} href={row.href} recordType="inventoryitem" />
                 </td>
               </tr>
             ))}

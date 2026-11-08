@@ -14,7 +14,7 @@ type Bill = {
   href: string;
 };
 
-export function BillsPage({ title, path, party }: { title: string; path: string; party: string }) {
+export function BillsPage({ title, path, party, recordType }: { title: string; path: string; party: string; recordType: string }) {
   const [search, setSearch] = useState("");
   const q = useDebounced(search, 300);
   const live = useLive<ListPayload<Bill>>(`${path}${q ? `?q=${encodeURIComponent(q)}` : ""}`);
@@ -54,7 +54,7 @@ export function BillsPage({ title, path, party }: { title: string; path: string;
                 <td className="num">{amount(row.amount, row.currency)}</td>
                 <td className="num">{amount(row.unpaid, row.currency)}</td>
                 <td>
-                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
+                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType={recordType} />
                 </td>
               </tr>
             ))}

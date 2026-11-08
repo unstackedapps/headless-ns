@@ -1153,3 +1153,27 @@ details.panel summary { cursor: pointer; font-weight: 300; }
   .top { height: auto; padding: 10px 12px; align-items: flex-start; flex-wrap: wrap; }
   .who { flex-basis: 100%; }
 }
+
+.ref-picker { position: relative; display: grid; gap: 4px; min-width: 220px; }
+.ref-current { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.ref-options {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+}
+.ref-options button { display: block; width: 100%; padding: 6px 10px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+.ref-options button:hover, .ref-options button:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ref-options em { color: var(--muted); font-style: normal; font-size: 12px; }
+.ref-options .error { padding: 6px 10px; }
+.line-grid td { vertical-align: top; }
+.line-grid input[type="number"] { width: 90px; }
+.ship-lines { display: grid; gap: 6px; margin: 8px 0; }

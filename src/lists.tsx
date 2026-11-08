@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { recordLink } from "./records";
 import { clock, count } from "./format";
 import { RelatedLink } from "./related";
 import { Glyph, glyph } from "./icons";
@@ -172,15 +173,22 @@ export function RecordActions({
   id,
   title,
   href,
+  recordType,
 }: {
   kind: "customer" | "transaction" | "item" | "employee";
   id: string;
   title: string;
   href: string;
+  recordType?: string;
 }) {
   return (
     <div className="row-actions">
       <RelatedLink kind={kind} id={id} title={title} />
+      {recordType && (
+        <a href={recordLink(recordType, id)} aria-label={`Open ${title} in Records`}>
+          Records
+        </a>
+      )}
       <NetSuiteLink href={href} label={title} />
     </div>
   );

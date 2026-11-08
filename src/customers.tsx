@@ -85,7 +85,7 @@ export function CustomersPage() {
                 <td>{row.email || "—"}</td>
                 <td>{row.phone || "—"}</td>
                 <td>
-                  <RecordActions kind="customer" id={row.id} title={row.name} href={row.href} />
+                  <RecordActions kind="customer" id={row.id} title={row.name} href={row.href} recordType="customer" />
                 </td>
               </tr>
             ))}
@@ -206,7 +206,7 @@ function CustomerFilePanel({
                   </td>
                   <td className="num">{amount(row.amount, row.currency)}</td>
                   <td>
-                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
+                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="salesorder" />
                   </td>
                 </>
               )}
@@ -224,7 +224,7 @@ function CustomerFilePanel({
                   <td>{dateLabel(row.due)}</td>
                   <td className="num">{amount(row.unpaid, row.currency)}</td>
                   <td>
-                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
+                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="invoice" />
                   </td>
                 </>
               )}

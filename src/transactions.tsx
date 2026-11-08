@@ -18,11 +18,13 @@ export function TransactionList({
   path,
   placeholder,
   empty,
+  recordType,
 }: {
   title: string;
   path: string;
   placeholder: string;
   empty: string;
+  recordType: string;
 }) {
   const [search, setSearch] = useState("");
   const q = useDebounced(search, 300);
@@ -52,7 +54,7 @@ export function TransactionList({
                 </td>
                 <td className="num">{amount(row.amount, row.currency)}</td>
                 <td>
-                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} />
+                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType={recordType} />
                 </td>
               </tr>
             ))}

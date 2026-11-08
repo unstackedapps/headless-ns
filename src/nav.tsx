@@ -4,7 +4,7 @@ import { Glyph, glyph, navIcons } from "./icons";
 import { Tip } from "./pick";
 
 export function hashName() {
-  return location.hash.replace(/^#\/?/, "");
+  return location.hash.replace(/^#\/?/, "").split("?")[0];
 }
 
 export function currentView(): ViewId {

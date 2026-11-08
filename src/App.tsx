@@ -117,13 +117,13 @@ export function App() {
           {view === "overview" && <OverviewPage />}
           {view === "customers" && <CustomersPage />}
           {view === "orders" && (
-            <TransactionList title="Orders" path="/api/orders" placeholder="Order number or customer" empty="No open orders matched." />
+            <TransactionList title="Orders" path="/api/orders" recordType="salesorder" placeholder="Order number or customer" empty="No open orders matched." />
           )}
           {view === "quotes" && (
-            <TransactionList title="Quotes" path="/api/quotes" placeholder="Quote number or customer" empty="No open quotes matched." />
+            <TransactionList title="Quotes" path="/api/quotes" recordType="estimate" placeholder="Quote number or customer" empty="No open quotes matched." />
           )}
-          {view === "invoices" && <BillsPage title="Invoices" path="/api/invoices" party="Customer" />}
-          {view === "bills" && <BillsPage title="Bills" path="/api/bills" party="Vendor" />}
+          {view === "invoices" && <BillsPage title="Invoices" path="/api/invoices" party="Customer" recordType="invoice" />}
+          {view === "bills" && <BillsPage title="Bills" path="/api/bills" party="Vendor" recordType="vendorbill" />}
           {view === "items" && <ItemsPage />}
           {view === "people" && <PeoplePage />}
         {view === "reports" && <ReportsPage />}
