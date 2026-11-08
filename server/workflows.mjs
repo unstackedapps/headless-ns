@@ -46,7 +46,9 @@ export function nextSteps(recordType, status, lines = [], { approvalStatus = "" 
       if (s === "A") steps.push({ id: "convert", label: "Convert to sales order", kind: "transform", target: "salesorder" });
       break;
     case "salesorder":
-      if (s === "A") steps.push({ id: "approve", label: "Approve", kind: "action", action: "approve" });
+      // td3138390 answers "The approve api is not available to your company" to the approve action.
+      // Setting orderStatus to B (Pending Fulfillment) approves the order.
+      if (s === "A") steps.push({ id: "approve", label: "Approve", kind: "update", data: { orderStatus: { id: "B" } } });
       if (["B", "D", "E"].includes(s) && toShip) steps.push({ id: "fulfill", label: "Fulfill", kind: "ship", target: "itemfulfillment" });
       if (["E", "F"].includes(s)) steps.push({ id: "bill", label: "Bill", kind: "transform", target: "invoice" });
       if (ORDER_OPEN.includes(s) && open.length) steps.push(close);

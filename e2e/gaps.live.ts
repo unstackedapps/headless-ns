@@ -109,3 +109,79 @@ test("a lot item ships from two lots", async ({ page, context }) => {
   await submit(page, "Create fulfillment", "Fulfillment");
   await shot("9-fulfillment");
 });
+
+test("a sales order waiting for approval is approved from its page", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+  // The new-order screen has no status field, so the test creates the order at A Pending Approval through the same route.
+  const created = await page.request.post("/api/records", {
+    headers: { "content-type": "application/json", origin: "https://localhost:5173" },
+    data: {
+      recordType: "salesorder",
+      data: { entity: { id: "341" }, location: { id: "2" }, orderStatus: { id: "A" }, memo: MEMO },
+      sublists: { item: [{ item: { id: "248" }, quantity: 1, rate: 10 }] },
+      externalId: `hns-wf-salesorder-approve-${RUN}`,
+      confirm: true,
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const { id } = await created.json();
+  await page.goto(`/#/transaction?type=salesorder&id=${id}`);
+  await landed(page, "Sales order");
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Approval" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await page.getByLabel(/I mean to run this/).check();
+  await shot("10-approve-form");
+  await page.locator(".step-form").getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Approve is done.")).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Fulfillment" })).toBeVisible({ timeout: 60_000 });
+  await shot("11-approved");
+});
+
+test("serial receipt, then a payment that leaves out the bill it started from", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+
+  await page.goto("/#/transaction?type=purchaseorder&new=1");
+  await pick(page, "Vendor", "core4", "Core4Solutions");
+  await pick(page, "Location", "san", "San Francisco");
+  await page.getByLabel("Memo").fill(MEMO);
+  await pick(page, "Item", "oral-b", /Oral-B/);
+  await page.getByRole("spinbutton", { name: "Quantity" }).fill("2");
+  await page.getByRole("spinbutton", { name: "Rate" }).fill("5");
+  await page.getByLabel(/I mean to run this/).check();
+  await page.getByRole("button", { name: "Create purchase order" }).click();
+  await landed(page, "Purchase order");
+
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(page.getByText("Serial numbers: enter 2")).toBeVisible();
+  await page.getByRole("textbox", { name: "Serial 1 for line 1" }).fill(`HNS-${RUN}-S1`);
+  await page.getByRole("textbox", { name: "Serial 2 for line 1" }).fill(`HNS-${RUN}-S2`);
+  await shot("12-receive-serials");
+  await submit(page, "Create item receipt", "Item receipt");
+  await shot("13-serial-receipt");
+
+  await page.getByRole("link", { name: /^PO\d+/ }).click();
+  await landed(page, "Purchase order");
+  await page.getByRole("button", { name: "Bill", exact: true }).click();
+  await submit(page, "Create bill", "Bill");
+  await expect(page.locator("dd", { hasText: "10.00 US Dollar" }).first()).toBeVisible();
+  const billUrl = page.url();
+
+  await page.getByRole("button", { name: "Pay bill" }).click();
+  await page.locator(".ship-line").first().getByRole("checkbox").uncheck();
+  const other = page.locator(".ship-line").nth(1);
+  await other.getByRole("checkbox").check();
+  await other.getByRole("spinbutton").fill("0.5");
+  await expect(page.getByText("Pays 0.50 US Dollar.")).toBeVisible();
+  await pick(page, "Account", "checking", /US Checking/);
+  await shot("14-pay-other-bill");
+  await submit(page, "Create bill payment", "Bill payment");
+  await shot("15-payment-other-bill");
+  await expect(page.getByRole("row", { name: /Made from .* Bill / })).toHaveCount(1);
+
+  await page.goto(billUrl);
+  await landed(page, "Bill");
+  await expect(page.locator("dt", { hasText: "Open amount" }).locator("xpath=..").locator("dd")).toHaveText("10.00 US Dollar");
+  await shot("16-bill-still-open");
+});

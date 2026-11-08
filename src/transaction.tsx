@@ -523,18 +523,24 @@ function useBillsToPay(flow: Flow, active: boolean) {
     if (!active || !/^\d+$/.test(vendor)) return;
     api<VendorBills>(`/api/vendors/${vendor}`)
       .then((body) =>
-        // Keep this bill's row as the user left it and replace the rest, so a second load adds nothing twice.
-        setBills((current) => [
-          ...current.filter((bill) => bill.doc === flow.id),
-          ...body.bills
-            .filter((bill) => bill.id !== flow.id && (bill.unpaid ?? 0) > 0)
-            .map((bill) => ({
-              doc: bill.id,
-              label: `${flowTitle("vendorbill", bill.id, bill.number)}, ${amount(bill.unpaid, bill.currency)} open${bill.due ? `, due ${dateLabel(bill.due)}` : ""}`,
-              on: false,
-              amount: String(bill.unpaid ?? ""),
-            })),
-        ]),
+        // Rows the user already has keep their tick and amount, so a second load neither doubles nor resets them.
+        setBills((current) => {
+          const kept = new Map(current.map((bill) => [bill.doc, bill]));
+          return [
+            ...current.filter((bill) => bill.doc === flow.id),
+            ...body.bills
+              .filter((bill) => bill.id !== flow.id && (bill.unpaid ?? 0) > 0)
+              .map(
+                (bill) =>
+                  kept.get(bill.id) ?? {
+                    doc: bill.id,
+                    label: `${flowTitle("vendorbill", bill.id, bill.number)}, ${amount(bill.unpaid, bill.currency)} open${bill.due ? `, due ${dateLabel(bill.due)}` : ""}`,
+                    on: false,
+                    amount: String(bill.unpaid ?? ""),
+                  },
+              ),
+          ];
+        }),
       )
       .catch((reason: Error) => setError(`Other open bills did not load. ${reason.message}`));
   }, [active, vendor, flow.id]);

@@ -147,3 +147,8 @@ test("purchase order lines get serial or lot tracking without stock", () => {
   assert.equal(line.tracking, "lot");
   assert.equal("available" in line, false);
 });
+
+test("approving a sales order sets it to Pending Fulfillment", () => {
+  const [approve] = nextSteps("salesorder", "A", [{ closed: false, remaining: 1 }]);
+  assert.deepEqual(approve, { id: "approve", label: "Approve", kind: "update", data: { orderStatus: { id: "B" } } });
+});
