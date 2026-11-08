@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { amount, dateLabel } from "./format";
 import { explain, StatusPill, useLive } from "./lists";
 import { Button, Lookup, SkeletonRecord } from "./load";
+import { pickSerial, serialFull } from "./serials";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
@@ -338,19 +339,19 @@ function NumberPick({ line, quantity, value, onChange }: { line: FlowLine; quant
     );
   }
   const chosen = new Set(value.map((item) => item.id));
+  const single = quantity === 1;
+  const full = serialFull(value, quantity);
   return (
     <fieldset className="numbers">
-      <legend>
-        Serial numbers: pick {quantity} ({chosen.size} picked)
-      </legend>
+      <legend>{single ? "Serial number: pick 1" : `Serial numbers: pick ${quantity} (${chosen.size} picked)`}</legend>
       {numbers.map((item) => (
         <label key={item.id} className="check">
           <input
-            type="checkbox"
+            type={single ? "radio" : "checkbox"}
+            name={`serial-${line.line}`}
             checked={chosen.has(item.id)}
-            onChange={(event) =>
-              onChange(event.target.checked ? [...value, { id: item.id, quantity: 1 }] : value.filter((entry) => entry.id !== item.id))
-            }
+            disabled={!single && full && !chosen.has(item.id)}
+            onChange={(event) => onChange(pickSerial(value, item.id, event.target.checked, quantity))}
           />
           {item.number}
         </label>
