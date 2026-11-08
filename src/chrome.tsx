@@ -1,35 +1,35 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { portletCatalog, readLayout, resetLayout, widthWord } from "./layout";
+import { portletLabel, readLayout, resetLayout, widthWord } from "./layout";
+import { menuDefaults } from "./menu";
 import { Glyph, glyph } from "./icons";
-import { Tip } from "./pick";
-import { AskPage, type LlmConfig } from "./studio";
+import { AskPage } from "./studio";
 import { themes, useTheme } from "./theme";
 
-const screens = [
-  "overview",
-  "customers",
-  "orders",
-  "quotes",
-  "invoices",
-  "bills",
-  "items",
-  "people",
-  "reports",
-  "searches",
-  "files",
-  "workbench",
-  "trace",
-  "settings",
-] as const;
+const screens = menuDefaults.map((item) => item.id);
 
 type Line = { id: number; tone: "in" | "out" | "err"; text: string };
+
+const commands = new Set(["help", "clear", "themes", "theme", "open", "sql", "ask", "who", "layout"]);
+
+function CommandText({ text }: { text: string }) {
+  const space = text.search(/\s/);
+  const name = space === -1 ? text : text.slice(0, space);
+  const rest = space === -1 ? "" : text.slice(space);
+  const known = commands.has(name.toLowerCase());
+  return (
+    <>
+      <span className={known ? "cli-cmd" : "cli-arg"}>{name}</span>
+      {rest ? <span className="cli-arg">{rest}</span> : null}
+    </>
+  );
+}
 
 const help = [
   "open <screen>    Open a screen",
   "theme <name>     Switch theme. Light: ledger, paper, day. Dark: ink, graphite, night",
   "themes           List themes",
-  "sql <select>     Run one SuiteQL SELECT",
-  "ask <question>   Ask the model. A NetSuite change is not posted from here",
+  "sql <select>     Run one SELECT",
+  "ask <question>   Ask about this account",
   "who              Show the account and role",
   "layout           Show the home cards",
   "layout reset     Restore the home cards",
@@ -63,21 +63,14 @@ function asTable(columns: string[], rows: Record<string, unknown>[]) {
 }
 
 export function AskDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [llm, setLlm] = useState<LlmConfig | null>(null);
   const [dirty, setDirty] = useState(false);
   const clearRef = useRef<(() => void) | null>(null);
-  const label = llm ? (llm.configured ? llm.model : "No key") : "";
 
   return (
     <aside className={open ? "ask-drawer open" : "ask-drawer"} aria-hidden={!open} inert={!open} aria-label="Ask">
       <div className="ask-frame">
       <header className="drawer-bar">
         <strong>Ask</strong>
-        {label && (
-          <Tip label={label} side="bottom">
-            <span className={llm?.configured ? "chip" : "chip off"}>{label}</span>
-          </Tip>
-        )}
         <div className="bar-actions">
           <button className="quiet" type="button" disabled={!dirty} onClick={() => clearRef.current?.()}>
             <Glyph icon={glyph.clear} size={14} />
@@ -89,7 +82,7 @@ export function AskDrawer({ open, onClose }: { open: boolean; onClose: () => voi
           </button>
         </div>
       </header>
-      <AskPage docked onLlm={setLlm} clearRef={clearRef} onDirty={setDirty} />
+      <AskPage docked clearRef={clearRef} onDirty={setDirty} />
       </div>
     </aside>
   );
@@ -117,7 +110,7 @@ export function CommandLine({
   const nextId = useRef(2);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dock = !open ? "0px" : minimized ? "40px" : `${height}px`;
+  const dock = !open ? "0px" : minimized ? "48px" : `${height}px`;
 
   useEffect(() => {
     document.documentElement.style.setProperty("--dock", dock);
@@ -212,9 +205,8 @@ export function CommandLine({
       if (name === "layout") {
         const text = readLayout()
           .map((item) => {
-            const card = portletCatalog.find((entry) => entry.id === item.id);
             const hidden = item.hidden ? "  hidden" : "";
-            return `${(card?.label || item.id).padEnd(28)} ${widthWord(item.span)}${hidden}`;
+            return `${portletLabel(item.id).padEnd(28)} ${widthWord(item.span)}${hidden}`;
           })
           .join("\n");
         push("out", text);
@@ -291,7 +283,7 @@ export function CommandLine({
     }
   }
 
-  const shown = open ? (minimized ? 40 : height) : 0;
+  const shown = open ? (minimized ? 48 : height) : 0;
 
   return (
     <section className={dragging ? "cli dragging" : "cli"} style={{ height: shown }} aria-hidden={!open} inert={!open} aria-label="Command line">
@@ -312,7 +304,14 @@ export function CommandLine({
         <div className="cli-log" ref={logRef} onClick={() => inputRef.current?.focus()}>
           {lines.map((line) => (
             <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
-              {line.tone === "in" ? `hns> ${line.text}` : line.text}
+              {line.tone === "in" ? (
+                <>
+                  <span className="cli-mark">hns&gt; </span>
+                  <CommandText text={line.text} />
+                </>
+              ) : (
+                line.text
+              )}
             </pre>
           ))}
           <form
@@ -322,17 +321,22 @@ export function CommandLine({
               run(input);
             }}
           >
-            <span>hns&gt;</span>
-            <input
-              ref={inputRef}
-              value={input}
-              aria-label="Command"
-              spellCheck={false}
-              autoCapitalize="off"
-              disabled={!open || busy}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={onKey}
-            />
+            <span className="cli-mark">hns&gt;</span>
+            <span className="cli-entry">
+              <span className="cli-ghost" aria-hidden="true">
+                {input ? <CommandText text={input} /> : "\u00a0"}
+              </span>
+              <input
+                ref={inputRef}
+                value={input}
+                aria-label="Command"
+                spellCheck={false}
+                autoCapitalize="off"
+                disabled={!open || busy}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={onKey}
+              />
+            </span>
           </form>
         </div>
       )}

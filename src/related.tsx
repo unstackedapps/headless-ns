@@ -1,12 +1,11 @@
-import { Background, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
-import "@xyflow/react/dist/style.css";
 import { Glyph, glyph } from "./icons";
 
 export type RelatedRequest = { kind: "customer" | "transaction" | "item" | "employee"; id: string; title: string };
 
-type GraphNode = { id: string; label: string; detail: string; focus: boolean; kind: string; recordId: string };
+type GraphNode = { id: string; label: string; detail: string; focus: boolean; kind: string; recordId: string; href?: string };
 type GraphEdge = { id: string; source: string; target: string; label: string };
+type TreeNode = GraphNode & { children: TreeNode[] };
 
 function openRelated(detail: RelatedRequest) {
   window.dispatchEvent(new CustomEvent<RelatedRequest>("hn-related", { detail }));
@@ -21,52 +20,69 @@ export function RelatedLink({ kind, id, title }: RelatedRequest) {
   );
 }
 
-function place(records: GraphNode[], links: GraphEdge[]) {
-  const rank = new Map<string, number>();
-  for (const record of records) if (record.focus) rank.set(record.id, 0);
-  if (!rank.size && records[0]) rank.set(records[0].id, 0);
-  for (let pass = 0; pass < records.length; pass += 1) {
-    for (const link of links) {
-      const from = rank.get(link.source);
-      if (from == null) continue;
-      const next = from + 1;
-      if ((rank.get(link.target) ?? -1) < next) rank.set(link.target, next);
+function treeFrom(records: GraphNode[], links: GraphEdge[]) {
+  const focus = records.find((record) => record.focus) || records[0];
+  if (!focus) return null;
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const next = new Map<string, string[]>();
+  const prev = new Map<string, string[]>();
+  const push = (map: Map<string, string[]>, from: string, to: string) => {
+    const list = map.get(from) || [];
+    if (!list.includes(to)) list.push(to);
+    map.set(from, list);
+  };
+  for (const link of links) {
+    push(next, link.source, link.target);
+    push(prev, link.target, link.source);
+  }
+  const seen = new Set<string>([focus.id]);
+  function build(id: string, depth: number): TreeNode | null {
+    const record = byId.get(id);
+    if (!record) return null;
+    const children: TreeNode[] = [];
+    if (depth < 6) {
+      for (const other of [...(next.get(id) || []), ...(prev.get(id) || [])]) {
+        if (seen.has(other)) continue;
+        seen.add(other);
+        const child = build(other, depth + 1);
+        if (child) children.push(child);
+      }
     }
+    return { ...record, children };
   }
-  const columns = new Map<number, GraphNode[]>();
-  for (const record of records) {
-    const column = rank.get(record.id) ?? 0;
-    const list = columns.get(column) || [];
-    list.push(record);
-    columns.set(column, list);
-  }
-  const nodes: Node[] = records.map((record) => {
-    const column = rank.get(record.id) ?? 0;
-    const list = columns.get(column) || [];
-    return {
-      id: record.id,
-      position: { x: column * 240, y: list.indexOf(record) * 88 },
-      data: { label: record.detail ? `${record.label}\n${record.detail}` : record.label },
-      style: {
-        width: 200,
-        whiteSpace: "pre-line",
-        fontSize: 12,
-        lineHeight: 1.35,
-        padding: "8px 10px",
-        background: "var(--panel)",
-        color: "var(--ink)",
-        border: record.focus ? "1px solid var(--accent)" : "1px solid var(--line)",
-        borderRadius: "var(--radius-control)",
-      },
-    };
-  });
-  const edges: Edge[] = links.map((link) => ({
-    id: link.id,
-    source: link.source,
-    target: link.target,
-    label: link.label || undefined,
-  }));
-  return { nodes, edges };
+  return build(focus.id, 0);
+}
+
+function Branch({ node, depth, onOpen }: { node: TreeNode; depth: number; onOpen: (node: TreeNode) => void }) {
+  return (
+    <li>
+      <div className={node.focus ? "rel-row is-focus" : "rel-row"} style={{ paddingLeft: 12 + depth * 16 }}>
+        <Glyph icon={node.children.length ? glyph.folder : glyph.file} size={14} />
+        <span>{node.label}</span>
+        {node.detail && <em>{node.detail}</em>}
+        <span className="rel-actions">
+          {!node.focus && node.kind === "transaction" && (
+            <button className="linkish" type="button" onClick={() => onOpen(node)}>
+              Deeper
+            </button>
+          )}
+          {node.href && (
+            <a href={node.href} target="_blank" rel="noreferrer">
+              <Glyph icon={glyph.external} size={14} />
+              Open
+            </a>
+          )}
+        </span>
+      </div>
+      {node.children.length > 0 && (
+        <ul>
+          {node.children.map((child) => (
+            <Branch key={child.id} node={child} depth={depth + 1} onOpen={onOpen} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
 }
 
 export function RelatedHost() {
@@ -101,7 +117,7 @@ export function RelatedHost() {
     return () => controller.abort();
   }, [request]);
 
-  const flow = useMemo(() => (graph ? place(graph.nodes, graph.edges) : null), [graph]);
+  const tree = useMemo(() => (graph ? treeFrom(graph.nodes, graph.edges) : null), [graph]);
 
   useEffect(() => {
     if (!request) return;
@@ -114,43 +130,39 @@ export function RelatedHost() {
 
   if (!request) return null;
 
+  function openNode(node: TreeNode) {
+    if (node.kind !== "transaction" || node.recordId === request?.id) return;
+    setGraph(null);
+    setError(null);
+    setRequest({ kind: "transaction", id: node.recordId, title: node.label });
+  }
+
   return (
     <div className="backdrop" role="presentation" onClick={() => setRequest(null)}>
-      <aside className="drawer graph-drawer" role="dialog" aria-label="Related records" onClick={(event) => event.stopPropagation()}>
-        <header className="drawer-top">
-          <div>
-            <div className="kicker">Related</div>
-            <h2>{request.title}</h2>
+      <aside className="drawer rel-drawer" role="dialog" aria-label="Related records" onClick={(event) => event.stopPropagation()}>
+        <header className="record-top">
+          <div className="drawer-top">
+            <div>
+              <div className="kicker">Related</div>
+              <h2>{request.title}</h2>
+            </div>
+            <button className="quiet" type="button" onClick={() => setRequest(null)}>
+              <Glyph icon={glyph.close} size={14} />
+              Close
+            </button>
           </div>
-          <button className="quiet" type="button" onClick={() => setRequest(null)}>
-            <Glyph icon={glyph.close} size={14} />
-            Close
-          </button>
         </header>
-        <p className="status">These records link to this one. Drag the canvas to look around.</p>
-        {error && <p className="error">{error}</p>}
-        {!flow && !error && <p className="status">Looking up the links.</p>}
-        {flow && (
-          <div className="flow-wrap">
-            <ReactFlow
-              key={`${request.kind}:${request.id}`}
-              nodes={flow.nodes}
-              edges={flow.edges}
-              fitView
-              nodesDraggable={false}
-              onNodeClick={(_, node) => {
-                const record = graph?.nodes.find((item) => item.id === node.id);
-                if (!record || record.kind !== "transaction" || record.recordId === request.id) return;
-                setGraph(null);
-                setError(null);
-                setRequest({ kind: "transaction", id: record.recordId, title: record.label });
-              }}
-            >
-              <Background />
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          </div>
-        )}
+        <div className="record-body">
+          <p className="status">Deeper shows that record's links. Open goes to NetSuite.</p>
+          {error && <p className="error">{error}</p>}
+          {!tree && !error && <p className="status">Looking up the links.</p>}
+          {tree && tree.children.length === 0 && <p className="status">Nothing else is linked to this record.</p>}
+          {tree && tree.children.length > 0 && (
+            <ul className="rel-tree">
+              <Branch node={tree} depth={0} onOpen={openNode} />
+            </ul>
+          )}
+        </div>
       </aside>
     </div>
   );

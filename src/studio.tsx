@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import { Glyph, glyph } from "./icons";
+import { Markdown } from "./formatted";
 import { Lookup, SkeletonTable } from "./load";
 import { ConnectionPanel } from "./connect";
 import { DatePick, Pick } from "./pick";
@@ -26,8 +27,18 @@ type ToolInfo = {
   kind: "read" | "write" | "app" | "internal";
   schema: { properties?: Record<string, { type?: string | string[]; description?: string }>; required?: string[] };
 };
-type ReportInfo = { id: number; title: string; asOf: boolean; subsidiary: boolean };
+type ReportInfo = {
+  id: number;
+  title: string;
+  asOf: boolean;
+  subsidiary: boolean;
+  book: boolean;
+  book2: boolean;
+  context: boolean;
+  nexus: boolean;
+};
 type Subsidiary = { id: number; name: string };
+type NamedOption = { id: string; name: string };
 type ReportRun = {
   title: string;
   summary: Record<string, string | number> | null;
@@ -73,18 +84,11 @@ type Config = {
   policy: Policy;
 };
 
-const prompts = [
-  "How many open sales orders are there?",
-  "Which subsidiaries can this role use?",
-  "What can a sales order be transformed into?",
-  "Which reports mention estimates?",
-];
-
 const kindLabel: Record<ToolInfo["kind"], string> = {
   read: "Read",
-  write: "Write",
-  app: "Chat app",
-  internal: "Internal",
+  write: "Change",
+  app: "Chat",
+  internal: "File",
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -249,6 +253,46 @@ export function AskPage({
     </form>
   );
 
+  const modelPick = (
+    <div className="status ask-model">
+      {models && models.connections.length > 0 ? (
+        <Pick
+          label="Model"
+          value={llm?.id || models.activeId || ""}
+          onChange={(id) => {
+            api<ModelsPayload>("/api/models/active", { method: "POST", body: JSON.stringify({ id }) })
+              .then((next) => {
+                setModels(next);
+                const active = next.connections.find((row) => row.id === next.activeId);
+                if (!active) return;
+                const chosen: LlmConfig = {
+                  id: active.id,
+                  configured: active.configured,
+                  model: active.model,
+                  provider: active.provider,
+                  providerLabel: active.providerLabel,
+                  keyMask: active.keyMask,
+                  baseUrl: active.baseUrl,
+                  label: active.label,
+                };
+                setLlm(chosen);
+                onLlm?.(chosen);
+                window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: chosen }));
+              })
+              .catch((reason: Error) => setError(reason.message));
+          }}
+          options={models.connections.map((row) => ({ value: row.id, label: `${row.label} · ${row.model}` }))}
+        />
+      ) : llm?.configured ? (
+        `Using ${llm.model}.`
+      ) : llm ? (
+        "No model key yet. Add one under Settings."
+      ) : (
+        "Looking up the model."
+      )}
+    </div>
+  );
+
   const conversation = (
     <>
       {!docked && (
@@ -262,57 +306,10 @@ export function AskPage({
           </button>
         </header>
       )}
-      <p className="status">
-        {models && models.connections.length > 0 ? (
-          <Pick
-            label="Model"
-            value={llm?.id || models.activeId || ""}
-            onChange={(id) => {
-              api<ModelsPayload>("/api/models/active", { method: "POST", body: JSON.stringify({ id }) })
-                .then((next) => {
-                  setModels(next);
-                  const active = next.connections.find((row) => row.id === next.activeId);
-                  if (!active) return;
-                  const chosen: LlmConfig = {
-                    id: active.id,
-                    configured: active.configured,
-                    model: active.model,
-                    provider: active.provider,
-                    providerLabel: active.providerLabel,
-                    keyMask: active.keyMask,
-                    baseUrl: active.baseUrl,
-                    label: active.label,
-                  };
-                  setLlm(chosen);
-                  onLlm?.(chosen);
-                  window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: chosen }));
-                })
-                .catch((reason: Error) => setError(reason.message));
-            }}
-            options={models.connections.map((row) => ({ value: row.id, label: `${row.label} · ${row.model}` }))}
-          />
-        ) : llm?.configured ? (
-          `Using ${llm.model}.`
-        ) : llm ? (
-          "No model key yet. Add one under Settings."
-        ) : (
-          "Looking up the model."
-        )}
-      </p>
-      <p className="status">
-        The model picks a NetSuite tool, then this server runs it. If a tool would change NetSuite, it waits until you confirm.
-      </p>
-      <div className="suggestions">
-        {prompts.map((prompt) => (
-          <button key={prompt} className="quiet" type="button" disabled={busy} onClick={() => send(prompt)}>
-            {prompt}
-          </button>
-        ))}
-      </div>
       <div className="thread">
         {thread.map((message, index) => (
           <div key={`${message.role}-${index}`} className={message.role === "user" ? "bubble user" : "bubble"}>
-            <div>{message.content}</div>
+            {message.role === "assistant" && message.content ? <Markdown text={message.content} /> : <div>{message.content}</div>}
             {message.role === "assistant" && index === thread.length - 1 && steps.length > 0 && (
               <ul className="steps">
                 {steps.map((step, stepIndex) => (
@@ -350,6 +347,7 @@ export function AskPage({
         </section>
       )}
       {docked ? null : form}
+      {docked ? null : modelPick}
     </>
   );
 
@@ -358,6 +356,7 @@ export function AskPage({
       <>
         <div className="ask-scroll">{conversation}</div>
         {form}
+        {modelPick}
       </>
     );
   }
@@ -482,7 +481,6 @@ export function WorkbenchPage() {
         </div>
         <RefreshButton label="tools" scope="workbench" />
       </header>
-      <p className="status">Use any tool on the current connection. A read starts immediately. A write, a file, or a chat app waits until you check confirm.</p>
       {loadError && <p className="error">{loadError}</p>}
       {ready && <div className="split">
         <div className="split-rail">
@@ -553,7 +551,7 @@ export function WorkbenchPage() {
             {needsConfirm && (
               <label className="check">
                 <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
-                I confirm this call. It can change NetSuite, or it is a chat app. This page cannot show a chat app.
+                I mean to run this. It can change NetSuite.
               </label>
             )}
             <div className="actions">
@@ -574,8 +572,15 @@ export function WorkbenchPage() {
 export function ReportsPage() {
   const [reports, setReports] = useState<ReportInfo[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<Subsidiary[]>([]);
+  const [books, setBooks] = useState<NamedOption[]>([]);
+  const [contexts, setContexts] = useState<NamedOption[]>([]);
+  const [nexuses, setNexuses] = useState<NamedOption[]>([]);
   const [reportId, setReportId] = useState<number | "">("");
   const [subsidiaryId, setSubsidiaryId] = useState<number | "">("");
+  const [book, setBook] = useState("");
+  const [book2, setBook2] = useState("");
+  const [accountingContext, setAccountingContext] = useState("");
+  const [nexusId, setNexusId] = useState("");
   const [dateFrom, setDateFrom] = useState(yearStart);
   const [dateTo, setDateTo] = useState(today);
   const [run, setRun] = useState<ReportRun | null>(null);
@@ -586,11 +591,14 @@ export function ReportsPage() {
   useEffect(() => {
     let stop = false;
     function load() {
-      api<{ reports: ReportInfo[]; subsidiaries: Subsidiary[] }>("/api/reports")
+      api<{ reports: ReportInfo[]; subsidiaries: Subsidiary[]; books: NamedOption[]; contexts: NamedOption[]; nexuses: NamedOption[] }>("/api/reports")
         .then((body) => {
           if (stop) return;
           setReports(body.reports);
           setSubsidiaries(body.subsidiaries);
+          setBooks(body.books || []);
+          setContexts(body.contexts || []);
+          setNexuses(body.nexuses || []);
           setReportId((current) => {
             if (current !== "" && body.reports.some((item) => item.id === current)) return current;
             return (body.reports.find((item) => item.id === 256) || body.reports[0])?.id ?? "";
@@ -630,7 +638,7 @@ export function ReportsPage() {
       setRun(
         await api<ReportRun>("/api/reports/run", {
           method: "POST",
-          body: JSON.stringify({ reportId, subsidiaryId, dateFrom, dateTo }),
+          body: JSON.stringify({ reportId, subsidiaryId, dateFrom, dateTo, book, book2, accountingContext, nexusId }),
         }),
       );
     } catch (reason) {
@@ -664,7 +672,7 @@ export function ReportsPage() {
         </div>
         <RefreshButton label="reports" scope="reports" />
       </header>
-      <p className="status">Saved reports run through ns_runReport. This role can see {reports.length || "…"} of them. The summary line is the total.</p>
+      <p className="status">{reports.length} reports for this role.</p>
       {ready && <div className="filters">
         <label>
           Report
@@ -683,6 +691,50 @@ export function ReportsPage() {
               value={subsidiaryId === "" ? "" : String(subsidiaryId)}
               onChange={(next) => setSubsidiaryId(Number(next))}
               options={subsidiaries.map((item) => ({ value: String(item.id), label: item.name }))}
+            />
+          </label>
+        )}
+        {report?.book && books.length > 0 && (
+          <label>
+            Book
+            <Pick
+              label="Book"
+              value={book || "any"}
+              onChange={(next) => setBook(next === "any" ? "" : next)}
+              options={[{ value: "any", label: "Any" }, ...books.map((item) => ({ value: item.id, label: item.name }))]}
+            />
+          </label>
+        )}
+        {report?.book2 && books.length > 0 && (
+          <label>
+            Second book
+            <Pick
+              label="Second book"
+              value={book2 || "any"}
+              onChange={(next) => setBook2(next === "any" ? "" : next)}
+              options={[{ value: "any", label: "Any" }, ...books.map((item) => ({ value: item.id, label: item.name }))]}
+            />
+          </label>
+        )}
+        {report?.context && contexts.length > 0 && (
+          <label>
+            Context
+            <Pick
+              label="Context"
+              value={accountingContext || "any"}
+              onChange={(next) => setAccountingContext(next === "any" ? "" : next)}
+              options={[{ value: "any", label: "Any" }, ...contexts.map((item) => ({ value: item.id, label: item.name }))]}
+            />
+          </label>
+        )}
+        {report?.nexus && nexuses.length > 0 && (
+          <label>
+            Nexus
+            <Pick
+              label="Nexus"
+              value={nexusId || "any"}
+              onChange={(next) => setNexusId(next === "any" ? "" : next)}
+              options={[{ value: "any", label: "Any" }, ...nexuses.map((item) => ({ value: item.id, label: item.name }))]}
             />
           </label>
         )}
@@ -809,7 +861,7 @@ export function TracePage() {
         </div>
         <RefreshButton label="trace" scope="trace" />
       </header>
-      <p className="status">This page shows every tool call from this server, including the ledger pages. It refreshes by itself.</p>
+      <p className="status">Recent calls. This list updates on its own.</p>
       {error && <p className="error">{error}</p>}
       <div className="table-wrap loose">
         <table>
@@ -1007,7 +1059,7 @@ export function SettingsPage() {
         method: "POST",
         body: JSON.stringify({ allowWrites, disabled }),
       });
-      setMessage(policy.allowWrites ? "The assistant may propose writes. Each one still waits for confirmation." : "The assistant is read-only.");
+      setMessage(policy.allowWrites ? "Changes are allowed. Ask still waits for you to confirm." : "Ask can only read.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the tool policy.");
     } finally {
@@ -1026,35 +1078,39 @@ export function SettingsPage() {
         </div>
         <RefreshButton label="settings" scope="settings" />
       </header>
+      {error && <p className="error">{error}</p>}
+      {message && <p className="status">{message}</p>}
       <section className="section">
         <h2>Connection</h2>
-        <p className="status">OpenSuiteMCP, NetSuite itself, or another MCP host. The token stays on this server.</p>
+        <p className="status">The token is not stored in the browser.</p>
         <ConnectionPanel />
       </section>
       <section className="section">
         <h2>Appearance</h2>
-        <p className="status">Choose a light or dark theme. Square keeps hard edges. Round softens buttons, cards, chips, and menus. This browser remembers these choices. Home cards can reload on a timer. Off keeps the cards until you press Refresh.</p>
-        <ThemeSelect labelled />
-        <ShapeSelect labelled />
-        <RefreshIntervalSelect />
+        <p className="status">This browser remembers the theme, the corners, and the refresh timer.</p>
+        <div className="appearance">
+          <ThemeSelect labelled />
+          <ShapeSelect labelled />
+          <RefreshIntervalSelect />
+        </div>
       </section>
-      {error && <p className="error">{error}</p>}
-      {message && <p className="status">{message}</p>}
       {!config && !error && <SkeletonTable rows={4} cols={2} />}
       {config && (
         <section className="section">
-          <h2>Connection</h2>
+          <h2>Account</h2>
           <div className="panel">
             <p>
               {config.accountId} · {config.roleId} · {config.roleCenter}
             </p>
             <p className="status">
-              {config.environment} {config.version} · {config.features.length} features enabled · model {config.llm.configured ? config.llm.keyMask : "not connected"}
-            </p>
-            <p className="status">
-              headless-ns calls the standard NetSuite MCP tools. Reach NetSuite through OpenSuiteMCP, NetSuite itself, or another host such as Mint. The connection above is the one in use.
+              {config.environment} {config.version} · model {config.llm.configured ? config.llm.keyMask : "not connected"}
             </p>
           </div>
+        </section>
+      )}
+      {config && (
+        <section className="section">
+          <h2>Permissions</h2>
           <div className="perm-grid">
             {Object.entries(config.permissions).map(([level, ids]) => (
               <div key={level} className="panel">
@@ -1071,15 +1127,20 @@ export function SettingsPage() {
               </div>
             ))}
           </div>
+        </section>
+      )}
+      {config && (
+        <section className="section">
+          <h2>Features</h2>
           <details className="panel">
-            <summary>{config.features.length} enabled features</summary>
+            <summary>{config.features.length} enabled</summary>
             <p className="status">{config.features.join(", ")}</p>
           </details>
         </section>
       )}
       <section className="section">
         <h2>Models</h2>
-        <p className="status">Claude, Grok, Gemini, OpenAI, Groq, Mistral, or any OpenAI-compatible host. The key stays on this server. A blank key keeps the one already saved.</p>
+        <p className="status">The key is not stored in the browser. Leave the field blank to keep the saved key.</p>
         {models && models.connections.length > 0 && (
           <ul className="model-list">
             {models.connections.map((row) => (
@@ -1151,10 +1212,10 @@ export function SettingsPage() {
         </form>
       </section>
       <section className="section">
-        <h2>Assistant tools</h2>
+        <h2>Assistant</h2>
         <label className="check">
           <input type="checkbox" checked={allowWrites} onChange={(event) => setAllowWrites(event.target.checked)} />
-          Let the assistant propose writes. Ask still waits for you to confirm before anything posts.
+          Allow changes. Ask still waits for you to confirm.
         </label>
         <div className="tool-picks">
           {assistantTools.map((tool) => {

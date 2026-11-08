@@ -4,6 +4,7 @@ import { ask, confirmAsk, pingModel } from "./llm.mjs";
 import { modelStore } from "./models.mjs";
 import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
 import { readPolicy, writePolicy } from "./policy.mjs";
+import { recordRoutes } from "./records.mjs";
 import { listTrace } from "./trace.mjs";
 
 const NEEDS_CONFIRM = new Set(["write", "internal", "app"]);
@@ -48,9 +49,12 @@ let reportAt = 0;
 
 async function reportCatalog() {
   if (reportCache && Date.now() - reportAt < 60_000) return reportCache;
-  const [reports, subsidiaries] = await Promise.all([
+  const [reports, subsidiaries, books, contexts, nexuses] = await Promise.all([
     withSource("reports", () => callTool("ns_listAllReports", {})),
     withSource("reports", () => callTool("ns_getSubsidiaries", {})),
+    withSource("reports", () => callTool("ns_getAccountingBooks", {})),
+    withSource("reports", () => callTool("ns_getAccountingContexts", {})),
+    withSource("reports", () => callTool("ns_getNexusIds", {})),
   ]);
   reportCache = {
     reports: (reports?.data || []).map((report) => ({
@@ -58,11 +62,18 @@ async function reportCatalog() {
       title: String(report.title || "").replace(/\{#|#\}/g, ""),
       asOf: Boolean(report.as_of_format),
       subsidiary: Boolean(report.has_subsidiary_filter),
+      book: Boolean(report.supports_book),
+      book2: Boolean(report.supports_book2),
+      context: Boolean(report.supports_accounting_context),
+      nexus: Boolean(report.supports_nexus),
     })),
     subsidiaries: (subsidiaries?.data || []).map((row) => ({
       id: Number(row.id),
       name: row.name,
     })),
+    books: namedRows(books),
+    contexts: namedRows(contexts),
+    nexuses: namedRows(nexuses),
   };
   reportAt = Date.now();
   return reportCache;
@@ -115,6 +126,23 @@ function cabinetPath(value) {
     throw error;
   }
   return path.startsWith("/") ? path : `/${path}`;
+}
+
+export function fileUrlOf(result) {
+  const found = [result?.url, result?.fileUrl, result?.href, result?.data?.url].find(
+    (value) => typeof value === "string" && /^https:\/\//.test(value),
+  );
+  return found || "";
+}
+
+function namedRows(payload) {
+  return (payload?.data || []).map((row) => ({ id: String(row.id), name: String(row.name || row.id) }));
+}
+
+function optionalId(value) {
+  if (value == null || value === "") return null;
+  const id = Number(value);
+  return Number.isFinite(id) ? id : null;
 }
 
 export function folderTail(path) {
@@ -200,6 +228,7 @@ function llmPayload() {
 
 export function studioRoutes({ sendJson, authorized }) {
   return {
+    ...recordRoutes({ sendJson, authorized, readJsonBody }),
     "GET /api/config": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const identity = await withSource("settings", () => osmcpIdentity());
@@ -357,6 +386,43 @@ export function studioRoutes({ sendJson, authorized }) {
       sendJson(res, 200, { path });
     },
 
+    "POST /api/files/lookup": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      const kind = body.kind === "file" || body.kind === "folder" ? body.kind : "";
+      if (!kind) {
+        sendJson(res, 400, { error: "Choose a file or a folder." });
+        return;
+      }
+      if (body.path) {
+        const path = cabinetPath(body.path);
+        const result = await withSource("files", () => callTool("ns_getIdFromPath", { path, kind }));
+        sendJson(res, 200, { id: result?.id ?? null, path: result?.path || path, kind });
+        return;
+      }
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id === 0) {
+        sendJson(res, 400, { error: "Enter an internal id." });
+        return;
+      }
+      const result = await withSource("files", () => callTool("ns_getPathFromId", { id, kind }));
+      sendJson(res, 200, { id: result?.id ?? id, path: result?.path || "", kind: result?.kind || kind });
+    },
+
+    "POST /api/files/open": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      const path = cabinetPath(body.path);
+      const result = await withSource("files", () => callTool("ns_getFileUrl", { path }));
+      const url = fileUrlOf(result);
+      // shortcut: only an https link is opened
+      if (!url) {
+        sendJson(res, 502, { error: "NetSuite did not return a link for that file." });
+        return;
+      }
+      sendJson(res, 200, { url });
+    },
+
     "POST /api/files/read": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
@@ -454,6 +520,22 @@ export function studioRoutes({ sendJson, authorized }) {
           return;
         }
         args.subsidiaryId = subsidiaryId;
+      }
+      if (report.book) {
+        const book = optionalId(body.book);
+        if (book != null) args.book = book;
+      }
+      if (report.book2) {
+        const book2 = optionalId(body.book2);
+        if (book2 != null) args.book2 = book2;
+      }
+      if (report.context) {
+        const accountingContext = optionalId(body.accountingContext);
+        if (accountingContext != null) args.accountingContext = accountingContext;
+      }
+      if (report.nexus) {
+        const nexusId = optionalId(body.nexusId);
+        if (nexusId != null) args.nexusId = nexusId;
       }
       const result = await withSource("reports", () => callTool("ns_runReport", args));
       const table = normalizeReport(result);

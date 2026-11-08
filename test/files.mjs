@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyPreview, joinCabinetFile } from "../server/studio.mjs";
+import { classifyPreview, fileUrlOf, joinCabinetFile } from "../server/studio.mjs";
 
 test("a file can only be joined onto a folder inside the cabinet", () => {
   assert.equal(joinCabinetFile("/Images", "note.txt"), "/Images/note.txt");
   assert.equal(joinCabinetFile("Images/", "note.txt"), "/Images/note.txt");
   assert.throws(() => joinCabinetFile("/", "note.txt"), /top level/);
   assert.throws(() => joinCabinetFile("/Images", "../note.txt"), /not valid/);
+});
+
+test("a file link has to be https", () => {
+  assert.equal(fileUrlOf({ url: "https://td.example/file" }), "https://td.example/file");
+  assert.equal(fileUrlOf({ url: "http://td.example/file" }), "");
+  assert.equal(fileUrlOf({}), "");
 });
 
 test("text and pictures can be shown, and other bytes cannot", () => {

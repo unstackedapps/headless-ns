@@ -5,6 +5,8 @@ export type RangeId = "all" | "month" | "quarter" | "year";
 export type MeasureId = "count" | "sum" | "avg" | "min" | "max";
 export type VisualId = "number" | "bar" | "pie" | "line";
 
+export type TraceMetric = "avg" | "count" | "fail" | "slow";
+
 export type PortletPref = {
   id: string;
   span: Span;
@@ -12,7 +14,15 @@ export type PortletPref = {
   range: RangeId;
   measure: MeasureId;
   visual: VisualId;
+  trace?: TraceMetric;
 };
+
+export const traceCards: { id: string; label: string; metric: TraceMetric }[] = [
+  { id: "trace-avg", label: "Average call time", metric: "avg" },
+  { id: "trace-count", label: "Calls", metric: "count" },
+  { id: "trace-fail", label: "Failed calls", metric: "fail" },
+  { id: "trace-slow", label: "Slowest call", metric: "slow" },
+];
 
 export const portletCatalog = [
   { id: "customers", label: "Customers", href: "#/customers", kind: "metric", metric: "customers" },
@@ -55,6 +65,29 @@ export function defaultLayout(): PortletPref[] {
   }));
 }
 
+function tracePref(item: { id?: string; span?: unknown; hidden?: unknown }): PortletPref | null {
+  const card = traceCards.find((entry) => entry.id === item?.id);
+  if (!card) return null;
+  const span: Span = item.span === 6 || item.span === 12 ? item.span : 4;
+  return { id: card.id, span, hidden: Boolean(item.hidden), range: "all", measure: "count", visual: "number", trace: card.metric };
+}
+
+export function portletLabel(id: string) {
+  return portletCatalog.find((item) => item.id === id)?.label || traceCards.find((item) => item.id === id)?.label || id;
+}
+
+export function traceFigure(entries: { name: string; ms: number; ok: boolean }[], metric: TraceMetric) {
+  if (!entries.length) return { figure: "—", note: "No calls yet." };
+  if (metric === "count") return { figure: String(entries.length), note: "Calls kept in this session." };
+  if (metric === "fail") return { figure: String(entries.filter((entry) => !entry.ok).length), note: "Calls that failed." };
+  if (metric === "slow") {
+    const top = entries.reduce((best, entry) => (entry.ms > best.ms ? entry : best));
+    return { figure: `${top.ms} ms`, note: top.name };
+  }
+  const avg = Math.round(entries.reduce((sum, entry) => sum + entry.ms, 0) / entries.length);
+  return { figure: `${avg} ms`, note: "Average time of the calls kept here." };
+}
+
 export function readLayout(): PortletPref[] {
   const defaults = defaultLayout();
   try {
@@ -64,7 +97,11 @@ export function readLayout(): PortletPref[] {
     const next: PortletPref[] = [];
     for (const item of parsed) {
       const base = known.get(item?.id);
-      if (!base) continue;
+      if (!base) {
+        const custom = tracePref(item);
+        if (custom && !next.some((entry) => entry.id === custom.id)) next.push(custom);
+        continue;
+      }
       const span: Span = item.span === 6 || item.span === 12 ? item.span : 4;
       next.push({
         id: base.id,
@@ -113,5 +150,15 @@ export function useLayout() {
     writeLayout(next);
   }
 
-  return { layout, editing, setEditing, update };
+  function addTrace(id: string) {
+    const card = traceCards.find((item) => item.id === id);
+    if (!card || layout.some((item) => item.id === id)) return;
+    update([...layout, { id: card.id, span: 4, hidden: false, range: "all", measure: "count", visual: "number", trace: card.metric }]);
+  }
+
+  function remove(id: string) {
+    update(layout.filter((item) => item.id !== id || !item.trace));
+  }
+
+  return { layout, editing, setEditing, update, addTrace, remove };
 }

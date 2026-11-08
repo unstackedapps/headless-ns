@@ -5,13 +5,16 @@ import { UserMenu } from "./account";
 import { AskDrawer, CommandLine } from "./chrome";
 import { ConnectionPanel } from "./connect";
 import { FilesPage } from "./files";
+import { isViewId, moveMenu, readMenu, setHidden, type MenuItem, type ViewId } from "./menu";
 import { RelatedHost, RelatedLink } from "./related";
 import { SearchesPage } from "./searches";
 import { Glyph, glyph, navIcons } from "./icons";
 import { Pick, Tip } from "./pick";
-import { portletCatalog, useLayout, widthWord, type MeasureId, type PortletPref, type RangeId, type Span, type VisualId } from "./layout";
+import { portletCatalog, portletLabel, traceCards, traceFigure, useLayout, widthWord, type MeasureId, type PortletPref, type RangeId, type Span, type VisualId } from "./layout";
 import { LoadingPage, Lookup, SkeletonPortlets, SkeletonRecord, SkeletonTable } from "./load";
 import { markBusy, refreshAll, refreshMs, refreshScope, RefreshButton, RefreshIntervalSelect, useRefreshBusy, useRefreshInterval } from "./refresh";
+import { QueryPage } from "./query";
+import { RecordsPage } from "./records";
 import { ReportsPage, SettingsPage, TracePage, WorkbenchPage } from "./studio";
 
 type Discovery = {
@@ -137,30 +140,6 @@ type Person = {
   href: string;
 };
 
-const ledgerViews = [
-  ["overview", "Overview"],
-  ["customers", "Customers"],
-  ["orders", "Orders"],
-  ["quotes", "Quotes"],
-  ["invoices", "Invoices"],
-  ["bills", "Bills"],
-  ["items", "Items"],
-  ["people", "People"],
-  ["searches", "Searches"],
-  ["files", "Files"],
-] as const;
-
-const studioViews = [
-  ["reports", "Reports"],
-  ["workbench", "Workbench"],
-  ["trace", "Trace"],
-  ["settings", "Settings"],
-] as const;
-
-const views = [...ledgerViews, ...studioViews];
-
-type ViewId = (typeof views)[number][0];
-
 const typeLabels: Record<string, string> = {
   CustInvc: "Invoice",
   SalesOrd: "Sales order",
@@ -193,7 +172,31 @@ function hashName() {
 function currentView(): ViewId {
   const name = hashName();
   if (name === "ask") return "overview";
-  return views.some(([id]) => id === name) ? (name as ViewId) : "overview";
+  return isViewId(name) ? name : "overview";
+}
+
+function useMenu() {
+  const [items, setItems] = useState<MenuItem[]>(() => {
+    try {
+      return readMenu(JSON.parse(localStorage.getItem("hn-menu") || "null"));
+    } catch {
+      return readMenu(null);
+    }
+  });
+  const [editing, setEditing] = useState(false);
+
+  function update(next: MenuItem[]) {
+    setItems(next);
+    localStorage.setItem("hn-menu", JSON.stringify(next.map(({ id, hidden }) => ({ id, hidden }))));
+  }
+
+  return {
+    items,
+    editing,
+    setEditing,
+    move: (id: string, direction: -1 | 1) => update(moveMenu(items, id, direction)),
+    hide: (id: string, hidden: boolean) => update(setHidden(items, id, hidden)),
+  };
 }
 
 async function readJson<T>(path: string): Promise<T> {
@@ -290,6 +293,7 @@ function SideNav({ view }: { view: ViewId }) {
   const [open, setOpen] = useState(() => localStorage.getItem("hn-nav-open") !== "0");
   const [dragging, setDragging] = useState(false);
   const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 860px)").matches);
+  const menu = useMenu();
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 860px)");
@@ -333,26 +337,54 @@ function SideNav({ view }: { view: ViewId }) {
       aria-label="Sections"
     >
       <div className="nav-links">
-        <span className="nav-label">Ledger</span>
-        {ledgerViews.map(([id, label]) => (
-          <Tip key={id} label={open ? "" : label} side="right">
-            <a href={`#/${id}`} aria-current={view === id ? "page" : undefined} aria-label={label}>
-              <Glyph icon={navIcons[id]} />
-              <span className="nav-text">{label}</span>
-            </a>
-          </Tip>
-        ))}
-        <span className="nav-label">Studio</span>
-        {studioViews.map(([id, label]) => (
-          <Tip key={id} label={open ? "" : label} side="right">
-            <a href={`#/${id}`} aria-current={view === id ? "page" : undefined} aria-label={label}>
-              <Glyph icon={navIcons[id]} />
-              <span className="nav-text">{label}</span>
-            </a>
-          </Tip>
-        ))}
+        {menu.editing && open && <p className="status nav-note">Up and down move an item. Hide takes it off this menu.</p>}
+        {["Ledger", "Studio"].map((group) => {
+          const rows = menu.items.filter((item) => item.group === group && (menu.editing || !item.hidden));
+          if (!rows.length) return null;
+          return (
+            <div key={group}>
+              <span className="nav-label">{group}</span>
+              {rows.map((item) =>
+                menu.editing && open ? (
+                  <div key={item.id} className={item.hidden ? "nav-row is-hidden" : "nav-row"}>
+                    <button className="quiet nav-mini" type="button" aria-label={`Move ${item.label} up`} onClick={() => menu.move(item.id, -1)}>
+                      <Glyph icon={glyph.up} size={14} />
+                    </button>
+                    <button className="quiet nav-mini" type="button" aria-label={`Move ${item.label} down`} onClick={() => menu.move(item.id, 1)}>
+                      <Glyph icon={glyph.down} size={14} />
+                    </button>
+                    <a href={`#/${item.id}`} aria-current={view === item.id ? "page" : undefined}>
+                      <Glyph icon={navIcons[item.id]} />
+                      <span className="nav-text">{item.label}</span>
+                    </a>
+                    <button
+                      className="quiet nav-mini"
+                      type="button"
+                      aria-label={item.hidden ? `Show ${item.label}` : `Hide ${item.label}`}
+                      onClick={() => menu.hide(item.id, !item.hidden)}
+                    >
+                      <Glyph icon={item.hidden ? glyph.eye : glyph.eyeOff} size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <Tip key={item.id} label={open ? "" : item.label} side="right">
+                    <a href={`#/${item.id}`} aria-current={view === item.id ? "page" : undefined} aria-label={item.label}>
+                      <Glyph icon={navIcons[item.id]} />
+                      <span className="nav-text">{item.label}</span>
+                    </a>
+                  </Tip>
+                ),
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="nav-tools">
+        {open && (
+          <button className={menu.editing ? "quiet on nav-toggle" : "quiet nav-toggle"} type="button" aria-pressed={menu.editing} onClick={() => menu.setEditing((value) => !value)}>
+            {menu.editing ? "Done" : "Arrange"}
+          </button>
+        )}
         <Tip label={open ? "" : "Show menu"} side="right">
         <button className="quiet nav-toggle" type="button" aria-pressed={open} aria-label={open ? "Hide menu" : "Show menu"} onClick={toggle}>
           <Glyph icon={open ? glyph.hide : glyph.show} />
@@ -487,6 +519,8 @@ export function App() {
         {view === "workbench" && <WorkbenchPage />}
           {view === "trace" && <TracePage />}
           {view === "files" && <FilesPage />}
+          {view === "records" && <RecordsPage />}
+          {view === "query" && <QueryPage />}
           {view === "settings" && <SettingsPage />}
         </main>
         <AskDrawer open={askOpen} onClose={() => setAskOpen(false)} />
@@ -509,27 +543,22 @@ async function signOut() {
 }
 
 function SignIn({ session, authError }: { session: SessionInfo; authError: string | null }) {
-  const scopes = session.discovery?.scopes ?? [];
   return (
     <main className="signin">
       <section className="card">
         <img className="mark" src="/favicon.svg" alt="" width="28" height="28" />
         <h1>headless-ns</h1>
-        <p className="lede">Choose how this server reaches NetSuite. The browser never holds the token.</p>
+        <p className="lede">Choose how to reach NetSuite. The browser never holds the token.</p>
         <ConnectionPanel />
         <h2>SuiteTalk sign-in</h2>
         {session.osmcpError && <p className="error">{session.osmcpError}</p>}
         {authError && <p className="error">{authError}</p>}
         {session.discovery ? (
           <p className="live-line">
-            OIDC discovery is live for <strong>{session.accountId.toUpperCase()}</strong>. Issuer{" "}
-            {session.discovery.issuer.replace("https://", "")}. Scopes include {scopes.join(", ")}.{" "}
-            {session.discovery.signingKeys > 0
-              ? `${session.discovery.signingKeys} signing keys are published.`
-              : "No signing keys are published yet. Sign-in still checks the issuer, audience, nonce, and expiry."}
+            Account <strong>{session.accountId.toUpperCase()}</strong> is ready to sign in.
           </p>
         ) : (
-          <p className="error">{session.discoveryError || "OIDC discovery did not respond."}</p>
+          <p className="error">{session.discoveryError || "NetSuite did not answer the sign-in check."}</p>
         )}
         <ol className="steps">
           <li>The role you sign in with needs the Setup permission Log in using OAuth 2.0 Access Tokens.</li>
@@ -690,8 +719,52 @@ function useRangeData<T>(path: string, ranges: string[]) {
   return [bundle, reload] as const;
 }
 
+type TraceEntry = { name: string; ms: number; ok: boolean };
+
+function useTrace(enabled: boolean) {
+  const [entries, setEntries] = useState<TraceEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(enabled);
+
+  const reload = useCallback((signal?: AbortSignal) => {
+    if (!enabled) return Promise.resolve();
+    setLoading(true);
+    return fetch("/api/trace", { signal })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "The trace did not load.");
+        setEntries(Array.isArray(body.entries) ? body.entries : []);
+        setError(null);
+      })
+      .catch((reason: Error) => {
+        if (reason.name !== "AbortError") setError(reason.message);
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoading(false);
+      });
+  }, [enabled]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const onRefresh = (event: Event) => {
+      const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
+      if (!scope || scope === "dashboard") reload(controller.signal);
+    };
+    window.addEventListener("hn-refresh", onRefresh);
+    reload(controller.signal);
+    return () => {
+      controller.abort();
+      window.removeEventListener("hn-refresh", onRefresh);
+    };
+  }, [reload]);
+
+  return { entries, error, loading, reload };
+}
+
 function OverviewPage() {
-  const { layout, editing, setEditing, update } = useLayout();
+  const { layout, editing, setEditing, update, addTrace, remove } = useLayout();
+  const trace = useTrace(layout.some((item) => item.trace));
+  const [adding, setAdding] = useState(false);
   const overviewRanges = ["all", ...layout.filter((item) => moneyIds.has(item.id)).map((item) => item.range)];
   const activityRanges = layout.filter((item) => item.id === "activity").map((item) => item.range);
   const [overviews, reloadOverview] = useRangeData<Overview>("/api/overview", overviewRanges);
@@ -744,6 +817,49 @@ function OverviewPage() {
 
   const hidden = layout.filter((item) => item.hidden);
 
+  function editTools(pref: PortletPref, index: number, removable: boolean) {
+    return (
+      <div className="portlet-tools">
+        <span
+          className="drag"
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData("text/plain", pref.id);
+            event.dataTransfer.effectAllowed = "move";
+            setDragId(pref.id);
+          }}
+          onDragEnd={() => {
+            setDragId(null);
+            setOverId(null);
+          }}
+        >
+          <Glyph icon={glyph.move} size={14} />
+          Move
+        </span>
+        <button className="quiet" type="button" disabled={index === 0} onClick={() => nudge(pref.id, -1)}>
+          <Glyph icon={glyph.up} size={14} />
+          Up
+        </button>
+        <button className="quiet" type="button" disabled={index === layout.length - 1} onClick={() => nudge(pref.id, 1)}>
+          <Glyph icon={glyph.down} size={14} />
+          Down
+        </button>
+        <button className="quiet" type="button" onClick={() => cycle(pref.id)} aria-label={`Width ${widthWord(pref.span)}`}>
+          {widthWord(pref.span)}
+        </button>
+        <button className="quiet" type="button" onClick={() => patch(pref.id, { hidden: !pref.hidden })}>
+          <Glyph icon={pref.hidden ? glyph.eye : glyph.eyeOff} size={14} />
+          {pref.hidden ? "Show" : "Hide"}
+        </button>
+        {removable && (
+          <button className="quiet" type="button" onClick={() => remove(pref.id)}>
+            Remove
+          </button>
+        )}
+      </div>
+    );
+  }
+
   const firstLoad = overview.loading && !overview.data && !overview.error;
 
   return (
@@ -759,9 +875,27 @@ function OverviewPage() {
             <Glyph icon={glyph.arrange} />
             {editing ? "Done" : "Arrange"}
           </button>
+          <button className={adding ? "quiet on" : "quiet"} type="button" aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
+            <Glyph icon={glyph.plus} />
+            Add
+          </button>
         </div>
       </header>
-      {editing && <p className="status">Drag a card to reorder it. Each card can change its dates, figure, and chart. This browser keeps the layout.</p>}
+      {adding && (
+        <div className="add-menu">
+          {traceCards.filter((card) => !layout.some((item) => item.id === card.id)).length === 0 && (
+            <p className="status">Every trace card is already on the dashboard.</p>
+          )}
+          {traceCards
+            .filter((card) => !layout.some((item) => item.id === card.id))
+            .map((card) => (
+              <button key={card.id} className="quiet" type="button" onClick={() => addTrace(card.id)}>
+                {card.label}
+              </button>
+            ))}
+        </div>
+      )}
+      {editing && <p className="status">Drag a card to reorder it. Built-in cards can be hidden. Ones you add can also be removed. This browser keeps the layout.</p>}
       {overview.error && <p className="error">{overview.error}</p>}
       {firstLoad ? (
         <SkeletonPortlets />
@@ -770,6 +904,49 @@ function OverviewPage() {
           {layout.map((pref, index) => {
             if (pref.hidden && !editing) return null;
             const card = portletCatalog.find((item) => item.id === pref.id);
+            if (pref.trace) {
+              const shown = traceFigure(trace.entries, pref.trace);
+              const className = ["portlet", editing ? "is-editing" : "", pref.hidden ? "is-hidden" : "", overId === pref.id ? "is-over" : "", spinId === pref.id ? "is-loading" : ""].filter(Boolean).join(" ");
+              return (
+                <section
+                  key={pref.id}
+                  className={className}
+                  data-span={pref.span}
+                  onDragOver={(event) => {
+                    if (!editing) return;
+                    event.preventDefault();
+                    setOverId(pref.id);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    move(pref.id);
+                    setOverId(null);
+                  }}
+                >
+                  <header>
+                    <span>{portletLabel(pref.id)}</span>
+                    <div className="portlet-end">
+                      {!editing && (
+                        <RefreshButton
+                          label={portletLabel(pref.id)}
+                          busy={spinId === pref.id}
+                          onClick={() => {
+                            setSpinId(pref.id);
+                            trace.reload().finally(() => setSpinId((current) => (current === pref.id ? null : current)));
+                          }}
+                        />
+                      )}
+                      {editing && editTools(pref, index, true)}
+                    </div>
+                  </header>
+                  <div className="body">
+                    {trace.loading && trace.entries.length === 0 ? <Lookup label="Reading the trace." /> : <strong>{shown.figure}</strong>}
+                    {trace.error && <p className="error">{trace.error}</p>}
+                    <em>{shown.note}</em>
+                  </div>
+                </section>
+              );
+            }
             if (!card) return null;
             const source = moneyIds.has(pref.id) ? overviews[pref.range] ?? overview : overview;
             const metric = card.metric ? metricView(source.data?.metrics[card.metric], pref.measure) : null;
@@ -800,41 +977,7 @@ function OverviewPage() {
             ]
               .filter(Boolean)
               .join(" ");
-            const tools = editing ? (
-              <div className="portlet-tools">
-                <span
-                  className="drag"
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData("text/plain", pref.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    setDragId(pref.id);
-                  }}
-                  onDragEnd={() => {
-                    setDragId(null);
-                    setOverId(null);
-                  }}
-                >
-                  <Glyph icon={glyph.move} size={14} />
-                  Move
-                </span>
-                <button className="quiet" type="button" disabled={index === 0} onClick={() => nudge(pref.id, -1)}>
-                  <Glyph icon={glyph.up} size={14} />
-                  Up
-                </button>
-                <button className="quiet" type="button" disabled={index === layout.length - 1} onClick={() => nudge(pref.id, 1)}>
-                  <Glyph icon={glyph.down} size={14} />
-                  Down
-                </button>
-                <button className="quiet" type="button" onClick={() => cycle(pref.id)} aria-label={`Width ${widthWord(pref.span)}`}>
-                  {widthWord(pref.span)}
-                </button>
-                <button className="quiet" type="button" onClick={() => patch(pref.id, { hidden: !pref.hidden })}>
-                  <Glyph icon={pref.hidden ? glyph.eye : glyph.eyeOff} size={14} />
-                  {pref.hidden ? "Show" : "Hide"}
-                </button>
-              </div>
-            ) : null;
+            const tools = editing ? editTools(pref, index, false) : null;
             const dated = card.kind === "activity" || moneyIds.has(pref.id);
             const measures: MeasureId[] = card.kind === "activity" || moneyIds.has(pref.id) ? ["count", "sum", "avg", "min", "max"] : ["count"];
             const config = editing ? (
@@ -1057,13 +1200,7 @@ function listStatus<T>(payload: { data: ListPayload<T> | null; loading: boolean 
   const total = payload.data.total;
   const range = total != null ? `Showing ${count(shown)} of ${count(total)}` : `Showing ${count(shown)}`;
   const updating = payload.loading ? " · updating" : "";
-  const via =
-    payload.data.source === "OpenSuiteMCP"
-      ? " · OpenSuiteMCP"
-      : payload.data.tokenExpiresAt
-        ? ` · token expires ${clock(payload.data.tokenExpiresAt)}`
-        : "";
-  return `${range}${updating} · read at ${clock(payload.data.fetchedAt)}${via}`;
+  return `${range}${updating} · as of ${clock(payload.data.fetchedAt)}`;
 }
 
 function explain(message: string) {

@@ -141,9 +141,9 @@ export function ConnectionPanel() {
             />
           </label>
           {saved?.mcpSignedIn ? (
-            <p className="status">This browser has a NetSuite MCP session.</p>
+            <p className="status">Signed in to NetSuite.</p>
           ) : (
-            <p className="status">Save the client ID, then sign in. That login requests only the mcp scope.</p>
+            <p className="status">Save the client ID, then sign in.</p>
           )}
         </>
       )}

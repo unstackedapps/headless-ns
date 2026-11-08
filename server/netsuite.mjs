@@ -235,6 +235,29 @@ export function recordHref(kind, id) {
   return `${appOrigin()}${paths[kind]}?id=${encodeURIComponent(id)}`;
 }
 
+const TX_PAGE = {
+  CustInvc: "custinvc",
+  SalesOrd: "salesord",
+  CashSale: "cashsale",
+  CustCred: "custcred",
+  CustPymt: "custpymt",
+  VendBill: "vendbill",
+  VendPymt: "vendpymt",
+  VendCred: "vendcred",
+  ItemShip: "itemship",
+  ItemRcpt: "itemrcpt",
+  Journal: "journal",
+  PurchOrd: "purchord",
+  Estimate: "estimate",
+  RtnAuth: "rtnauth",
+};
+
+export function transactionHref(type, id) {
+  // shortcut: a type without its own page opens through transaction.nl
+  const page = TX_PAGE[type] || "transaction";
+  return `${appOrigin()}/app/accounting/transactions/${page}.nl?id=${encodeURIComponent(id)}`;
+}
+
 export function likeTerm(value) {
   return String(value || "")
     .toLowerCase()

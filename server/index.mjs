@@ -24,6 +24,7 @@ import {
   sessionSecretIsEphemeral,
 } from "./env.mjs";
 import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { walkRelated } from "./related.mjs";
 import { studioRoutes } from "./studio.mjs";
 import {
   accountLabel,
@@ -36,6 +37,7 @@ import {
   pkcePair,
   publicDiscovery,
   recordHref,
+  transactionHref,
   refreshTokens,
   suiteql,
   userInfo,
@@ -922,7 +924,7 @@ const TYPE_LABELS = {
   VendBill: "Bill",
   VendPymt: "Bill payment",
   VendCred: "Bill credit",
-  ItemShip: "Fulfillment",
+  ItemShip: "Item fulfillment",
   ItemRcpt: "Receipt",
   Journal: "Journal",
   PurchOrd: "Purchase order",
@@ -936,6 +938,7 @@ function typeLabel(type) {
 
 function txNode(row, focusId) {
   const id = String(field(row, "id") || "");
+  const type = String(field(row, "type") || "");
   return {
     id: `transaction:${id}`,
     label: `${typeLabel(String(field(row, "type") || ""))} ${field(row, "tranid") || id}`.trim(),
@@ -943,7 +946,17 @@ function txNode(row, focusId) {
     focus: id === focusId,
     kind: "transaction",
     recordId: id,
+    href: transactionHref(type, id),
   };
+}
+
+async function linkRows(session, ids) {
+  const list = ids.filter((value) => /^-?\d+$/.test(String(value))).join(",");
+  if (!list) return [];
+  const where = `previousdoc IN (${list}) OR nextdoc IN (${list})`;
+  const line = await query(session, `SELECT DISTINCT previousdoc, nextdoc FROM NextTransactionLineLink WHERE ${where}`, 80, "related");
+  const head = await query(session, `SELECT DISTINCT previousdoc, nextdoc FROM NextTransactionLink WHERE ${where}`, 80, "related");
+  return [...(line.items || []), ...(head.items || [])];
 }
 
 async function relatedGraph(req, res, url) {
@@ -970,6 +983,7 @@ async function relatedGraph(req, res, url) {
       focus: true,
       kind,
       recordId: id,
+      href: recordHref(kind, id),
     });
     const column = kind === "customer" ? "entity" : "employee";
     const txs = await query(
@@ -992,6 +1006,7 @@ async function relatedGraph(req, res, url) {
       focus: true,
       kind: "item",
       recordId: id,
+      href: recordHref("item", id),
     });
     const txs = await query(
       session,
@@ -1005,20 +1020,10 @@ async function relatedGraph(req, res, url) {
       txIds.push(node.recordId);
     }
   } else {
-    const links = await query(
-      session,
-      `SELECT previousdoc, nextdoc, linktype FROM NextTransactionLink WHERE previousdoc = ${id} OR nextdoc = ${id}`,
-      40,
-      "related",
-    );
-    const ids = new Set([id]);
-    for (const link of links.items || []) {
-      ids.add(String(field(link, "previousdoc")));
-      ids.add(String(field(link, "nextdoc")));
-    }
+    const walked = await walkRelated(id, (frontier) => linkRows(session, frontier));
     const txs = await query(
       session,
-      `SELECT id, tranid, type, trandate FROM transaction WHERE id IN (${[...ids].join(",")})`,
+      `SELECT id, tranid, type, trandate FROM transaction WHERE id IN (${walked.ids.join(",")})`,
       40,
       "related",
     );
@@ -1027,11 +1032,7 @@ async function relatedGraph(req, res, url) {
       nodes.push(node);
       txIds.push(node.recordId);
     }
-    for (const link of links.items || []) {
-      const source = `transaction:${field(link, "previousdoc")}`;
-      const target = `transaction:${field(link, "nextdoc")}`;
-      edges.push({ id: `${source}>${target}`, source, target, label: String(field(link, "linktype") || "") });
-    }
+    edges.push(...walked.edges);
   }
 
   if (kind !== "transaction" && txIds.length) {

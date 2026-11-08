@@ -1,11 +1,12 @@
 import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Glyph, glyph } from "./icons";
+import { Pick } from "./pick";
 import { RefreshButton, refreshScope } from "./refresh";
 
 type Entry = { id: string; kind: "folder" | "file"; name: string; path: string };
 type Page = { entries: Entry[]; hasMore: boolean; cursor: string | null };
-type Preview = { name: string; text?: string; image?: string; note?: string };
+type Preview = { name: string; path?: string; text?: string; image?: string; note?: string };
 
 function fileToBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -42,6 +43,9 @@ export function FilesPage() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [reading, setReading] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
+  const [jumpPath, setJumpPath] = useState("");
+  const [jumpId, setJumpId] = useState("");
+  const [jumpKind, setJumpKind] = useState("folder");
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
 
@@ -174,11 +178,52 @@ export function FilesPage() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "The file contents did not load.");
-      setPreview(body);
+      setPreview({ ...body, path: entry.path });
     } catch (reason) {
       setOpenError(reason instanceof Error ? reason.message : "The file contents did not load.");
     } finally {
       setReading(false);
+    }
+  }
+
+  async function jump() {
+    setOpenError(null);
+    const payload = jumpPath.trim() ? { path: jumpPath.trim(), kind: jumpKind } : { id: jumpId.trim(), kind: jumpKind };
+    try {
+      const response = await fetch("/api/files/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "That path did not resolve.");
+      if (!body.path) throw new Error("NetSuite did not return a path.");
+      if (body.kind === "file") {
+        const folder = body.path.split("/").slice(0, -1).join("/") || "/";
+        choose(folder);
+        await readFile({ id: String(body.id || ""), kind: "file", name: body.path.split("/").pop() || body.path, path: body.path });
+        return;
+      }
+      choose(body.path);
+    } catch (reason) {
+      setOpenError(reason instanceof Error ? reason.message : "That path did not resolve.");
+    }
+  }
+
+  async function openNative() {
+    if (!preview?.path) return;
+    setOpenError(null);
+    try {
+      const response = await fetch("/api/files/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: preview.path }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "NetSuite did not return a link for that file.");
+      window.open(body.url, "_blank", "noopener");
+    } catch (reason) {
+      setOpenError(reason instanceof Error ? reason.message : "NetSuite did not return a link for that file.");
     }
   }
 
@@ -246,6 +291,31 @@ export function FilesPage() {
               />
             </label>
           </div>
+          <div className="filters">
+            <label>
+              Path
+              <input value={jumpPath} aria-label="Path" placeholder="/SuiteScripts" onChange={(event) => setJumpPath(event.target.value)} />
+            </label>
+            <label>
+              Internal id
+              <input value={jumpId} aria-label="Internal id" inputMode="numeric" onChange={(event) => setJumpId(event.target.value)} />
+            </label>
+            <label>
+              Kind
+              <Pick
+                label="Kind"
+                value={jumpKind}
+                onChange={setJumpKind}
+                options={[
+                  { value: "folder", label: "Folder" },
+                  { value: "file", label: "File" },
+                ]}
+              />
+            </label>
+            <button className="quiet" type="button" disabled={!jumpPath.trim() && !jumpId.trim()} onClick={jump}>
+              Go
+            </button>
+          </div>
           {openError && <p className="error">{openError}</p>}
           <table>
             <thead>
@@ -291,9 +361,17 @@ export function FilesPage() {
             <section className="file-view" aria-label="File contents">
               <div className="pane-head">
                 <strong>{preview?.name || "File"}</strong>
-                <button className="quiet" type="button" onClick={() => setPreview(null)}>
-                  Close
-                </button>
+                <div className="actions">
+                  {preview?.path && (
+                    <button className="quiet" type="button" onClick={openNative}>
+                      <Glyph icon={glyph.external} size={14} />
+                      Open in NetSuite
+                    </button>
+                  )}
+                  <button className="quiet" type="button" onClick={() => setPreview(null)}>
+                    Close
+                  </button>
+                </div>
               </div>
               {reading && <p className="status">Reading the file.</p>}
               {preview?.text != null && <pre>{preview.text}</pre>}
