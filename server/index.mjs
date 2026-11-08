@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import https from "node:https";
 import { createServer } from "vite";
 import {
@@ -47,6 +47,10 @@ import {
   verifyIdToken,
 } from "./netsuite.mjs";
 
+// A stable secret lets sealed sign-in sessions survive a restart.
+if (sessionSecretIsEphemeral()) updateEnv(["SESSION_SECRET"], { SESSION_SECRET: randomBytes(32).toString("base64url") });
+
+const SESSIONS_FILE = "data/sessions.json";
 const sessions = new Map();
 const OPEN_ORDER = "('SalesOrd:C','SalesOrd:G','SalesOrd:H')";
 
@@ -98,6 +102,32 @@ function unseal(token) {
   const json = Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString("utf8");
   return JSON.parse(json);
 }
+
+// Sign-in sessions are kept on disk, sealed with SESSION_SECRET, so a restart keeps users signed in.
+function saveSessions() {
+  try {
+    mkdirSync("data", { recursive: true });
+    const tmp = `${SESSIONS_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ sealed: seal(Object.fromEntries(sessions)) }), { mode: 0o600 });
+    renameSync(tmp, SESSIONS_FILE);
+  } catch (error) {
+    console.log(`[headless] could not save sessions: ${error.message}`);
+  }
+}
+
+function loadSessions() {
+  if (!existsSync(SESSIONS_FILE)) return;
+  try {
+    const saved = unseal(JSON.parse(readFileSync(SESSIONS_FILE, "utf8")).sealed);
+    for (const [sid, session] of Object.entries(saved)) {
+      if (session?.refreshToken || session?.expiresAt > Date.now()) sessions.set(sid, session);
+    }
+  } catch (error) {
+    console.log(`[headless] could not read saved sessions, starting signed out: ${error.message}`);
+  }
+}
+
+loadSessions();
 
 function cookies(req) {
   const out = {};
@@ -159,6 +189,7 @@ async function ensureFresh(session) {
   session.accessToken = tokens.access_token;
   if (tokens.refresh_token) session.refreshToken = tokens.refresh_token;
   session.expiresAt = Date.now() + Math.max(30, (tokens.expires_in ?? 3600) - 60) * 1000;
+  saveSessions();
   return session;
 }
 
@@ -188,6 +219,7 @@ async function authorized(req, res) {
     return { ...session, via: "netsuite" };
   } catch (error) {
     sessions.delete(sid);
+    saveSessions();
     sendJson(res, 401, { error: error.message || "The NetSuite session expired. Sign in again." });
     return null;
   }
@@ -464,6 +496,7 @@ const routes = {
         sub: "",
         mcp: true,
       });
+      saveSessions();
       redirect(res, "/#/overview", [
         cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
         cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
@@ -481,6 +514,7 @@ const routes = {
       email: profile.email || idToken.email || "",
       sub: idToken.sub,
     });
+    saveSessions();
     redirect(res, "/#/overview", [
       cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
       cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
@@ -489,7 +523,7 @@ const routes = {
 
   async logout(req, res) {
     const sid = cookies(req).hn_sid;
-    if (sid) sessions.delete(sid);
+    if (sid && sessions.delete(sid)) saveSessions();
     sendJson(res, 200, { ok: true }, [cookie("hn_sid", "", { maxAge: 0, path: "/" })]);
   },
 
