@@ -268,6 +268,13 @@ export function likeTerm(value) {
     .replace(/'/g, "''");
 }
 
+// Builds " AND (LOWER(col) LIKE '%term%' OR ...)" from user text. likeTerm keeps the term inside the quotes.
+export function searchAnd(columns, raw) {
+  const term = likeTerm(raw);
+  if (!term) return "";
+  return ` AND (${columns.map((column) => `LOWER(${column}) LIKE '%${term}%'`).join(" OR ")})`;
+}
+
 export function accountLabel() {
   return accountId() ? accountHost() : "";
 }

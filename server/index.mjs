@@ -34,13 +34,14 @@ import {
   authorizationRedirect,
   exchangeCode,
   field,
-  getDiscovery,
   likeTerm,
+  getDiscovery,
   pkcePair,
   publicDiscovery,
   recordHref,
   transactionHref,
   refreshTokens,
+  searchAnd,
   suiteql,
   userInfo,
   verifyIdToken,
@@ -231,12 +232,6 @@ function query(session, sql, limit, source = "ledger") {
     return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit)));
   }
   return schedule(() => runQuery(session, sql, limit));
-}
-
-function searchAnd(columns, raw) {
-  const term = likeTerm(raw);
-  if (!term) return "";
-  return ` AND (${columns.map((column) => `LOWER(${column}) LIKE '%${term}%'`).join(" OR ")})`;
 }
 
 function rowsOf(result, map) {
