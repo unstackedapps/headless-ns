@@ -4,6 +4,7 @@ import { menuDefaults } from "./menu";
 import { Glyph, glyph } from "./icons";
 import { AskPage } from "./studio";
 import { themes, useTheme } from "./theme";
+import { api, postJson } from "./api";
 
 const screens = menuDefaults.map((item) => item.id);
 
@@ -45,17 +46,6 @@ type AskReply = {
   pending: { name: string; arguments: Record<string, unknown> }[] | null;
   pendingId?: string;
 };
-
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status}).`);
-  return payload as T;
-}
 
 function clip(value: string, width: number) {
   if (value.length > width) return `${value.slice(0, Math.max(1, width - 1))}…`;
@@ -237,9 +227,7 @@ export function CommandLine({
         return;
       }
       if (name === "who") {
-        const response = await fetch("/api/me");
-        const me = await response.json();
-        if (!response.ok) throw new Error(me.error || "Could not read the signed-in user.");
+        const me = await api<{ name?: string; email?: string; accountId?: string; roleId?: string }>("/api/me");
         const lines = [me.name, me.email, me.accountId ? `Account ${me.accountId}` : "", me.roleId ? `Role ${me.roleId}` : ""].filter(Boolean);
         push("out", lines.join("\n") || "Signed in");
         return;

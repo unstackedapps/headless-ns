@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Glyph, glyph } from "./icons";
 import { SkeletonTable } from "./load";
 import { refreshScope, RefreshButton } from "./refresh";
+import { api, postJson } from "./api";
 
 type SearchRow = { id: string; title: string; recordType: string; shared: boolean };
 type SearchRun = { columns: string[]; rows: Record<string, string | number>[]; total: number };
@@ -42,10 +43,8 @@ export function SearchesPage() {
   useEffect(() => {
     let stop = false;
     function load() {
-      fetch("/api/searches")
-        .then(async (response) => {
-          const body = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(body.error || "Saved searches did not load.");
+      api<{ rows?: SearchRow[] }>("/api/searches")
+        .then((body) => {
           if (!stop) {
             setRows(body.rows || []);
             setError(null);
@@ -76,14 +75,7 @@ export function SearchesPage() {
     setSort(null);
     setRunning(true);
     try {
-      const response = await fetch("/api/searches/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "The saved search did not run.");
-      setRun(body);
+      setRun(await postJson<SearchRun>("/api/searches/run", { id: row.id }));
     } catch (reason) {
       setRunError(reason instanceof Error ? reason.message : "The saved search did not run.");
     } finally {

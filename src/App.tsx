@@ -16,6 +16,7 @@ import { markBusy, refreshAll, refreshMs, refreshScope, RefreshButton, RefreshIn
 import { QueryPage } from "./query";
 import { RecordsPage } from "./records";
 import { ReportsPage, SettingsPage, TracePage, WorkbenchPage } from "./studio";
+import { api, postJson } from "./api";
 
 type Discovery = {
   issuer: string;
@@ -200,17 +201,6 @@ function useMenu() {
   };
 }
 
-async function readJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  const body = await response.json().catch(() => ({}));
-  if (response.status === 401) {
-    location.href = "/api/auth/login";
-    throw new Error("Sign in with NetSuite.");
-  }
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-  return body as T;
-}
-
 function useLive<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -249,16 +239,8 @@ function useLive<T>(path: string | null) {
     markBusy(true);
     setLoading(true);
     setError(null);
-    fetch(path, { signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (response.status === 401) {
-          location.href = "/api/auth/login";
-          return;
-        }
-        if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-        setData(body as T);
-      })
+    api<T>(path, { signal: controller.signal, signInOn401: true })
+      .then(setData)
       .catch((reason: Error) => {
         if (reason.name === "AbortError") return;
         setError(reason.message);
@@ -425,7 +407,7 @@ export function App() {
 
   useEffect(() => {
     if (authError) history.replaceState(null, "", location.pathname);
-    readJson<SessionInfo>("/api/session")
+    api<SessionInfo>("/api/session", { signInOn401: true })
       .then(setSession)
       .catch((reason: Error) => setSessionError(reason.message));
   }, [authError]);
@@ -539,7 +521,7 @@ export function App() {
 }
 
 async function signOut() {
-  await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  await postJson("/api/auth/logout", {});
   location.href = "/";
 }
 
@@ -648,10 +630,8 @@ function useRangeData<T>(path: string, ranges: string[]) {
         }));
       }
       try {
-        const response = await fetch(`${path}?range=${range}`);
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-        setBundle((current) => ({ ...current, [range]: { data: body as T, error: null, loading: false } }));
+        const body = await api<T>(`${path}?range=${range}`);
+        setBundle((current) => ({ ...current, [range]: { data: body, error: null, loading: false } }));
       } catch (reason) {
         const message = reason instanceof Error ? reason.message : "Refresh failed.";
         setBundle((current) => ({
@@ -694,15 +674,9 @@ function useRangeData<T>(path: string, ranges: string[]) {
       if (pending <= 0) done();
     };
     for (const range of list) {
-      fetch(`${path}?range=${range}`, { signal: controller.signal })
-        .then(async (response) => {
-          const body = await response.json().catch(() => ({}));
-          if (response.status === 401) {
-            location.href = "/api/auth/login";
-            return;
-          }
-          if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-          setBundle((current) => ({ ...current, [range]: { data: body as T, error: null, loading: false } }));
+      api<T>(`${path}?range=${range}`, { signal: controller.signal, signInOn401: true })
+        .then((body) => {
+          setBundle((current) => ({ ...current, [range]: { data: body, error: null, loading: false } }));
         })
         .catch((reason: Error) => {
           if (reason.name === "AbortError") return;
@@ -732,10 +706,8 @@ function useTrace(enabled: boolean) {
   const reload = useCallback((signal?: AbortSignal) => {
     if (!enabled) return Promise.resolve();
     setLoading(true);
-    return fetch("/api/trace", { signal })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "The trace did not load.");
+    return api<{ entries?: TraceEntry[] }>("/api/trace", { signal })
+      .then((body) => {
         setEntries(Array.isArray(body.entries) ? body.entries : []);
         setError(null);
       })

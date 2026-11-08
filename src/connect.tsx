@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
+import { api, postJson } from "./api";
 
 type Kind = "opensuitemcp" | "netsuite" | "custom";
 
@@ -44,9 +45,8 @@ export function ConnectionPanel() {
   useEffect(() => {
     let ignore = false;
     function load(hintsOnly: boolean) {
-      fetch("/api/connector")
-        .then((response) => response.json())
-        .then((body: Connection) => {
+      api<Connection>("/api/connector")
+        .then((body) => {
           if (ignore) return;
           setSaved(body);
           if (hintsOnly) return;
@@ -79,13 +79,7 @@ export function ConnectionPanel() {
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch("/api/config/connector", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, accountId, osmcpUrl, osmcpToken, customUrl, customToken, mcpClientId, mcpClientSecret, suite }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "Could not save the connection.");
+      await postJson("/api/config/connector", { kind, accountId, osmcpUrl, osmcpToken, customUrl, customToken, mcpClientId, mcpClientSecret, suite });
       setMessage("Saved. Reloading so the server uses this connection.");
       location.reload();
     } catch (reason) {

@@ -1,16 +1,10 @@
 import { useEffect, useState } from "react";
 import { Glyph, glyph } from "./icons";
 import { RefreshButton, refreshScope } from "./refresh";
+import { api } from "./api";
 
 type TableInfo = { name: string; title: string };
 type Field = { id: string; title: string; type: string };
-
-async function api<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-  return body as T;
-}
 
 export function QueryPage() {
   const [tables, setTables] = useState<TableInfo[]>([]);

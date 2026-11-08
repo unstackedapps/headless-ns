@@ -2,20 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
 import { RefreshButton, refreshScope } from "./refresh";
+import { api } from "./api";
 
 type Field = { id: string; title: string; type: "string" | "number" | "boolean" };
 type Scalar = { id: string; value: string | number | boolean };
 type Action = { id: string; label: string };
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-  return body as T;
-}
 
 function blank(fields: Field[]) {
   return Object.fromEntries(fields.map((field) => [field.id, ""]));

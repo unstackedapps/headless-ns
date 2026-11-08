@@ -6,6 +6,7 @@ import { ConnectionPanel } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
 import { ShapeSelect, ThemeSelect } from "./theme";
+import { api } from "./api";
 
 type Step = { name: string; ok: boolean; error?: string };
 type PendingCall = { id: string; name: string; arguments: Record<string, unknown> };
@@ -91,16 +92,6 @@ const kindLabel: Record<ToolInfo["kind"], string> = {
   app: "Chat",
   internal: "File",
 };
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-  return body as T;
-}
 
 function today() {
   const date = new Date();

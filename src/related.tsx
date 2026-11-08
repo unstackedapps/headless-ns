@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Glyph, glyph } from "./icons";
+import { api } from "./api";
 
 export type RelatedRequest = { kind: "customer" | "transaction" | "item" | "employee"; id: string; title: string };
 
@@ -105,12 +106,8 @@ export function RelatedHost() {
   useEffect(() => {
     if (!request) return;
     const controller = new AbortController();
-    fetch(`/api/related?kind=${request.kind}&id=${encodeURIComponent(request.id)}`, { signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "The related records did not load.");
-        setGraph(body);
-      })
+    api<{ nodes: GraphNode[]; edges: GraphEdge[] }>(`/api/related?kind=${request.kind}&id=${encodeURIComponent(request.id)}`, { signal: controller.signal })
+      .then(setGraph)
       .catch((reason: Error) => {
         if (reason.name !== "AbortError") setError(reason.message);
       });
