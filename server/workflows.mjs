@@ -90,7 +90,55 @@ function checkedId(id) {
 
 // Shipped or received and billed quantities per line. They are not on the record itself.
 export function lineQuantitySql(id) {
-  return `SELECT id, quantityshiprecv, quantitybilled FROM transactionline WHERE transaction = ${checkedId(id)} AND mainline = 'F'`;
+  return `SELECT id, quantityshiprecv, quantitybilled, location, BUILTIN.DF(location) AS locationname FROM transactionline WHERE transaction = ${checkedId(id)} AND mainline = 'F'`;
+}
+
+function idList(ids) {
+  const list = [...new Set((ids || []).map(String))].filter((id) => /^[1-9]\d{0,11}$/.test(id)).slice(0, 200);
+  if (!list.length) {
+    const error = new Error("No items to look up.");
+    error.status = 400;
+    throw error;
+  }
+  return list.join(", ");
+}
+
+// Serial and lot flags, and available stock by location, for the items on an order.
+export function itemFactsSql(ids) {
+  return `SELECT id, isserialitem, islotitem FROM item WHERE id IN (${idList(ids)})`;
+}
+
+export function stockSql(ids) {
+  return `SELECT ib.item, ib.location, BUILTIN.DF(ib.location) AS name, SUM(ib.quantityavailable) AS available
+FROM inventorybalance ib WHERE ib.item IN (${idList(ids)})
+GROUP BY ib.item, ib.location, BUILTIN.DF(ib.location)`;
+}
+
+// Serial or lot numbers of one item that can ship from one location.
+export function numbersSql(item, location) {
+  return `SELECT n.id, n.inventorynumber, inl.quantityavailable AS available
+FROM inventorynumber n JOIN inventorynumberlocation inl ON inl.inventorynumber = n.id
+WHERE n.item = ${checkedId(item)} AND inl.location = ${checkedId(location)} AND inl.quantityavailable > 0
+ORDER BY n.inventorynumber`;
+}
+
+// Adds where each line ships from, how much is available there and elsewhere, and serial or lot tracking.
+export function addStock(lines, factRows, stockRows) {
+  const facts = new Map((factRows || []).map((row) => [String(row.id), row]));
+  return lines.map((line) => {
+    const id = line.item?.id || "";
+    const fact = facts.get(id);
+    const stock = (stockRows || [])
+      .filter((row) => String(row.item) === id && Number(row.available) > 0)
+      .map((row) => ({ id: String(row.location), name: String(row.name || row.location), available: Number(row.available) }))
+      .sort((a, b) => b.available - a.available);
+    return {
+      ...line,
+      tracking: fact?.isserialitem === "T" ? "serial" : fact?.islotitem === "T" ? "lot" : "",
+      stock,
+      available: line.location ? (stock.find((row) => row.id === line.location.id)?.available ?? 0) : null,
+    };
+  });
 }
 
 // Status letter, open amount and approval status. The record's own status id is not always the letter. this one was made from or turned into.
@@ -131,6 +179,7 @@ export function mergeLines(itemLines, quantityRows) {
       const quantity = Math.abs(num(cellValue(cells.quantity)) ?? 0);
       const row = byLine.get(String(line));
       const done = Math.abs(num(row?.quantityshiprecv) ?? 0);
+      const location = row?.location == null || row.location === "" ? null : { id: String(row.location), name: String(row.locationname || row.location) };
       const billed = Math.abs(num(row?.quantitybilled) ?? 0);
       return {
         line,
@@ -141,6 +190,7 @@ export function mergeLines(itemLines, quantityRows) {
         rate: num(cellValue(cells.rate)),
         amount: num(cellValue(cells.amount)),
         closed: cellValue(cells.isClosed) === true,
+        location,
         done,
         billed,
         remaining: Math.max(0, quantity - done),
@@ -153,6 +203,15 @@ const HEADER = ["tranId", "tranDate", "memo", "total", "currency", "entity", "lo
 
 export function flowRoutes({ sendJson, authorized }) {
   return {
+    "GET /api/flow/numbers": async (req, res, url) => {
+      if (!(await authorized(req, res))) return;
+      const sql = numbersSql(url.searchParams.get("item"), url.searchParams.get("location"));
+      const result = await withSource("flow", () => suiteqlOsmcp(sql, 200));
+      sendJson(res, 200, {
+        numbers: result.items.map((row) => ({ id: String(row.id), number: String(row.inventorynumber || row.id), available: Number(row.available) || 0 })),
+      });
+    },
+
     "GET /api/flow": async (req, res, url) => {
       if (!(await authorized(req, res))) return;
       const type = String(url.searchParams.get("type") || "");
@@ -169,7 +228,12 @@ export function flowRoutes({ sendJson, authorized }) {
       const cells = Object.fromEntries(read.fields.map((cell) => [cell.id, cell]));
       const header = Object.fromEntries(HEADER.filter((key) => cells[key]).map((key) => [key, cells[key]]));
       const items = read.sublists.find((sublist) => sublist.id === "item")?.lines || [];
-      const lines = mergeLines(items, quantities.items);
+      let lines = mergeLines(items, quantities.items);
+      const itemIds = lines.map((line) => line.item?.id).filter(Boolean);
+      if (type === "salesorder" && itemIds.length) {
+        const [facts, stock] = await withSource("flow", () => Promise.all([suiteqlOsmcp(itemFactsSql(itemIds), 200), suiteqlOsmcp(stockSql(itemIds), 1000)]));
+        lines = addStock(lines, facts.items, stock.items);
+      }
       const top = head.items[0] || {};
       // Receipts and bill payments read "Undefined": they have no status.
       const status = top.status && !/undefined$/i.test(String(top.statusname)) ? { id: String(top.status), name: String(top.statusname || "").replace(/^[^:]*:\s*/, "") } : null;

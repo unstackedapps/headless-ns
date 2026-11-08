@@ -1,3 +1,5 @@
+import type { ButtonHTMLAttributes } from "react";
+
 export function LoadingPage({ cover = false }: { cover?: boolean }) {
   return (
     <div className={cover ? "hns-screen is-cover" : "hns-screen"} role="status" aria-label="Loading">
@@ -24,10 +26,25 @@ export function LoadingPage({ cover = false }: { cover?: boolean }) {
   );
 }
 
+// The one activity mark: pickers, buttons and sections waiting on NetSuite all use it.
+export function Spinner() {
+  return <span className="lookup-mark" aria-hidden="true" />;
+}
+
+// A button that shows the spinner and stays disabled while its request runs.
+export function Button({ busy = false, disabled, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean }) {
+  return (
+    <button type="button" {...rest} disabled={disabled || busy} aria-busy={busy || undefined}>
+      {busy && <Spinner />}
+      {children}
+    </button>
+  );
+}
+
 export function Lookup({ label }: { label: string }) {
   return (
     <p className="lookup" role="status">
-      <span className="lookup-mark" aria-hidden="true" />
+      <Spinner />
       {label}
     </p>
   );

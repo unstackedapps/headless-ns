@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Glyph, glyph } from "./icons";
-import { SkeletonTable } from "./load";
+import { Lookup, SkeletonTable } from "./load";
 import { refreshScope, RefreshButton } from "./refresh";
 import { api, postJson } from "./api";
 
@@ -130,7 +130,7 @@ export function SearchesPage() {
         </div>
         <div className="split-main">
           {!chosen && <p className="split-empty">Pick a search on the left.</p>}
-          {running && <p className="status">Running the search.</p>}
+          {running && <Lookup label="Running the search." />}
           {runError && <p className="error">{runError}</p>}
           {run && (
             <>

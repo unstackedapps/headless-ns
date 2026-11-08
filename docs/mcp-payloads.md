@@ -158,3 +158,16 @@ Run on 2026-11-08 through the same routes. Vendor 628 (Core4Solutions), item 541
 - Paging: `ns_runCustomSuiteQL` takes `pageIndex` (0-based) with `pageSize`. The REST SuiteQL path takes `offset`.
 - Items: `item.itemtype` codes seen are InvtPart, NonInvtPart, OthCharge, Assembly, Discount. Non-inventory, service and other charge items also have `subtype` (Sale, Resale, Purchase), which picks the record type, such as `noninventoryresaleitem` or `otherchargepurchaseitem`. Inventory items have no subtype.
 - Item receipts, bill payments and customer payments open on the transaction page with lines and links but no next steps.
+
+## Fulfillment stock, serial numbers and locations (Phase 2 fixes)
+
+Found on SO629 (customer 8 Ntags Associates, item 760 Breville Bambino Plus, location Boston), 2026-11-08.
+
+- "You must have at least one valid line item for this transaction." The order line ships from Boston, and item 760 has no stock there. Its 4 units are at San Francisco. NetSuite drops lines with nothing committed, so no line is left. Sending a fulfillment line `location` does not help, and neither does changing only the order line's `location`.
+- Changing the sales order header `location` to 2 with `ns_updateRecord` moved the lines to San Francisco and committed the unit.
+- Item 760 is serialized (`item.isserialitem = 'T'`). Without numbers the fulfillment fails with "Please configure the inventory detail in line 1 of the item list."
+- Worked: `{"orderLine":1,"itemReceive":true,"quantity":1,"inventoryDetail":{"inventoryAssignment":{"items":[{"issueInventoryNumber":{"id":"6152"},"quantity":1}]}}}`. It made IF 16390 from test order 16389 (external id hns-wf-salesorder-serial-1, serial BES500-DEMO-03).
+- Serial and lot numbers in stock: `inventorynumber` joined to `inventorynumberlocation` (`quantityavailable > 0`).
+- QUO101 location: the first save sent London (location 6, subsidiary United Kingdom) for a US customer. NetSuite refused it with "Invalid Field Value 6 for the following field: location", and the saved quote has Boston. The location search now lists only locations in the customer's or vendor's subsidiary.
+- `location.subsidiary` is a text list ("2"), so `subsidiary = 2` matches nothing. Use `locationsubsidiarymap` (one row per location and subsidiary).
+- Item defaults: the base price is `itemprice.price` at `pricelevel = 1`. The sales description is `item.description` (`salesdescription` does not exist in SuiteQL). The purchase side uses `cost`, then `lastpurchaseprice`, and `purchasedescription`. Many items here, 248 and 760 among them, have no base price, so NetSuite answers "Please enter a value for Amount" unless a rate is sent.

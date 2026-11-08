@@ -1154,31 +1154,34 @@ details.panel summary { cursor: pointer; font-weight: 300; }
   .who { flex-basis: 100%; }
 }
 
-.ref-picker { position: relative; display: grid; gap: 4px; min-width: 220px; }
-.ref-current { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
-.ref-options {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  margin: 2px 0 0;
-  padding: 4px 0;
-  list-style: none;
-  max-height: 260px;
-  overflow: auto;
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-}
-.ref-options button { display: block; width: 100%; padding: 6px 10px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
-.ref-options button:hover, .ref-options button:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.ref-options em { color: var(--muted); font-style: normal; font-size: 12px; }
-.ref-options .error { padding: 6px 10px; }
 .line-grid td { vertical-align: top; }
 .line-grid input[type="number"] { width: 90px; }
 .ship-lines { display: grid; gap: 6px; margin: 8px 0; }
-.line-grid .ref-options { position: static; }
 .ship-lines .filters { align-items: center; }
 .ship-lines .filters label.check { display: flex; min-width: 0; color: inherit; }
 .list-filter { display: flex; align-items: center; gap: 6px; margin-right: auto; font-size: 13px; }
 .list-view > .actions { padding: 0 16px 12px; }
+.combo { position: relative; display: block; min-width: 200px; }
+.combo input { width: 100%; box-sizing: border-box; padding-right: 30px; }
+.combo-icon { position: absolute; top: 50%; right: 8px; display: flex; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.combo-menu { width: max(var(--radix-popover-trigger-width), 240px); max-width: min(480px, 92vw); }
+.combo-menu ul { margin: 0; padding: 4px; list-style: none; max-height: 320px; overflow-y: auto; display: block; }
+.combo-menu .pick-item { cursor: pointer; padding-left: 10px; }
+.combo-empty { padding: 6px 10px; color: var(--muted); font-size: 13px; }
+.grid-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.grid-tools .status { margin: 0; }
+.field-hint { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.line-grid .lookup { margin: 4px 0 0; font-size: 12px; }
+.line-grid .combo { min-width: 240px; }
+.step-form { display: grid; gap: 8px; margin-top: 12px; }
+.step-form > .primary { justify-self: start; }
+.ship-line { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ship-line:last-of-type { border-bottom: 0; }
+.ship-line .filters { margin: 0; }
+.stock-note { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.stock-note .error { margin: 0; }
+.numbers { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 8px 0 0; border: 0; }
+.numbers legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
+.numbers .check { margin: 0; }
+.list-filter .pick { min-width: 180px; }
+.filters .pick, .record-form .pick { min-width: 180px; }

@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
+import { Lookup } from "./load";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 
@@ -319,7 +320,7 @@ export function FilesPage() {
               {rows.length === 0 && (
                 <tr>
                   <td className="empty" colSpan={2}>
-                    {needle ? "No files matched that name." : page ? "This folder is empty." : "Loading this folder."}
+                    {needle ? "No files matched that name." : page ? "This folder is empty." : <Lookup label="Loading this folder." />}
                   </td>
                 </tr>
               )}

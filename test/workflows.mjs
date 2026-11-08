@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { headerSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, recordTypeOfCode } from "../server/workflows.mjs";
+import { addStock, headerSql, itemFactsSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, stockSql } from "../server/workflows.mjs";
 
 const ids = (steps) => steps.map((step) => step.id);
 const open = [{ closed: false, remaining: 2 }];
@@ -58,7 +58,7 @@ test("unknown types and statuses have no steps", () => {
 });
 
 test("flow SQL takes only a positive internal id", () => {
-  assert.equal(lineQuantitySql("16290"), "SELECT id, quantityshiprecv, quantitybilled FROM transactionline WHERE transaction = 16290 AND mainline = 'F'");
+  assert.match(lineQuantitySql("16290"), /FROM transactionline WHERE transaction = 16290 AND mainline = 'F'$/);
   assert.match(headerSql(12), /WHERE id = 12$/);
   assert.match(linkedSql("7"), /l\.previousdoc = 7 OR l\.nextdoc = 7/);
   for (const bad of ["0", "-1", "1 OR 1=1", "1;", "", null, "12a", "1".repeat(13)]) {
@@ -99,4 +99,36 @@ test("transaction type codes map to record types", () => {
 test("prototype names are not type codes", () => {
   assert.equal(recordTypeOfCode("__proto__"), "");
   assert.equal(recordTypeOfCode("constructor"), "");
+});
+
+test("stock and serial SQL take only internal ids", () => {
+  assert.match(itemFactsSql(["760", "248", "760"]), /WHERE id IN \(760, 248\)$/);
+  assert.match(stockSql(["760", "1 OR 1=1", "-3"]), /ib\.item IN \(760\)/);
+  assert.throws(() => stockSql(["x'; --"]), /No items/);
+  assert.match(numbersSql("760", "2"), /n\.item = 760 AND inl\.location = 2 /);
+  assert.throws(() => numbersSql("760", "2 OR 1=1"), /internal id/);
+  assert.throws(() => numbersSql("0", "2"), /internal id/);
+});
+
+test("lines learn their stock, location availability and tracking", () => {
+  const lines = [
+    { line: 1, item: { id: "760", name: "Breville" }, location: { id: "1", name: "Boston" } },
+    { line: 2, item: { id: "248", name: "Spices" }, location: { id: "2", name: "San Francisco" } },
+  ];
+  const facts = [
+    { id: 760, isserialitem: "T", islotitem: "F" },
+    { id: 248, isserialitem: "F", islotitem: "F" },
+  ];
+  const stock = [
+    { item: 760, location: 2, name: "San Francisco", available: 2 },
+    { item: 248, location: 2, name: "San Francisco", available: 30 },
+    { item: 248, location: 1, name: "Boston", available: 0 },
+  ];
+  const [espresso, spices] = addStock(lines, facts, stock);
+  assert.equal(espresso.tracking, "serial");
+  assert.equal(espresso.available, 0);
+  assert.deepEqual(espresso.stock, [{ id: "2", name: "San Francisco", available: 2 }]);
+  assert.equal(spices.tracking, "");
+  assert.equal(spices.available, 30);
+  assert.equal(spices.stock.length, 1);
 });

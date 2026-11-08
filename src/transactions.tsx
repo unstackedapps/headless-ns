@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { amount, dateLabel } from "./format";
+import { Pick } from "./pick";
 import { flowLink, FLOW_LABELS, newLink } from "./transaction";
 import { ListFrame, type ListPayload, Pager, RecordActions, StatusPill, listStatus, useDebounced, useLive } from "./lists";
 
@@ -71,21 +72,15 @@ export function TransactionList({
         hasStatus ? (
           <label className="list-filter">
             Status
-            <select
+            <Pick
+              label="Status"
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
+              onChange={(value) => {
+                setStatus(value);
                 setPage(0);
               }}
-            >
-              <option value="open">Open</option>
-              <option value="all">All</option>
-              {statuses.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+              options={[{ value: "open", label: "Open" }, { value: "all", label: "All" }, ...statuses.map((item) => ({ value: item.id, label: item.label }))]}
+            />
           </label>
         ) : undefined
       }

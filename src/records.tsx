@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Glyph, glyph } from "./icons";
-import { Pick } from "./pick";
+import { Combobox, Pick, type Option } from "./pick";
+import { Button, Lookup } from "./load";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
+import { flowLink } from "./transaction";
 
 export type Field = {
   id: string;
@@ -90,49 +92,44 @@ export function errorText(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
 
-function RefPicker({ field, cell, onChange }: { field: Field; cell: Cell; onChange: (cell: Cell) => void }) {
-  const [text, setText] = useState("");
-  const [options, setOptions] = useState<{ id: string; label: string }[]>([]);
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState("");
+export type Scope = { party: "customer" | "vendor"; id: string };
 
-  useEffect(() => {
-    if (!open || !field.source) return;
-    let stop = false;
-    const timer = window.setTimeout(() => {
-      api<{ options: { id: string; label: string }[] }>(
-        `/api/records/lookup?source=${encodeURIComponent(field.source || "")}&q=${encodeURIComponent(text)}`,
-      )
-        .then((body) => {
-          if (!stop) {
-            setOptions(body.options);
-            setError("");
-          }
-        })
-        .catch((reason: Error) => {
-          if (!stop) setError(reason.message);
-        });
-    }, 250);
-    return () => {
-      stop = true;
-      window.clearTimeout(timer);
-    };
-  }, [text, open, field.source]);
+function lookup(source: string, scope?: Scope | null) {
+  return (text: string, signal: AbortSignal) => {
+    const params = new URLSearchParams({ source, q: text });
+    if (scope?.id) {
+      params.set("party", scope.party);
+      params.set("partyId", scope.id);
+    }
+    return api<{ options: Option[] }>(`/api/records/lookup?${params}`, { signal }).then((body) => body.options);
+  };
+}
 
+// One input for any field: text, number, checkbox, a select from a fixed list, or a searchable reference.
+// `scope` limits a location search to the subsidiary of the chosen customer or vendor.
+export function FieldInput({ field, cell, onChange, scope }: { field: Field; cell: Cell; onChange: (cell: Cell) => void; scope?: Scope | null }) {
   if (field.type === "select") {
     return (
-      <select value={cell.value} aria-label={field.title} onChange={(event) => onChange({ value: event.target.value })}>
-        <option value="">—</option>
-        {(field.options || []).map((option) => (
-          <option key={option} value={option}>
-            {option === cell.value && cell.refName ? `${option} · ${cell.refName}` : option}
-          </option>
-        ))}
-      </select>
+      <Pick
+        label={field.title}
+        value={cell.value}
+        onChange={(value) => onChange({ value })}
+        options={(field.options || []).map((option) => ({ value: option, label: option === cell.value && cell.refName ? `${option} · ${cell.refName}` : option }))}
+      />
     );
   }
-
-  if (!field.source) {
+  if (field.type === "ref" && field.source) {
+    return (
+      <Combobox
+        label={field.title}
+        placeholder={`Search ${field.title.toLowerCase()}`}
+        value={cell.value ? { id: cell.value, label: cell.refName || `id ${cell.value}` } : null}
+        search={lookup(field.source, field.source === "location" ? scope : null)}
+        onChange={(option) => onChange({ value: option.id, refName: option.label })}
+      />
+    );
+  }
+  if (field.type === "ref") {
     return (
       <input
         value={cell.value}
@@ -143,51 +140,6 @@ function RefPicker({ field, cell, onChange }: { field: Field; cell: Cell; onChan
       />
     );
   }
-
-  return (
-    <div className="ref-picker">
-      <div className="ref-current">
-        <span>{cell.value ? cell.refName || `id ${cell.value}` : "None"}</span>
-        {cell.value && (
-          <button className="linkish" type="button" onClick={() => onChange({ value: "" })}>
-            Clear
-          </button>
-        )}
-      </div>
-      <input
-        value={text}
-        aria-label={`Search ${field.title}`}
-        placeholder={`Search ${field.source}`}
-        onFocus={() => setOpen(true)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-        onChange={(event) => setText(event.target.value)}
-      />
-      {open && (options.length > 0 || error) && (
-        <ul className="ref-options" role="listbox">
-          {error && <li className="error">{error}</li>}
-          {options.map((option) => (
-            <li key={option.id}>
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  onChange({ value: option.id, refName: option.label });
-                  setText("");
-                  setOpen(false);
-                }}
-              >
-                {option.label} <em>{option.id}</em>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-export function FieldInput({ field, cell, onChange }: { field: Field; cell: Cell; onChange: (cell: Cell) => void }) {
-  if (field.type === "ref" || field.type === "select") return <RefPicker field={field} cell={cell} onChange={onChange} />;
   if (field.type === "boolean") {
     return (
       <input
@@ -208,21 +160,73 @@ export function FieldInput({ field, cell, onChange }: { field: Field; cell: Cell
   );
 }
 
+const PURCHASE_TYPES = new Set(["purchaseorder", "vendorbill", "itemreceipt", "vendorcredit", "vendorreturnauthorization"]);
+const SALE_TYPES = new Set(["estimate", "salesorder", "invoice", "cashsale", "creditmemo", "returnauthorization", "opportunity"]);
+
+// Which price an item line starts from: the base price on sales, the purchase price on purchases.
+export function sideOf(recordType: string): "sale" | "purchase" | undefined {
+  return SALE_TYPES.has(recordType) ? "sale" : PURCHASE_TYPES.has(recordType) ? "purchase" : undefined;
+}
+
+// The chosen customer or vendor, so a location search shows only locations in its subsidiary.
+export function partyScope(fields: Field[], values: Values): Scope | null {
+  const source = fields.find((field) => field.id === "entity")?.source;
+  const id = values.entity?.value;
+  return id && (source === "customer" || source === "vendor") ? { party: source, id } : null;
+}
+
+type ItemDefaults = { rate: number | null; description: string; rateLabel: string };
+
+// The checkbox every write asks for before it runs.
+export function ConfirmCheck({ checked, onChange, children = "I mean to run this. It changes NetSuite." }: { checked: boolean; onChange: (checked: boolean) => void; children?: ReactNode }) {
+  return (
+    <label className="check">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {children}
+    </label>
+  );
+}
+
+// Sublist lines. With onChange, saved lines can be edited by line number and new lines added.
+// `side` turns on item defaults: picking an item fills rate and description from its base or purchase price.
 export function LineGrid({
   sublist,
   lines,
   onChange,
+  side,
 }: {
   sublist: Sublist;
   lines: Line[];
   onChange?: (lines: Line[]) => void;
+  side?: "sale" | "purchase";
 }) {
   const columns = lineColumns(sublist);
   const canClose = sublist.fields.some((field) => field.id === "isClosed");
   const editColumns = columns.filter((field) => field.id !== "isClosed" && field.id !== "amount");
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const [defaults, setDefaults] = useState<Record<number, ItemDefaults | "loading">>({});
 
   function set(index: number, id: string, cell: Cell) {
     onChange?.(lines.map((line, at) => (at === index ? { ...line, values: { ...line.values, [id]: cell } } : line)));
+    if (id !== "item" || !side || !cell.value) return;
+    setDefaults((current) => ({ ...current, [index]: "loading" }));
+    api<ItemDefaults>(`/api/records/item-defaults?id=${encodeURIComponent(cell.value)}&side=${side}`)
+      .then((found) => {
+        setDefaults((current) => ({ ...current, [index]: found }));
+        const fill: Values = {};
+        if (found.rate != null) fill.rate = { value: String(found.rate) };
+        if (found.description) fill.description = { value: found.description };
+        onChange?.(linesRef.current.map((line, at) => (at === index ? { ...line, values: { ...line.values, ...fill } } : line)));
+      })
+      .catch(() => setDefaults((current) => ({ ...current, [index]: { rate: null, description: "", rateLabel: "Price" } })));
+  }
+
+  function hint(index: number) {
+    const found = defaults[index];
+    if (!found) return null;
+    if (found === "loading") return <Lookup label="Reading the item's price." />;
+    return <span className="field-hint">{found.rate == null ? `No ${found.rateLabel.toLowerCase()} in NetSuite.` : `${found.rateLabel} ${found.rate}`}</span>;
   }
 
   return (
@@ -246,7 +250,10 @@ export function LineGrid({
                 {(onChange ? editColumns : columns).map((field) => (
                   <td key={field.id}>
                     {onChange && !(line.original && (line.line == null || field.id === "item")) ? (
-                      <FieldInput field={field} cell={line.values[field.id] ?? { value: "" }} onChange={(cell) => set(index, field.id, cell)} />
+                      <>
+                        <FieldInput field={field} cell={line.values[field.id] ?? { value: "" }} onChange={(cell) => set(index, field.id, cell)} />
+                        {field.id === "rate" && hint(index)}
+                      </>
                     ) : (
                       showCell(field, line.values[field.id])
                     )}
@@ -281,11 +288,13 @@ export function LineGrid({
         </table>
       </div>
       {onChange && (
-        <button className="quiet" type="button" onClick={() => onChange([...lines, { values: {} }])}>
-          Add line
-        </button>
+        <div className="grid-tools">
+          <button className="quiet" type="button" onClick={() => onChange([...lines, { values: {} }])}>
+            Add line
+          </button>
+          {lines.some((line) => line.original) && <p className="status">NetSuite cannot delete a saved line through this connection. Close it instead.</p>}
+        </div>
       )}
-      {onChange && <p className="status">NetSuite cannot delete a saved line through this connection. Close it instead.</p>}
     </section>
   );
 }
@@ -301,8 +310,6 @@ export function lineChanges(sublist: Sublist, lines: Line[]) {
   }
   return out;
 }
-
-type ShipLine = { orderLine: number; label: string; receive: boolean; quantity: string };
 
 export function RecordsPage() {
   const [types, setTypes] = useState<string[]>([]);
@@ -321,9 +328,6 @@ export function RecordsPage() {
   const [actionArgs, setActionArgs] = useState<Record<string, string>>({});
   const [targets, setTargets] = useState<string[]>([]);
   const [target, setTarget] = useState("");
-  const [shipLines, setShipLines] = useState<ShipLine[]>([]);
-  const [shipStatus, setShipStatus] = useState("C");
-  const [clearShipMethod, setClearShipMethod] = useState(false);
   const [filePath, setFilePath] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [needle, setNeedle] = useState("");
@@ -426,21 +430,6 @@ export function RecordsPage() {
     return next;
   }
 
-  function startShipLines(read: ReadRecord) {
-    const items = read.sublists.find((item) => item.id === "item")?.lines || [];
-    setShipLines(
-      items
-        .filter((cells) => cells.isClosed?.value !== true)
-        .map((cells) => ({
-          orderLine: Number(cells.line?.value),
-          label: `${cells.item?.refName || cells.item?.value || "Item"} × ${cells.quantity?.value ?? ""}`,
-          receive: true,
-          quantity: String(cells.quantity?.value ?? ""),
-        }))
-        .filter((line) => Number.isInteger(line.orderLine)),
-    );
-  }
-
   async function openRecord(id = recordId, recordType = type, lists = sublists) {
     if (!recordType || !id.trim()) return;
     setBusy(true);
@@ -457,7 +446,6 @@ export function RecordsPage() {
       setRecordId(read.id);
       setActions(actionList.actions);
       setLines(startLines(read, lists));
-      startShipLines(read);
       setEditing(false);
       setCreating(false);
       setConfirm(false);
@@ -543,18 +531,10 @@ export function RecordsPage() {
     setBusy(true);
     setError(null);
     try {
-      const shipping = SHIPPING.has(target);
       const result = await postJson<Created>("/api/records/transform", {
         sourceRecordType: type,
         sourceRecordId: openId,
         targetRecordType: target,
-        fulfill: shipping
-          ? {
-              lines: shipLines.map((line) => ({ orderLine: line.orderLine, receive: line.receive, quantity: Number(line.quantity) })),
-              shipStatus,
-              clearShipMethod,
-            }
-          : undefined,
         confirm: true,
       });
       setConfirm(false);
@@ -630,9 +610,9 @@ export function RecordsPage() {
                     Internal id
                     <input value={recordId} inputMode="numeric" aria-label="Internal id" onChange={(event) => setRecordId(event.target.value)} />
                   </label>
-                  <button className="primary" type="button" disabled={busy || !recordId.trim()} onClick={() => openRecord()}>
+                  <Button className="primary" busy={busy} disabled={!recordId.trim()} onClick={() => openRecord()}>
                     Open
-                  </button>
+                  </Button>
                   <button
                     className="quiet"
                     type="button"
@@ -662,7 +642,7 @@ export function RecordsPage() {
                 </div>
               </div>
               {notice && <p className="status">{notice}</p>}
-              {busy && <p className="status">Waiting for NetSuite. A write can take up to a minute.</p>}
+              {busy && <Lookup label="Waiting for NetSuite. A write can take up to a minute." />}
               <label className="search-field">
                 <Glyph icon={glyph.search} size={14} />
                 <input className="search" value={needle} placeholder="Find a field" aria-label="Find a field" onChange={(event) => setNeedle(event.target.value)} />
@@ -674,6 +654,7 @@ export function RecordsPage() {
                       {field.title}
                       <FieldInput
                         field={field}
+                        scope={partyScope(fields, draft)}
                         cell={draft[field.id] ?? { value: "" }}
                         onChange={(cell) => setDraft((current) => ({ ...current, [field.id]: cell }))}
                       />
@@ -699,22 +680,20 @@ export function RecordsPage() {
                     sublist={sublist}
                     lines={lines[sublist.id] || []}
                     onChange={(next) => setLines((current) => ({ ...current, [sublist.id]: next }))}
+                    side={sideOf(type)}
                   />
                 ) : openId ? (
                   <LineGrid key={sublist.id} sublist={sublist} lines={readLines(sublist)} />
                 ) : null,
               )}
               {(formOpen || openId) && (
-                <label className="check">
-                  <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
-                  I mean to run this. It can change NetSuite.
-                </label>
+                <ConfirmCheck checked={confirm} onChange={setConfirm} />
               )}
               {formOpen && (
                 <div className="actions">
-                  <button className="primary" type="button" disabled={!confirm || busy} onClick={save}>
+                  <Button className="primary" busy={busy} disabled={!confirm} onClick={save}>
                     {creating ? "Create" : "Save"}
-                  </button>
+                  </Button>
                   <button
                     className="quiet"
                     type="button"
@@ -742,9 +721,9 @@ export function RecordsPage() {
                           />
                         </label>
                       ))}
-                      <button className="quiet" type="button" disabled={!confirm || busy} onClick={() => runAction(action)}>
+                      <Button className="quiet" busy={busy} disabled={!confirm} onClick={() => runAction(action)}>
                         {action.label}
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </section>
@@ -758,57 +737,18 @@ export function RecordsPage() {
                       <Pick label="New record" value={target} onChange={setTarget} options={targets.map((item) => ({ value: item, label: item }))} />
                     </label>
                   </div>
-                  {SHIPPING.has(target) && (
-                    <div className="ship-lines">
-                      {shipLines.map((line, index) => (
-                        <div key={line.orderLine} className="filters">
-                          <label className="check">
-                            <input
-                              type="checkbox"
-                              checked={line.receive}
-                              onChange={(event) =>
-                                setShipLines((current) => current.map((item, at) => (at === index ? { ...item, receive: event.target.checked } : item)))
-                              }
-                            />
-                            Line {line.orderLine}: {line.label}
-                          </label>
-                          <label>
-                            Quantity
-                            <input
-                              type="number"
-                              min="0"
-                              value={line.quantity}
-                              disabled={!line.receive}
-                              onChange={(event) =>
-                                setShipLines((current) => current.map((item, at) => (at === index ? { ...item, quantity: event.target.value } : item)))
-                              }
-                            />
-                          </label>
-                        </div>
-                      ))}
-                      {target === "itemfulfillment" && (
-                        <div className="filters">
-                          <label>
-                            Status
-                            <select value={shipStatus} onChange={(event) => setShipStatus(event.target.value)}>
-                              <option value="A">Picked</option>
-                              <option value="B">Packed</option>
-                              <option value="C">Shipped</option>
-                            </select>
-                          </label>
-                          <label className="check">
-                            <input type="checkbox" checked={clearShipMethod} onChange={(event) => setClearShipMethod(event.target.checked)} />
-                            Leave the ship method empty. Use this when NetSuite asks for a UPS or FedEx account.
-                          </label>
-                        </div>
-                      )}
-                      <p className="status">Unchecked lines stay open on the order.</p>
-                    </div>
+                  {SHIPPING.has(target) ? (
+                    <p className="status">
+                      Fulfill and receive from the <a href={flowLink(type, openId)}>transaction page</a>. It checks stock, locations and serial numbers first.
+                    </p>
+                  ) : (
+                    <>
+                      <Button className="primary" busy={busy} disabled={!confirm || !target} onClick={transform}>
+                        Create {target}
+                      </Button>
+                      <p className="status">NetSuite fills the new record from this one, then it opens here.</p>
+                    </>
                   )}
-                  <button className="primary" type="button" disabled={!confirm || busy || !target} onClick={transform}>
-                    Create {target}
-                  </button>
-                  <p className="status">NetSuite fills the new record from this one, then it opens here.</p>
                 </section>
               )}
               {openId && !formOpen && (
@@ -819,12 +759,12 @@ export function RecordsPage() {
                       Cabinet path
                       <input value={filePath} aria-label="Cabinet path" placeholder="/Images/note.txt" onChange={(event) => setFilePath(event.target.value)} />
                     </label>
-                    <button className="quiet" type="button" disabled={!confirm || busy || !filePath.trim()} onClick={() => linkFile(false)}>
+                    <Button className="quiet" busy={busy} disabled={!confirm || !filePath.trim()} onClick={() => linkFile(false)}>
                       Attach
-                    </button>
-                    <button className="quiet" type="button" disabled={!confirm || busy || !filePath.trim()} onClick={() => linkFile(true)}>
+                    </Button>
+                    <Button className="quiet" busy={busy} disabled={!confirm || !filePath.trim()} onClick={() => linkFile(true)}>
                       Detach
-                    </button>
+                    </Button>
                   </div>
                   <p className="status">The file stays in the cabinet either way.</p>
                 </section>

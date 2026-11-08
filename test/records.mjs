@@ -6,7 +6,11 @@ import {
   externalIdSql,
   formShape,
   fulfillData,
+  inventoryNumbers,
   isTimeout,
+  itemDefaults,
+  itemDefaultsSql,
+  plainError,
   lookupSql,
   newRecordId,
   readRecord,
@@ -131,4 +135,41 @@ test("lookups and external id checks keep user text inside the quotes", () => {
   assert.equal(externalIdSql("salesorder", "hns-salesorder-1"), "SELECT id FROM transaction WHERE externalid = 'hns-salesorder-1'");
   assert.equal(externalIdSql("inventoryitem", "a"), "SELECT id FROM item WHERE externalid = 'a'");
   assert.throws(() => externalIdSql("salesorder", "x' OR '1'='1"), /not valid/);
+});
+
+test("fulfillment lines carry serial or lot numbers that add up to the quantity", () => {
+  const data = fulfillData({ lines: [{ orderLine: 1, receive: true, quantity: 1, numbers: [{ id: "6152", quantity: 1 }] }] });
+  assert.deepEqual(data.item.items[0].inventoryDetail, { inventoryAssignment: { items: [{ issueInventoryNumber: { id: "6152" }, quantity: 1 }] } });
+  assert.equal(inventoryNumbers([], 1, 1), null);
+  assert.equal(inventoryNumbers(undefined, 1, 1), null);
+  assert.throws(() => inventoryNumbers([{ id: "6152", quantity: 1 }], 1, 2), /add up to 1/);
+  assert.throws(() => inventoryNumbers([{ id: "1 OR 1=1", quantity: 1 }], 1, 1), /not valid/);
+  assert.throws(() => inventoryNumbers([{ id: "5", quantity: -1 }], 1, -1), /not valid/);
+  assert.throws(() => inventoryNumbers("6152", 1, 1), /not valid/);
+});
+
+test("NetSuite errors become a reason the user can act on", () => {
+  assert.match(plainError("Please configure the inventory detail in line 1 of the item list."), /Line 1 is a serial or lot item/);
+  assert.match(plainError("You have entered an Invalid Field Value 6 for the following field: location."), /subsidiary/);
+  assert.match(plainError("Please enter a value for Amount."), /needs a rate/);
+  assert.match(plainError("You must have at least one valid line item for this transaction."), /stock at its location/);
+  assert.equal(plainError("Something else."), "Something else.");
+});
+
+test("locations can be limited to a customer's or vendor's subsidiary", () => {
+  assert.match(lookupSql("location", "lon", { party: "customer", id: "341" }), /locationsubsidiarymap WHERE subsidiary = \(SELECT subsidiary FROM customer WHERE id = 341\)/);
+  assert.doesNotMatch(lookupSql("item", "x", { party: "customer", id: "341" }), /subsidiary/);
+  assert.throws(() => lookupSql("location", "", { party: "employee", id: "1" }), /not valid/);
+  assert.throws(() => lookupSql("location", "", { party: "customer", id: "1 OR 1=1" }), /not valid/);
+  assert.throws(() => lookupSql("__proto__", ""), /cannot be searched/);
+});
+
+test("item defaults follow the side of the transaction", () => {
+  assert.match(itemDefaultsSql("5"), /WHERE i\.id = 5$/);
+  assert.throws(() => itemDefaultsSql("5 OR 1=1"), /Pick an item/);
+  const row = { description: "Server", purchasedescription: "Server, bought", cost: 4637, lastpurchaseprice: null, baseprice: 7995 };
+  assert.deepEqual(itemDefaults(row, "sale"), { rate: 7995, description: "Server", rateLabel: "Base price" });
+  assert.deepEqual(itemDefaults(row, "purchase"), { rate: 4637, description: "Server, bought", rateLabel: "Purchase price" });
+  assert.equal(itemDefaults({ description: "Spices", baseprice: null }, "sale").rate, null);
+  assert.equal(itemDefaults({ cost: null, lastpurchaseprice: 0 }, "purchase").rate, null);
 });

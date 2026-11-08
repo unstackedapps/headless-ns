@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { amount, dateLabel } from "./format";
 import { explain, StatusPill, useLive } from "./lists";
-import { LoadingPage } from "./load";
-import { DatePick } from "./pick";
+import { Button, Lookup, SkeletonRecord } from "./load";
+import { DatePick, Pick } from "./pick";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 import {
   changes,
+  ConfirmCheck,
   errorText,
+  partyScope,
+  sideOf,
   FieldInput,
   LineGrid,
   lineChanges,
@@ -57,6 +60,10 @@ type FlowLine = {
   done: number;
   billed: number;
   remaining: number;
+  location: { id: string; name: string } | null;
+  tracking?: "serial" | "lot" | "";
+  stock?: { id: string; name: string; available: number }[];
+  available?: number | null;
 };
 type Step = {
   id: string;
@@ -120,7 +127,14 @@ function FlowView({ type, id }: { type: string; id: string }) {
   const party = VENDOR_SIDE.has(type) ? "Vendor" : "Customer";
   const isOrder = ORDERS.has(type);
 
-  if (!flow && live.loading) return <LoadingPage />;
+  if (!flow && live.loading) {
+    return (
+      <>
+        <Lookup label={`Opening this ${FLOW_LABELS[type].toLowerCase()}.`} />
+        <SkeletonRecord />
+      </>
+    );
+  }
   return (
     <>
       <header className="page-head">
@@ -285,17 +299,101 @@ function FlowView({ type, id }: { type: string; id: string }) {
   );
 }
 
-type Pick = { line: number; label: string; on: boolean; quantity: string };
+type ShipPick = {
+  line: number;
+  label: string;
+  on: boolean;
+  quantity: string;
+  numbers: { id: string; quantity: number }[];
+  source: FlowLine;
+};
+type Number = { id: string; number: string; available: number };
+
+// Serial or lot numbers in stock at the line's location. Serial items take one number per unit.
+function NumberPick({ line, quantity, value, onChange }: { line: FlowLine; quantity: number; value: ShipPick["numbers"]; onChange: (value: ShipPick["numbers"]) => void }) {
+  const [numbers, setNumbers] = useState<Number[] | null>(null);
+  const [error, setError] = useState("");
+  const location = line.location?.id || "";
+  useEffect(() => {
+    if (!line.item || !location) return;
+    api<{ numbers: Number[] }>(`/api/flow/numbers?item=${encodeURIComponent(line.item.id)}&location=${encodeURIComponent(location)}`)
+      .then((body) => setNumbers(body.numbers))
+      .catch((reason: Error) => setError(reason.message));
+  }, [line.item, location]);
+  if (error) return <p className="error">{error}</p>;
+  if (!numbers) return <Lookup label={`Finding ${line.tracking} numbers at ${line.location?.name || "this location"}.`} />;
+  if (!numbers.length) return <p className="status">No {line.tracking} numbers are in stock at {line.location?.name}.</p>;
+  if (line.tracking === "lot") {
+    return (
+      <label>
+        Lot
+        <Pick
+          label={`Lot for line ${line.line}`}
+          value={value[0]?.id || ""}
+          onChange={(id) => onChange([{ id, quantity }])}
+          options={numbers.map((item) => ({ value: item.id, label: `${item.number} (${item.available} available)` }))}
+        />
+      </label>
+    );
+  }
+  const chosen = new Set(value.map((item) => item.id));
+  return (
+    <fieldset className="numbers">
+      <legend>
+        Serial numbers: pick {quantity} ({chosen.size} picked)
+      </legend>
+      {numbers.map((item) => (
+        <label key={item.id} className="check">
+          <input
+            type="checkbox"
+            checked={chosen.has(item.id)}
+            onChange={(event) =>
+              onChange(event.target.checked ? [...value, { id: item.id, quantity: 1 }] : value.filter((entry) => entry.id !== item.id))
+            }
+          />
+          {item.number}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+// Says when a line's location has too little stock, and offers to move the order to a location that has it.
+function StockNote({ line, quantity, onMove, busy }: { line: FlowLine; quantity: number; onMove: (location: { id: string; name: string }) => void; busy: boolean }) {
+  if (line.available == null || line.available >= quantity) return null;
+  const other = line.stock?.find((row) => row.id !== line.location?.id && row.available >= quantity);
+  return (
+    <div className="stock-note">
+      <p className="error">
+        Only {line.available} available at {line.location?.name || "the order's location"}.
+        {other ? ` ${other.name} has ${other.available}.` : " No other location has enough."}
+      </p>
+      {other && (
+        <Button className="quiet" busy={busy} onClick={() => onMove(other)}>
+          Ship the order from {other.name}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+const SHIP_STATUSES = [
+  { value: "A", label: "Picked" },
+  { value: "B", label: "Packed" },
+  { value: "C", label: "Shipped" },
+];
 
 function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (message: string, next?: Created) => void }) {
   const isShip = step.kind === "ship";
   const open = flow.lines.filter((line) => !line.closed && (!isShip || line.remaining > 0));
-  const [picks, setPicks] = useState<Pick[]>(() =>
+  const [picks, setPicks] = useState<ShipPick[]>(() =>
     open.map((line) => ({
       line: line.line,
       label: `${line.item?.name || line.description || "Item"} (${isShip ? `${line.remaining} open` : `${line.quantity} ordered`})`,
-      on: !(step.kind === "close"),
+      on: step.kind !== "close",
       quantity: String(isShip ? line.remaining : line.quantity),
+      numbers: [],
+      source: line,
     })),
   );
   const [memo, setMemo] = useState("");
@@ -309,12 +407,38 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
   const [error, setError] = useState("");
   const accountField: Field = { id: "account", title: "Account", type: "ref", source: "account" };
   const target = step.target ? FLOW_LABELS[step.target] || step.target : "";
+  const fulfill = step.target === "itemfulfillment";
 
-  async function run() {
+  function update(index: number, change: Partial<ShipPick>) {
+    setPicks((current) => current.map((item, at) => (at === index ? { ...item, ...change } : item)));
+  }
+
+  async function attempt(work: () => Promise<void>) {
     if (!confirm || busy) return;
     setBusy(true);
     setError("");
     try {
+      await work();
+    } catch (reason) {
+      setError(errorText(reason, "NetSuite did not make the change."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function moveOrder(location: { id: string; name: string }) {
+    if (!confirm) {
+      setError("Tick the box below first. Moving the order changes it in NetSuite.");
+      return;
+    }
+    void attempt(async () => {
+      await postJson("/api/records", { recordType: flow.type, recordId: flow.id, data: { location: { id: location.id } }, confirm: true });
+      onDone(`The order now ships from ${location.name}. Open Fulfill again.`);
+    });
+  }
+
+  const run = () =>
+    attempt(async () => {
       const source = { recordType: flow.type, recordId: flow.id, confirm: true };
       if (step.kind === "transform" || step.kind === "ship" || step.kind === "pay") {
         const data: Record<string, Wire> = {};
@@ -328,6 +452,13 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
             data.payment = value;
           }
         }
+        if (isShip) {
+          for (const pick of picks) {
+            if (pick.on && pick.source.tracking && fulfill && pick.numbers.reduce((sum, item) => sum + item.quantity, 0) !== Number(pick.quantity)) {
+              throw new Error(`Line ${pick.line} needs ${pick.quantity} ${pick.source.tracking} number${Number(pick.quantity) === 1 ? "" : "s"}.`);
+            }
+          }
+        }
         const created = await postJson<Created>("/api/records/transform", {
           sourceRecordType: flow.type,
           sourceRecordId: flow.id,
@@ -336,14 +467,19 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
           data,
           fulfill: isShip
             ? {
-                lines: picks.map((pick) => ({ orderLine: pick.line, receive: pick.on, quantity: Number(pick.quantity) })),
+                lines: picks.map((pick) => ({
+                  orderLine: pick.line,
+                  receive: pick.on,
+                  quantity: Number(pick.quantity),
+                  ...(fulfill && pick.numbers.length ? { numbers: pick.numbers } : {}),
+                })),
                 shipStatus,
                 clearShipMethod,
               }
             : undefined,
           confirm: true,
         });
-        onDone(`Created ${target} ${created.id}.${created.note ? ` ${created.note}` : ""}`, created);
+        onDone(`Created ${target.toLowerCase()} ${created.id}.${created.note ? ` ${created.note}` : ""}`, created);
         return;
       }
       if (step.kind === "close") {
@@ -360,97 +496,81 @@ function StepForm({ flow, step, onDone }: { flow: Flow; step: Step; onDone: (mes
       }
       await postJson("/api/records/action", { ...source, actionId: step.action });
       onDone(`${step.label} is done.`);
-    } catch (reason) {
-      setError(errorText(reason, "NetSuite did not make the change."));
-    } finally {
-      setBusy(false);
-    }
-  }
+    });
 
   return (
-    <div className="ship-lines">
+    <div className="step-form">
       {(isShip || step.kind === "close") && (
-        <>
+        <div className="ship-lines">
           {picks.map((pick, index) => (
-            <div key={pick.line} className="filters">
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={pick.on}
-                  onChange={(event) => setPicks((current) => current.map((item, at) => (at === index ? { ...item, on: event.target.checked } : item)))}
-                />
-                Line {pick.line}: {pick.label}
-              </label>
-              {isShip && (
-                <label>
-                  Quantity
-                  <input
-                    type="number"
-                    min="0"
-                    value={pick.quantity}
-                    disabled={!pick.on}
-                    onChange={(event) => setPicks((current) => current.map((item, at) => (at === index ? { ...item, quantity: event.target.value } : item)))}
-                  />
+            <div key={pick.line} className="ship-line">
+              <div className="filters">
+                <label className="check">
+                  <input type="checkbox" checked={pick.on} onChange={(event) => update(index, { on: event.target.checked })} />
+                  Line {pick.line}: {pick.label}
+                  {pick.source.location && isShip ? ` from ${pick.source.location.name}` : ""}
                 </label>
+                {isShip && (
+                  <label>
+                    Quantity
+                    <input type="number" min="0" value={pick.quantity} disabled={!pick.on} onChange={(event) => update(index, { quantity: event.target.value, numbers: [] })} />
+                  </label>
+                )}
+              </div>
+              {fulfill && pick.on && <StockNote line={pick.source} quantity={Number(pick.quantity)} onMove={moveOrder} busy={busy} />}
+              {fulfill && pick.on && pick.source.tracking && (pick.source.available ?? 0) > 0 && (
+                <NumberPick line={pick.source} quantity={Number(pick.quantity)} value={pick.numbers} onChange={(numbers) => update(index, { numbers })} />
               )}
             </div>
           ))}
-          {picks.length === 0 && <p>No open lines.</p>}
-          {isShip && <p>Unchecked lines stay open on the order.</p>}
-          {step.kind === "close" && <p>A closed line stays on the order but is not fulfilled or billed.</p>}
-        </>
+          {picks.length === 0 && <p className="status">No open lines.</p>}
+          {isShip && <p className="status">Unchecked lines stay open on the order.</p>}
+          {step.kind === "close" && <p className="status">A closed line stays on the order but is not fulfilled or billed.</p>}
+        </div>
       )}
-      {step.target === "itemfulfillment" && (
-        <div className="filters">
+      <div className="filters">
+        {fulfill && (
           <label>
             Status
-            <select value={shipStatus} onChange={(event) => setShipStatus(event.target.value)}>
-              <option value="A">Picked</option>
-              <option value="B">Packed</option>
-              <option value="C">Shipped</option>
-            </select>
+            <Pick label="Fulfillment status" value={shipStatus} onChange={setShipStatus} options={SHIP_STATUSES} />
           </label>
-          <label className="check">
-            <input type="checkbox" checked={clearShipMethod} onChange={(event) => setClearShipMethod(event.target.checked)} />
-            Leave the ship method empty. NetSuite needs this for UPS orders in this account.
+        )}
+        {step.kind === "pay" && step.target === "customerpayment" && (
+          <label>
+            Amount
+            <input type="number" min="0" step="0.01" value={payAmount} onChange={(event) => setPayAmount(event.target.value)} />
           </label>
-        </div>
-      )}
-      {step.kind === "pay" && (
-        <div className="filters">
-          {step.target === "customerpayment" && (
+        )}
+        {step.kind === "pay" && (
+          <>
             <label>
-              Amount
-              <input type="number" min="0" step="0.01" value={payAmount} onChange={(event) => setPayAmount(event.target.value)} />
+              Payment date
+              <DatePick label="Payment date" value={payDate} onChange={setPayDate} />
             </label>
-          )}
-          <label>
-            Payment date
-            <DatePick label="Payment date" value={payDate} onChange={setPayDate} />
-          </label>
-          <label>
-            Account
-            <FieldInput field={accountField} cell={account} onChange={setAccount} />
-          </label>
-        </div>
-      )}
-      {(step.kind === "transform" || isShip || step.kind === "pay") && (
-        <div className="filters">
+            <label>
+              Account
+              <FieldInput field={accountField} cell={account} onChange={setAccount} />
+            </label>
+          </>
+        )}
+        {(step.kind === "transform" || isShip || step.kind === "pay") && (
           <label>
             Memo
             <input value={memo} aria-label="Memo" onChange={(event) => setMemo(event.target.value)} />
           </label>
-        </div>
+        )}
+      </div>
+      {fulfill && (
+        <label className="check">
+          <input type="checkbox" checked={clearShipMethod} onChange={(event) => setClearShipMethod(event.target.checked)} />
+          Leave the ship method empty. NetSuite needs this for UPS orders in this account.
+        </label>
       )}
-      <label className="check">
-        <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
-        I mean to run this. It changes NetSuite.
-      </label>
+      <ConfirmCheck checked={confirm} onChange={setConfirm} />
       {error && <p className="error">{error}</p>}
-      {busy && <p className="status">Waiting for NetSuite. A write can take up to a minute.</p>}
-      <button className="primary" type="button" disabled={!confirm || busy} onClick={run}>
+      <Button className="primary" busy={busy} disabled={!confirm} onClick={run}>
         {target ? `Create ${target.toLowerCase()}` : step.label}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -505,7 +625,7 @@ function NewTransaction({ type }: { type: string }) {
           <h1>New {FLOW_LABELS[type].toLowerCase()}</h1>
         </div>
       </header>
-      {!sublist && !error && <LoadingPage />}
+      {!sublist && !error && <Lookup label="Reading the form from NetSuite." />}
       {sublist && (
         <>
           <div className="record-form">
@@ -515,21 +635,24 @@ function NewTransaction({ type }: { type: string }) {
                 {field.id === "tranDate" ? (
                   <DatePick label="Date" value={draft.tranDate?.value || ""} onChange={(value) => setDraft((current) => ({ ...current, tranDate: { value } }))} />
                 ) : (
-                  <FieldInput field={field} cell={draft[field.id] ?? { value: "" }} onChange={(cell) => setDraft((current) => ({ ...current, [field.id]: cell }))} />
+                  <FieldInput
+                    field={field}
+                    scope={partyScope(fields, draft)}
+                    cell={draft[field.id] ?? { value: "" }}
+                    onChange={(cell) => setDraft((current) => ({ ...current, [field.id]: cell }))}
+                  />
                 )}
               </label>
             ))}
           </div>
-          <LineGrid sublist={sublist} lines={lines} onChange={setLines} />
-          <label className="check">
-            <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
+          <LineGrid sublist={sublist} lines={lines} onChange={setLines} side={sideOf(type)} />
+          <ConfirmCheck checked={confirm} onChange={setConfirm}>
             I mean to run this. It creates a record in NetSuite.
-          </label>
-          {busy && <p className="status">Waiting for NetSuite. A write can take up to a minute.</p>}
+          </ConfirmCheck>
           <div className="actions">
-            <button className="primary" type="button" disabled={!confirm || busy} onClick={create}>
+            <Button className="primary" busy={busy} disabled={!confirm} onClick={create}>
               Create {FLOW_LABELS[type].toLowerCase()}
-            </button>
+            </Button>
           </div>
         </>
       )}

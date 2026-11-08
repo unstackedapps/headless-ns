@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import { Glyph, glyph } from "./icons";
 import { Markdown } from "./formatted";
-import { Lookup, SkeletonTable } from "./load";
+import { Button, Lookup, SkeletonTable } from "./load";
+import { ConfirmCheck } from "./records";
 import { ConnectionPanel } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
@@ -544,16 +545,13 @@ export function WorkbenchPage() {
               </div>
             )}
             {needsConfirm && (
-              <label className="check">
-                <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
-                I mean to run this. It can change NetSuite.
-              </label>
+              <ConfirmCheck checked={confirm} onChange={setConfirm} />
             )}
             <div className="actions">
-              <button className="primary" type="button" disabled={busy} onClick={run}>
-                <Glyph icon={glyph.run} />
-                {busy ? "Running" : "Run"}
-              </button>
+              <Button className="primary" busy={busy} onClick={run}>
+                {!busy && <Glyph icon={glyph.run} />}
+                Run
+              </Button>
             </div>
             {error && <p className="error">{error}</p>}
             {result && <pre className="result">{result}</pre>}
@@ -743,10 +741,10 @@ export function ReportsPage() {
           To
           <DatePick label="To" value={dateTo} onChange={setDateTo} />
         </label>
-        <button className="primary" type="button" disabled={busy || reportId === ""} onClick={execute}>
-          <Glyph icon={glyph.run} />
-          {busy ? "Running" : "Run report"}
-        </button>
+        <Button className="primary" busy={busy} disabled={reportId === ""} onClick={execute}>
+          {!busy && <Glyph icon={glyph.run} />}
+          Run report
+        </Button>
       </div>}
       {busy && (
         <section className="list-view">

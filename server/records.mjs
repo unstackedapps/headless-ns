@@ -17,6 +17,21 @@ function fail(message) {
   throw error;
 }
 
+function plain(error) {
+  const next = new Error(plainError(error?.message));
+  next.status = 400;
+  return next;
+}
+
+// Runs a write tool and turns a NetSuite failure into a plain reason.
+async function write(tool, args) {
+  try {
+    return await withSource("records", () => callTool(tool, args));
+  } catch (error) {
+    throw plain(error);
+  }
+}
+
 export function isSensitive(name) {
   return SENSITIVE.test(String(name || ""));
 }
@@ -201,6 +216,22 @@ function externalIdOf(value, recordType) {
   return given;
 }
 
+// Serial or lot numbers to ship on one line: [{id, quantity}] from inventorynumber. The quantities must add up to the line.
+export function inventoryNumbers(raw, orderLine, quantity) {
+  if (raw == null) return null;
+  if (!Array.isArray(raw) || raw.length > MAX_LINES) fail(`The serial or lot numbers for line ${orderLine} are not valid.`);
+  if (!raw.length) return null;
+  const items = raw.map((entry) => {
+    const id = String(entry?.id ?? "");
+    const count = Number(entry?.quantity);
+    if (!/^[1-9]\d{0,11}$/.test(id) || !(Number.isFinite(count) && count > 0)) fail(`The serial or lot numbers for line ${orderLine} are not valid.`);
+    return { issueInventoryNumber: { id }, quantity: count };
+  });
+  const total = items.reduce((sum, item) => sum + item.quantity, 0);
+  if (Math.abs(total - quantity) > 1e-9) fail(`Line ${orderLine} ships ${quantity}, but the picked numbers add up to ${total}.`);
+  return items;
+}
+
 // Lines for a fulfillment or receipt made from an order. Lines left out of `lines` are not shipped.
 export function fulfillData({ lines, shipStatus, clearShipMethod } = {}, targetType = "itemfulfillment") {
   const items = (Array.isArray(lines) ? lines : []).slice(0, MAX_LINES).flatMap((line) => {
@@ -209,7 +240,9 @@ export function fulfillData({ lines, shipStatus, clearShipMethod } = {}, targetT
     const receive = line.receive === true;
     const quantity = Number(line.quantity);
     if (receive && !(Number.isFinite(quantity) && quantity > 0)) fail(`Enter a quantity above 0 for line ${orderLine}.`);
-    return [receive ? { orderLine, itemReceive: true, quantity } : { orderLine, itemReceive: false }];
+    if (!receive) return [{ orderLine, itemReceive: false }];
+    const numbers = inventoryNumbers(line.numbers, orderLine, quantity);
+    return [{ orderLine, itemReceive: true, quantity, ...(numbers ? { inventoryDetail: { inventoryAssignment: { items: numbers } } } : {}) }];
   });
   const data = {};
   if (items.length) {
@@ -229,6 +262,19 @@ export function fulfillData({ lines, shipStatus, clearShipMethod } = {}, targetT
 export function newRecordId(payload) {
   const id = String(payload?.recordId ?? payload?.data?.id ?? payload?.id ?? "");
   return /^\d{1,12}$/.test(id) ? id : "";
+}
+
+// NetSuite's own wording for common failures, turned into what to do next.
+export function plainError(message) {
+  const text = String(message || "");
+  const detail = /configure the inventory detail in line (\d+)/i.exec(text);
+  if (detail) return `Line ${detail[1]} is a serial or lot item. Pick its serial or lot numbers, then try again.`;
+  const field = /Invalid Field Value (\S+) for the following field: (\w+)/i.exec(text);
+  if (field && /location/i.test(field[2])) return "That location is not in this customer's or vendor's subsidiary. Pick a location from the same subsidiary.";
+  if (field) return `NetSuite does not accept ${field[1]} for ${field[2]}. Pick another value.`;
+  if (/enter a value for Amount/i.test(text)) return "Every line needs a rate. This item has no base price in NetSuite, so enter one.";
+  if (/at least one valid line item/i.test(text)) return "None of the chosen lines can be used. Check that each line has an open quantity and stock at its location.";
+  return text;
 }
 
 export function isTimeout(message) {
@@ -267,7 +313,7 @@ async function createOnce(tool, args, recordType, externalId) {
     if (!id) fail("NetSuite did not return the new record id.");
     return { id, type: recordType, externalId };
   } catch (error) {
-    if (!isTimeout(error.message)) throw error;
+    if (!isTimeout(error.message)) throw plain(error);
     // NetSuite can finish the write a few seconds after the timeout.
     for (const wait of [5000, 15000]) {
       await new Promise((resolve) => setTimeout(resolve, wait));
@@ -297,14 +343,39 @@ const LOOKUPS = {
   account: { table: "account", label: "NVL(acctnumber || ' ', '') || fullname", search: ["acctnumber", "fullname"], where: "isinactive = 'F'" },
 };
 
-export function lookupSql(source, raw) {
+// `scope` limits locations to the subsidiary of the chosen customer or vendor: {party: "customer", id: "341"}.
+export function lookupSql(source, raw, scope = null) {
+  if (!Object.hasOwn(LOOKUPS, String(source))) fail("That field cannot be searched.");
   const spec = LOOKUPS[source];
-  if (!spec) fail("That field cannot be searched.");
   const text = String(raw || "").trim();
   const byId = /^\d{1,12}$/.test(text) ? ` OR id = ${text}` : "";
   const match = searchAnd(spec.search, text);
-  const where = byId && match ? `${spec.where} AND (${match.slice(5)}${byId})` : `${spec.where}${match}`;
+  let base = spec.where;
+  if (scope && source === "location") {
+    if (!["customer", "vendor"].includes(scope.party) || !/^[1-9]\d{0,11}$/.test(String(scope.id))) fail("That customer or vendor is not valid.");
+    // location.subsidiary is a text list; the map table holds one row per location and subsidiary.
+    base += ` AND id IN (SELECT location FROM locationsubsidiarymap WHERE subsidiary = (SELECT subsidiary FROM ${scope.party} WHERE id = ${scope.id}))`;
+  }
+  const where = byId && match ? `${base} AND (${match.slice(5)}${byId})` : `${base}${match}`;
   return `SELECT id, ${spec.label} AS label FROM ${spec.table} WHERE ${where} ORDER BY label FETCH FIRST 20 ROWS ONLY`;
+}
+
+export function itemDefaultsSql(id) {
+  const item = String(id ?? "");
+  if (!/^[1-9]\d{0,11}$/.test(item)) fail("Pick an item.");
+  return `SELECT i.description, i.purchasedescription, i.cost, i.lastpurchaseprice,
+       (SELECT MAX(p.price) FROM itemprice p WHERE p.item = i.id AND p.pricelevel = 1) AS baseprice
+FROM item i WHERE i.id = ${item}`;
+}
+
+// Sales lines take the base price and sales description; purchase lines the purchase price and description.
+export function itemDefaults(row, side) {
+  const number = (value) => (value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
+  if (side === "purchase") {
+    const rate = number(row?.cost) ?? (number(row?.lastpurchaseprice) || null);
+    return { rate, description: String(row?.purchasedescription || row?.description || ""), rateLabel: "Purchase price" };
+  }
+  return { rate: number(row?.baseprice), description: String(row?.description || ""), rateLabel: "Base price" };
 }
 
 export function typeNames(payload) {
@@ -372,11 +443,19 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
 
     "GET /api/records/lookup": async (req, res, url) => {
       if (!(await authorized(req, res))) return;
-      const sql = lookupSql(String(url.searchParams.get("source") || ""), url.searchParams.get("q"));
+      const party = url.searchParams.get("party");
+      const scope = party ? { party, id: url.searchParams.get("partyId") } : null;
+      const sql = lookupSql(String(url.searchParams.get("source") || ""), url.searchParams.get("q"), scope);
       const result = await withSource("records", () => suiteqlOsmcp(sql, 20));
       sendJson(res, 200, {
         options: result.items.map((row) => ({ id: String(row.id ?? ""), label: String(row.label ?? "").trim() })),
       });
+    },
+
+    "GET /api/records/item-defaults": async (req, res, url) => {
+      if (!(await authorized(req, res))) return;
+      const result = await withSource("records", () => suiteqlOsmcp(itemDefaultsSql(url.searchParams.get("id")), 1));
+      sendJson(res, 200, itemDefaults(result.items[0], url.searchParams.get("side")));
     },
 
     "POST /api/records": async (req, res) => {
@@ -388,7 +467,7 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
       if (!Object.keys(data).length) fail("Nothing to save.");
       if (body.recordId) {
         const recordId = recordIdOf(body.recordId);
-        await withSource("records", () => callTool("ns_updateRecord", { recordType, recordId, data: JSON.stringify(data) }));
+        await write("ns_updateRecord", { recordType, recordId, data: JSON.stringify(data) });
         sendJson(res, 200, { id: recordId, type: recordType });
         return;
       }
@@ -422,9 +501,7 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
       const actionId = String(body.actionId || "").trim();
       if (!NAME.test(actionId)) fail("That action is not valid.");
       const actionParameters = actionParametersOf(body.actionParameters);
-      await withSource("records", () =>
-        callTool("ns_executeRecordAction", { recordType, recordId, actionId, ...(actionParameters ? { actionParameters } : {}) }),
-      );
+      await write("ns_executeRecordAction", { recordType, recordId, actionId, ...(actionParameters ? { actionParameters } : {}) });
       sendJson(res, 200, { ok: true });
     },
 

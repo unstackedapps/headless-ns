@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { count } from "./format";
+import { Pick } from "./pick";
 import { ListFrame, type ListPayload, Pager, RecordActions, explain, listStatus, useDebounced, useLive } from "./lists";
 
 type Item = {
@@ -41,20 +42,15 @@ export function ItemsPage() {
       bar={
         <label className="list-filter">
           Type
-          <select
+          <Pick
+            label="Item type"
             value={type}
-            onChange={(event) => {
-              setType(event.target.value);
+            onChange={(value) => {
+              setType(value);
               setPage(0);
             }}
-          >
-            <option value="all">All</option>
-            {(live.data?.types || []).map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+            options={[{ value: "all", label: "All" }, ...(live.data?.types || []).map((item) => ({ value: item.id, label: item.label }))]}
+          />
         </label>
       }
     >

@@ -2,9 +2,143 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Spinner } from "./load";
 
 export type PickItem = { value: string; label: string; group?: string };
+export type Option = { id: string; label: string };
+
+// The one searchable picker. The chosen value shows in the input; typing searches; picking replaces it.
+export function Combobox({
+  label,
+  value,
+  placeholder = "Search",
+  search,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: Option | null;
+  placeholder?: string;
+  search: (text: string, signal: AbortSignal) => Promise<Option[]>;
+  onChange: (option: Option) => void;
+  disabled?: boolean;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<Option[]>([]);
+  const [active, setActive] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const listId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      search(text ?? "", controller.signal)
+        .then((found) => {
+          setOptions(found);
+          setActive(0);
+          setError("");
+        })
+        .catch((reason: Error) => {
+          if (reason.name !== "AbortError") setError(reason.message);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+    // search is recreated by callers each render; the text and open state decide when to look up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, open]);
+
+  function choose(option: Option) {
+    onChange(option);
+    setText(null);
+    setOpen(false);
+  }
+
+  return (
+    <Popover.Root open={open && (loading || options.length > 0 || Boolean(error) || text !== null)} onOpenChange={(next) => !next && setOpen(false)}>
+      <Popover.Anchor className="combo">
+        <input
+          role="combobox"
+          aria-label={label}
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          disabled={disabled}
+          value={text ?? value?.label ?? ""}
+          placeholder={placeholder}
+          onFocus={(event) => {
+            event.target.select();
+            setOpen(true);
+          }}
+          onBlur={() => {
+            setOpen(false);
+            setText(null);
+          }}
+          onChange={(event) => {
+            setText(event.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setOpen(true);
+              setActive((at) => Math.min(at + 1, options.length - 1));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActive((at) => Math.max(at - 1, 0));
+            } else if (event.key === "Enter" && open && options[active]) {
+              event.preventDefault();
+              choose(options[active]);
+            } else if (event.key === "Escape") {
+              setOpen(false);
+              setText(null);
+            }
+          }}
+        />
+        <span className="combo-icon">{loading ? <Spinner /> : <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />}</span>
+      </Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content
+          className="pick-menu combo-menu"
+          align="start"
+          sideOffset={4}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          <ul id={listId} role="listbox" className="pick-view">
+            {error && <li className="error">{error}</li>}
+            {!error && !loading && options.length === 0 && <li className="combo-empty">Nothing matched.</li>}
+            {!error && loading && options.length === 0 && <li className="combo-empty">Searching NetSuite.</li>}
+            {options.map((option, index) => (
+              <li
+                key={option.id}
+                role="option"
+                aria-selected={index === active}
+                className="pick-item"
+                data-highlighted={index === active ? "" : undefined}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => choose(option)}
+              >
+                {option.label}
+              </li>
+            ))}
+          </ul>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 export function TipProvider({ children }: { children: ReactNode }) {
   return <Tooltip.Provider delayDuration={400}>{children}</Tooltip.Provider>;
