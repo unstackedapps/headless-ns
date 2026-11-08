@@ -31,9 +31,7 @@ Setup steps for each host are on the Settings page.
 
 ## Models
 
-Ask can use Claude, Grok, Gemini, OpenAI, Groq, Mistral, or an OpenAI-compatible host. Saved keys live in `data/models.json`. That file stays off git. Leave the key field blank to keep the one already saved. The page only shows a dotted tail.
-
-A write tool pauses until you confirm it. Nothing posts before that.
+Ask can use Claude, Grok, Gemini, OpenAI, Groq, Mistral, or an OpenAI-compatible host. Saved keys live in `data/models.json`.
 
 ## Check
 
