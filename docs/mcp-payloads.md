@@ -96,3 +96,39 @@ Made through the Records screen on 2026-11-08, memo "headless-ns Records UI demo
 | Item fulfillment | 16193 | IF466 | Line 1 only, Shipped, ship method left empty |
 
 Each has an `hns-<type>-<uuid>` external id set by the server.
+
+## Order to cash (Phase 2)
+
+Run on 2026-11-08 through the transaction page routes (`/api/flow`, `/api/records`, `/api/records/transform`). Memo "headless-ns workflow test", external ids `hns-wf-*`.
+
+| Record | Internal id | Number | External id | Result |
+|---|---|---|---|---|
+| Estimate | 16194 | QUO100 | hns-wf-estimate-o2c-1 | Processed |
+| Sales order | 16291 | SO628 | hns-wf-salesorder-o2c-1 | Billed |
+| Item fulfillment | 16292 | | hns-wf-itemfulfillment-o2c-1 | Made as Picked, then set to Shipped |
+| Invoice | 16195 | INV434 | hns-wf-invoice-o2c-1 | Paid In Full |
+| Customer payment | 16196 | PYMT398 | hns-wf-customerpayment-o2c-1 | 5.00, account 122 |
+| Customer payment | 16197 | PYMT399 | hns-wf-customerpayment-o2c-2 | 15.00, no account |
+
+### Status codes
+
+Read the status letter from SuiteQL (`transaction.status`), not from the record. `BUILTIN.DF(status)` reads like "Sales Order : Pending Billing".
+
+| Type | Codes seen or used |
+|---|---|
+| Estimate | A Open, B Processed, X Expired |
+| SalesOrd | A Pending Approval, B Pending Fulfillment, D Partially Fulfilled, E Pending Billing/Partially Fulfilled, F Pending Billing, G Billed, H Closed |
+| CustInvc | A Open, B Paid In Full |
+| ItemShip | A Picked, B Packed, C Shipped |
+| CustPymt | C Deposited |
+
+### Line quantities
+
+`transactionline.id` equals the record's `line`. Sales order quantities are negative there, so use the absolute value. `quantityshiprecv` is the fulfilled (or received) quantity, `quantitybilled` the billed one. The order's shipping charge is also a line (item "UPS® Ground"), and tax is a line with `taxline = 'T'`. The page shows only the lines in the record's `item` sublist.
+
+### Steps that worked
+
+- Fulfillment status update: `ns_updateRecord` with `{"shipStatus":{"id":"C"}}` moved IF from Picked to Shipped.
+- Sales order to invoice: transform with only `memo` and `externalId`. It billed the fulfilled quantity.
+- Invoice to customer payment: transform with `{"payment":5,"tranDate":"2026-11-08","account":{"id":"122"}}`. A payment below the open amount applies that amount to the invoice and leaves it Open. No `apply` lines or `undepFunds` were needed. Without `account`, NetSuite used its default and the payment also read Deposited.
+- `NextTransactionLineLink` joined to `transaction` lists what a record was made from and turned into.

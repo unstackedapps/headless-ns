@@ -4,22 +4,22 @@ import { Pick } from "./pick";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 
-type Field = {
+export type Field = {
   id: string;
   title: string;
   type: "string" | "number" | "boolean" | "ref" | "select";
   source?: string;
   options?: string[];
 };
-type Sublist = { id: string; title: string; fields: Field[] };
-type Cell = { value: string; refName?: string };
-type Values = Record<string, Cell>;
+export type Sublist = { id: string; title: string; fields: Field[] };
+export type Cell = { value: string; refName?: string };
+export type Values = Record<string, Cell>;
 type ReadCell = { id: string; value: string | number | boolean; refName?: string };
 type ReadRecord = { id: string; fields: ReadCell[]; sublists: { id: string; lines: Record<string, ReadCell>[] }[] };
 type Action = { id: string; label: string; parameters: string[] };
-type Line = { line?: number; values: Values; original?: Values };
-type Created = { id: string; type: string; note?: string };
-type Wire = string | number | boolean | null | { id: string };
+export type Line = { line?: number; values: Values; original?: Values };
+export type Created = { id: string; type: string; note?: string };
+export type Wire = string | number | boolean | null | { id: string };
 
 const LINE_COLUMNS = ["item", "description", "quantity", "rate", "amount", "isClosed"];
 const SHIPPING = new Set(["itemfulfillment", "itemreceipt"]);
@@ -54,7 +54,7 @@ function wire(field: Field, cell: Cell): Wire | undefined {
 }
 
 // Changed fields only. A field emptied by the user is sent as null, which clears it in NetSuite.
-function changes(fields: Field[], current: Values, original: Values | null) {
+export function changes(fields: Field[], current: Values, original: Values | null) {
   const data: Record<string, Wire> = {};
   for (const field of fields) {
     const next = current[field.id] ?? { value: "" };
@@ -86,7 +86,7 @@ function lineNumber(cells: Record<string, ReadCell>) {
   return cells.line && Number.isInteger(value) ? value : undefined;
 }
 
-function errorText(reason: unknown, fallback: string) {
+export function errorText(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
 
@@ -186,7 +186,7 @@ function RefPicker({ field, cell, onChange }: { field: Field; cell: Cell; onChan
   );
 }
 
-function FieldInput({ field, cell, onChange }: { field: Field; cell: Cell; onChange: (cell: Cell) => void }) {
+export function FieldInput({ field, cell, onChange }: { field: Field; cell: Cell; onChange: (cell: Cell) => void }) {
   if (field.type === "ref" || field.type === "select") return <RefPicker field={field} cell={cell} onChange={onChange} />;
   if (field.type === "boolean") {
     return (
@@ -208,7 +208,7 @@ function FieldInput({ field, cell, onChange }: { field: Field; cell: Cell; onCha
   );
 }
 
-function LineGrid({
+export function LineGrid({
   sublist,
   lines,
   onChange,
@@ -291,7 +291,7 @@ function LineGrid({
 }
 
 // Lines to send: new lines with every filled value, saved lines with changed values and their line number.
-function lineChanges(sublist: Sublist, lines: Line[]) {
+export function lineChanges(sublist: Sublist, lines: Line[]) {
   const out: Record<string, Wire>[] = [];
   for (const line of lines) {
     if (line.original && line.line == null) continue;

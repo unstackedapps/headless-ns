@@ -6,6 +6,7 @@ import { modelStore } from "./models.mjs";
 import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
 import { readPolicy, writePolicy } from "./policy.mjs";
 import { recordRoutes } from "./records.mjs";
+import { flowRoutes } from "./workflows.mjs";
 import { listTrace } from "./trace.mjs";
 
 const NEEDS_CONFIRM = new Set(["write", "internal", "app"]);
@@ -204,6 +205,7 @@ function llmPayload() {
 export function studioRoutes({ sendJson, authorized }) {
   return {
     ...recordRoutes({ sendJson, authorized, readJsonBody }),
+    ...flowRoutes({ sendJson, authorized }),
     "GET /api/config": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const identity = await withSource("settings", () => osmcpIdentity());

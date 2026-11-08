@@ -91,6 +91,7 @@ export function ListFrame({
   onSearch,
   placeholder,
   scope,
+  tools,
   children,
 }: {
   title: string;
@@ -103,6 +104,7 @@ export function ListFrame({
   onSearch: (value: string) => void;
   placeholder: string;
   scope: string;
+  tools?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -114,6 +116,7 @@ export function ListFrame({
         </div>
         <div className="page-tools">
           <p className="status">{status}</p>
+          {tools}
           <RefreshButton label={title} scope={scope} busy={loading && ready} />
         </div>
       </header>

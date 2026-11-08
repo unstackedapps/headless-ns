@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { amount, dateLabel } from "./format";
+import { flowLink } from "./transaction";
 import { ListFrame, type ListPayload, RecordActions, listStatus, useDebounced, useLive } from "./lists";
 
 type Bill = {
@@ -47,7 +48,9 @@ export function BillsPage({ title, path, party, recordType }: { title: string; p
           <tbody>
             {live.data?.rows.map((row) => (
               <tr key={row.id}>
-                <td>{row.number}</td>
+                <td>
+                  <a href={flowLink(recordType, row.id)}>{row.number}</a>
+                </td>
                 <td>{dateLabel(row.date)}</td>
                 <td>{dateLabel(row.due)}</td>
                 <td>{row.name}</td>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { amount, dateLabel } from "./format";
+import { flowLink, FLOW_LABELS, newLink } from "./transaction";
 import { ListFrame, type ListPayload, RecordActions, StatusPill, listStatus, useDebounced, useLive } from "./lists";
 
 type Order = {
@@ -19,18 +20,20 @@ export function TransactionList({
   placeholder,
   empty,
   recordType,
+  canCreate = false,
 }: {
   title: string;
   path: string;
   placeholder: string;
   empty: string;
   recordType: string;
+  canCreate?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const q = useDebounced(search, 300);
   const live = useLive<ListPayload<Order>>(`${path}${q ? `?q=${encodeURIComponent(q)}` : ""}`);
   return (
-    <ListFrame title={title} viewName={`Open ${title.toLowerCase()}`} status={listStatus(live)} error={live.error} loading={live.loading} ready={Boolean(live.data)} search={search} onSearch={setSearch} placeholder={placeholder} scope={q ? `${path}?q=${encodeURIComponent(q)}` : path}>
+    <ListFrame title={title} viewName={`Open ${title.toLowerCase()}`} status={listStatus(live)} error={live.error} loading={live.loading} ready={Boolean(live.data)} search={search} onSearch={setSearch} placeholder={placeholder} scope={q ? `${path}?q=${encodeURIComponent(q)}` : path} tools={canCreate ? <a className="primary" href={newLink(recordType)}>New {FLOW_LABELS[recordType].toLowerCase()}</a> : undefined}>
       <div className="table-wrap">
         <table>
           <thead>
@@ -46,7 +49,9 @@ export function TransactionList({
           <tbody>
             {live.data?.rows.map((row) => (
               <tr key={row.id}>
-                <td>{row.number}</td>
+                <td>
+                  <a href={flowLink(recordType, row.id)}>{row.number}</a>
+                </td>
                 <td>{dateLabel(row.date)}</td>
                 <td>{row.customer}</td>
                 <td>

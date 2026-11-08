@@ -1,5 +1,5 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { isViewId, moveMenu, readMenu, setHidden, type MenuItem, type ViewId } from "./menu";
+import { isViewId, moveMenu, readMenu, setHidden, type MenuItem, type PageId } from "./menu";
 import { Glyph, glyph, navIcons } from "./icons";
 import { Tip } from "./pick";
 
@@ -7,8 +7,9 @@ export function hashName() {
   return location.hash.replace(/^#\/?/, "").split("?")[0];
 }
 
-export function currentView(): ViewId {
+export function currentView(): PageId {
   const name = hashName();
+  if (name === "transaction") return name;
   if (name === "ask") return "overview";
   return isViewId(name) ? name : "overview";
 }
@@ -37,7 +38,7 @@ function useMenu() {
   };
 }
 
-export function SideNav({ view }: { view: ViewId }) {
+export function SideNav({ view }: { view: PageId }) {
   const [width, setWidth] = useState(() => {
     const saved = Number(localStorage.getItem("hn-nav-w"));
     return saved >= 168 && saved <= 480 ? saved : 212;

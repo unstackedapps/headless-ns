@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { UserMenu } from "./account";
 import { AskDrawer, CommandLine } from "./chrome";
 import { FilesPage } from "./files";
-import { type ViewId } from "./menu";
+import { type PageId } from "./menu";
 import { RelatedHost } from "./related";
 import { SearchesPage } from "./searches";
 import { Glyph, glyph } from "./icons";
@@ -20,6 +20,7 @@ import { OverviewPage } from "./overview";
 import { PeoplePage } from "./people";
 import { SignIn, type SessionInfo } from "./signin";
 import { TransactionList } from "./transactions";
+import { TransactionPage } from "./transaction";
 
 function authErrorFromUrl() {
   return new URLSearchParams(location.search).get("auth_error");
@@ -28,7 +29,7 @@ function authErrorFromUrl() {
 export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewId>(currentView);
+  const [view, setView] = useState<PageId>(currentView);
   const [authError] = useState<string | null>(authErrorFromUrl);
   const refreshing = useRefreshBusy();
   const [askOpen, setAskOpen] = useState(() => hashName() === "ask");
@@ -117,10 +118,10 @@ export function App() {
           {view === "overview" && <OverviewPage />}
           {view === "customers" && <CustomersPage />}
           {view === "orders" && (
-            <TransactionList title="Orders" path="/api/orders" recordType="salesorder" placeholder="Order number or customer" empty="No open orders matched." />
+            <TransactionList title="Orders" path="/api/orders" recordType="salesorder" canCreate placeholder="Order number or customer" empty="No open orders matched." />
           )}
           {view === "quotes" && (
-            <TransactionList title="Quotes" path="/api/quotes" recordType="estimate" placeholder="Quote number or customer" empty="No open quotes matched." />
+            <TransactionList title="Quotes" path="/api/quotes" recordType="estimate" canCreate placeholder="Quote number or customer" empty="No open quotes matched." />
           )}
           {view === "invoices" && <BillsPage title="Invoices" path="/api/invoices" party="Customer" recordType="invoice" />}
           {view === "bills" && <BillsPage title="Bills" path="/api/bills" party="Vendor" recordType="vendorbill" />}
@@ -132,6 +133,7 @@ export function App() {
           {view === "trace" && <TracePage />}
           {view === "files" && <FilesPage />}
           {view === "records" && <RecordsPage />}
+          {view === "transaction" && <TransactionPage />}
           {view === "query" && <QueryPage />}
           {view === "settings" && <SettingsPage />}
         </main>

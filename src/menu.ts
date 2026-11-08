@@ -19,6 +19,9 @@ export const menuDefaults = [
 
 export type ViewId = (typeof menuDefaults)[number]["id"];
 
+// Pages that open from links but have no menu entry.
+export type PageId = ViewId | "transaction";
+
 export type MenuItem = { id: ViewId; label: string; group: string; hidden: boolean };
 
 const byId = new Map(menuDefaults.map((item) => [item.id, item]));
