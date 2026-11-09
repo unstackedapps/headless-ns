@@ -27,9 +27,9 @@
 
 ![Ask reads Oracle's finance skill and vendor-spend runbook, then answers with a table of the top 5 vendors](docs/ask-skill.png)
 
-- Ask suggests changes. Nothing saves until you click Run.
+- Ask proposes changes. You run each one.
 - Skills are `SKILL.md` folders, plugins, zips, `AGENTS.md` files or Git URLs. One click imports Oracle's NetSuite skills.
-- Ask reads skills. It never runs their scripts.
+- Ask reads skill scripts as text.
 
 ![Settings lists Oracle's six imported NetSuite skills, each with Preview, Update and Remove](docs/skills.png)
 
@@ -65,17 +65,17 @@ flowchart LR
   S -- API key --> M[AI model]
 ```
 
-Tokens, keys, models, queries and skills stay on the local server, in `data/`.
+The local server keeps tokens, keys, models, queries and skills in `data/`.
 
 ## Limits
 
 - One person, one machine
-- PO and bill approval uses a NetSuite workflow that applies to every user
+- PO and bill approvals run through a NetSuite workflow that covers every user
 - No deletes. Close lines instead.
 - CSV export stops at 5,000 rows
-- Skills: 200 max, 60 MB per import, public Git only
-- Gemma loads skills only when you name them
-- Not tested on phones
+- Up to 200 skills, 60 MB per import, public Git repos only
+- Gemma needs the skill's name in your question
+- Untested on mobile screen sizes
 
 ## Tests
 

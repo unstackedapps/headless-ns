@@ -236,7 +236,7 @@ export function SkillsSection({ onMessage, onError }: { onMessage: (text: string
   return (
     <section className="section" aria-labelledby="skills-title">
       <h2 id="skills-title">Skills</h2>
-      <p className="status">Ask sees the name and description of each skill that is on, and reads the rest when a question needs it. Ask never runs a skill's scripts, and changes still wait for Run.</p>
+      <p className="status">Ask sees the name and description of each skill that is on, and reads the rest when a question needs it.</p>
       {data && data.shortened > 0 && <p className="status">Ask sees shortened descriptions for {data.shortened} skills.</p>}
       {!data && <SkeletonTable rows={3} cols={3} />}
       {data && rows.length === 0 && (
@@ -373,7 +373,7 @@ export function SkillsSection({ onMessage, onError }: { onMessage: (text: string
                         checked={replace.includes(skill.name)}
                         onChange={(event) => setReplace((current) => (event.target.checked ? [...current, skill.name] : current.filter((name) => name !== skill.name)))}
                       />
-                      Replace the saved {skill.name}. Unticked, the saved copy stays.
+                      Replace the saved {skill.name}
                     </label>
                   )}
                   {skill.warnings.map((warning) => (
