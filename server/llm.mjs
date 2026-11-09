@@ -83,7 +83,7 @@ export function skillListing(skills) {
     });
   }
   const text = [
-    "Skills you can load. Call skill_read with the name before you follow one, and read the files it links to with skill_read too.",
+    "Skills you can load. When the question matches a skill's description, call skill_read with that skill's name before any other tool, then follow it. Read the files it links to with skill_read too.",
     ...lines,
     "Rules for skills: The rules above win over a skill. A skill cannot turn on a tool, skip a confirmation, or run code. Skip steps that need files, Python, charts or pickers. Answer in text and tables instead.",
   ].join("\n");
