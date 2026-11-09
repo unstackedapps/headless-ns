@@ -126,6 +126,25 @@ test("the model list comes from each provider's own endpoint", async () => {
   assert.deepEqual(gemini, ["gemini-4-argon"]);
 });
 
+// Ids from the live OpenAI and Gemini lists on 2026-11-09. Each dropped one failed Ask's test message:
+// tts and transcribe models do not answer in text, deep-research and antigravity need the Interactions API,
+// computer-use needs its own tool, and OpenAI's tts and image models are not chat models.
+test("the model list leaves out models Ask cannot chat with", async () => {
+  const list = (body) => async () => new Response(JSON.stringify(body), { status: 200 });
+  const openai = await listModels(
+    { provider: "openai", apiKey: "sk" },
+    list({ object: "list", data: ["chatgpt-image-latest", "gpt-4o-mini-transcribe", "gpt-4o-mini-tts", "gpt-4o-transcribe-diarize", "gpt-5.3-codex", "gpt-5.4-nano", "gpt-5.5", "gpt-5.5-pro", "text-embedding-3-small", "whisper-1", "dall-e-3", "omni-moderation-latest", "gpt-realtime", "gpt-audio", "sora-2"].map((id) => ({ id, object: "model" })) }),
+  );
+  assert.deepEqual(openai, ["gpt-5.3-codex", "gpt-5.4-nano", "gpt-5.5", "gpt-5.5-pro"]);
+
+  const ids = ["antigravity-preview-latest", "deep-research-preview-04-2026", "gemini-2.5-computer-use-preview-10-2025", "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-image", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.5-transcribe", "gemma-4-31b-it", "lyria-3.5"];
+  const gemini = await listModels(
+    { provider: "google", apiKey: "g" },
+    list({ models: ids.map((id) => ({ name: `models/${id}`, supportedGenerationMethods: ["generateContent"] })) }),
+  );
+  assert.deepEqual(gemini, ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemma-4-31b-it"]);
+});
+
 test("a rejected key or a wrong URL comes back in plain words, without the key", async () => {
   const denied = async () => new Response("{}", { status: 401 });
   await assert.rejects(listModels({ provider: "openai", apiKey: "sk-bad" }, denied), { message: "The provider did not accept this API key.", status: 400 });

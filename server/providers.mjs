@@ -57,7 +57,10 @@ function listFailure(message) {
   return error;
 }
 
-// The ids a provider offers, from its own model list. Gemini lists only models that can chat.
+// Models that make speech, audio, images or embeddings, or need an API other than chat. Each refused Ask's test message.
+const NOT_CHAT = /embed|tts|transcri|whisper|dall-e|image|moderation|realtime|audio|sora|lyria|deep-research|antigravity|computer-use/i;
+
+// The ids a provider offers, from its own model list, without the models Ask cannot chat with.
 export async function listModels(connection, fetchImpl = fetch) {
   const { url, headers } = modelListRequest(connection);
   let response;
@@ -79,6 +82,6 @@ export async function listModels(connection, fetchImpl = fetch) {
   const ids = rows
     .filter((row) => !Array.isArray(row?.supportedGenerationMethods) || row.supportedGenerationMethods.includes("generateContent"))
     .map((row) => String(row?.id || row?.name || "").replace(/^models\//, ""))
-    .filter(Boolean);
+    .filter((id) => id && !NOT_CHAT.test(id));
   return [...new Set(ids)].sort();
 }
