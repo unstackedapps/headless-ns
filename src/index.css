@@ -422,6 +422,8 @@ summary.nav-label::-webkit-details-marker { display: none; }
 summary.nav-label:hover { color: var(--ink); }
 summary.nav-label svg { transition: transform 120ms ease; }
 details.nav-group:not([open]) > summary.nav-label svg { transform: rotate(-90deg); }
+/* The icon-only rail has no room for a gutter: Chrome reserves its default 11 px scrollbar, not the 6 px above, which pushes the icons off center. */
+nav.is-collapsed .nav-links { scrollbar-gutter: auto; scrollbar-width: none; }
 nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
 .nav-bottom { flex: none; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 6px; }
 .nav-note { margin: 0 4px 8px; }

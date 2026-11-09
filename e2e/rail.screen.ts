@@ -58,6 +58,28 @@ test("the icon-only rail lists every icon, with Settings still at the bottom", a
   await expect(nav.locator(".nav-bottom a")).toHaveAttribute("aria-label", "Settings");
 });
 
+test("the icon-only rail lines every icon up in one column, with groups open or folded", async ({ page }) => {
+  await page.goto("/#/payments");
+  const nav = page.getByRole("navigation", { name: "Sections" });
+  const centers = () =>
+    nav.evaluate((el) =>
+      [...el.querySelectorAll("a, button")]
+        .filter((item) => (item as HTMLElement).offsetParent && item.getBoundingClientRect().width > 0)
+        .map((item) => {
+          const box = (item.querySelector("svg") || item).getBoundingClientRect();
+          return box.left + box.width / 2;
+        }),
+    );
+  for (const folded of [false, true]) {
+    if (folded) await nav.getByText("Sales", { exact: true }).click();
+    await nav.getByRole("button", { name: "Hide menu" }).click();
+    const xs = await centers();
+    expect(xs.length).toBe(24);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1);
+    await nav.getByRole("button", { name: "Show menu" }).click();
+  }
+});
+
 test("Arrange opens every group and moves an item only inside its group", async ({ page }) => {
   await page.goto("/#/payments");
   const nav = page.getByRole("navigation", { name: "Sections" });
