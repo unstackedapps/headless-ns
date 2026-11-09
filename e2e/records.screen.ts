@@ -105,3 +105,20 @@ test("an open record puts Find a field under its title, level with the Internal 
   expect(Math.abs(search.y + search.height - (id.y + id.height))).toBeLessThanOrEqual(2);
   expect(Math.abs(title.y - label.y)).toBeLessThanOrEqual(4);
 });
+
+test("with round corners on, the type list stays square so the selected first row is not clipped", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/records/types": { types: ["customer", "salesorder"] },
+    "/api/records/fields": { type: "customer", fields: [], sublists: [] },
+    "/api/records/latest": { rows: [] },
+    "/api/records/transforms": { targets: [] },
+    "/api/records/actions": { actions: [] },
+  });
+  await page.addInitScript(() => localStorage.setItem("hn-shape", "round"));
+  await page.goto("/#/records?type=customer");
+  const list = page.locator(".split-rail .tool-list");
+  await expect(list.locator(".tool").first()).toContainText("Customer");
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--radius-panel").trim())).not.toBe("0px");
+  expect(await list.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("0px");
+});
