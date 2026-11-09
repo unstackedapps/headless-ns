@@ -191,6 +191,7 @@ async function mcp(method, params, name) {
 
 export function clearMcpCache() {
   toolsCache = null;
+  serverNames = {};
   toolsAt = 0;
   identityCache = null;
   identityAt = 0;
@@ -235,7 +236,8 @@ export async function callTool(name, args) {
   const started = Date.now();
   const source = sourceStore.getStore() || "app";
   try {
-    const result = await withRetry(name, () => mcp("tools/call", { name, arguments: args || {} }, name));
+    const serverName = (await serverToolNames())[name] || name;
+    const result = await withRetry(name, () => mcp("tools/call", { name: serverName, arguments: args || {} }, serverName));
     const payload = payloadOf(result);
     if (result.isError) {
       throw new Error(plainSuiteqlError(payload?.error || payload?.text || "The tool failed."));
@@ -258,12 +260,26 @@ export async function callTool(name, args) {
 
 let toolsCache = null;
 let toolsAt = 0;
+let serverNames = {};
+
+// A gateway may prefix each tool with its server's name: Mint lists netsuite__ns_runCustomSuiteQL.
+// The app uses the plain ns_ name everywhere and sends the gateway its own name back.
+export function plainToolName(name) {
+  return String(name).replace(/^[\w-]+?__(?=ns_)/, "");
+}
+
+async function serverToolNames() {
+  if (!toolsCache) await listTools();
+  return serverNames;
+}
 
 export async function listTools() {
   if (toolsCache && Date.now() - toolsAt < 60_000) return toolsCache;
   const result = await mcp("tools/list", {});
-  toolsCache = (result.tools || []).map((tool) => ({
-    name: tool.name,
+  const tools = result.tools || [];
+  serverNames = Object.fromEntries(tools.map((tool) => [plainToolName(tool.name), tool.name]));
+  toolsCache = tools.map((tool) => ({
+    name: plainToolName(tool.name),
     description: String(tool.description || ""),
     schema: tool.inputSchema || { type: "object", properties: {} },
   }));

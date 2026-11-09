@@ -40,3 +40,43 @@ test("a server with no NetSuite tools fails the test read with the reason", asyn
   assert.equal(missingNetSuiteTools(["osmcp_whoami", "ns_getSessionInfo"]), "");
   assert.match(plainConnectionError(new Error("Method not found: tools/call ns_getSessionInfo")), /does not offer the NetSuite tools/);
 });
+
+// Recorded from Mint (Mintive) on 2026-11-09: its gateway prefixes every NetSuite tool with "netsuite__".
+test("a gateway's prefixed tool names reach the app as plain ns_ names, and calls go back under the gateway's names", async () => {
+  const { callTool, clearMcpCache, listTools, missingNetSuiteTools, plainToolName } = await import("../server/osmcp.mjs");
+  assert.equal(plainToolName("netsuite__ns_runCustomSuiteQL"), "ns_runCustomSuiteQL");
+  assert.equal(plainToolName("ns_runCustomSuiteQL"), "ns_runCustomSuiteQL");
+  assert.equal(plainToolName("osmcp_whoami"), "osmcp_whoami");
+  const keys = ["CONNECTOR", "MCP_URL", "MCP_TOKEN"];
+  const before = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const realFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    sent.push({ method: body.method, name: body.params?.name, header: init.headers["Mcp-Name"] });
+    const result =
+      body.method === "tools/list"
+        ? { tools: ["netsuite__ns_getSessionInfo", "netsuite__ns_runCustomSuiteQL", "netsuite__ns_createRecord"].map((name) => ({ name, inputSchema: { type: "object" } })) }
+        : { content: [{ type: "text", text: JSON.stringify({ items: [{ n: 387 }] }) }] };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    Object.assign(process.env, { CONNECTOR: "custom", MCP_URL: "https://app.mintmcp.example/s/test/mcp", MCP_TOKEN: "mint-key" });
+    clearMcpCache();
+    const names = (await listTools()).map((tool) => tool.name);
+    assert.deepEqual(names, ["ns_getSessionInfo", "ns_runCustomSuiteQL", "ns_createRecord"]);
+    assert.equal(missingNetSuiteTools(names), "");
+    const payload = await callTool("ns_runCustomSuiteQL", { sqlQuery: "SELECT 1" });
+    assert.deepEqual(payload.items, [{ n: 387 }]);
+    const call = sent.find((item) => item.method === "tools/call");
+    assert.equal(call.name, "netsuite__ns_runCustomSuiteQL");
+    assert.equal(call.header, "netsuite__ns_runCustomSuiteQL");
+  } finally {
+    globalThis.fetch = realFetch;
+    clearMcpCache();
+    for (const key of keys) {
+      if (before[key] == null) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  }
+});
