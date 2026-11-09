@@ -214,3 +214,30 @@ test("a bill payment pays the chosen bills and unticks the source bill when left
   assert.throws(() => applyData([{ doc: "1 OR 1", amount: 2 }], "1"), /not valid/);
   assert.throws(() => applyData([{ doc: "1", amount: 2 }, { doc: "1", amount: 2 }], "1"), /not valid/);
 });
+
+test("record search covers five tables, keeps the term inside its quotes, and needs two characters", async () => {
+  const { findSql } = await import("../server/records.mjs");
+  const sql = findSql("O'Neil");
+  assert.equal((sql.match(/UNION ALL/g) || []).length, 4);
+  assert.match(sql, /LIKE '%o''neil%'/);
+  assert.throws(() => findSql("a"), /two letters/);
+});
+
+test("search rows turn item types into record types and drop bad ones", async () => {
+  const { foundRows } = await import("../server/records.mjs");
+  const rows = foundRows([
+    { id: 248, label: "SPC002", type: "InvtPart", detail: "Spice", sub: null },
+    { id: 9, label: "Install", type: "Service", detail: "", sub: "Sale" },
+    { id: 341, label: "124 Quinu LLP ", type: "customer", detail: "info@quinu.com" },
+    { id: 1, label: "bad", type: "x; drop", detail: "" },
+  ]);
+  assert.deepEqual(rows.map((row) => `${row.type}:${row.id}:${row.label}`), ["inventoryitem:248:SPC002", "servicesaleitem:9:Install", "customer:341:124 Quinu LLP"]);
+});
+
+test("the pick list reads the right table for lists, items and transactions", async () => {
+  const { latestSql } = await import("../server/records.mjs");
+  assert.match(latestSql("customer"), /FROM customer WHERE isinactive = 'F' ORDER BY id DESC/);
+  assert.match(latestSql("inventoryitem"), /FROM item WHERE itemtype = 'InvtPart'/);
+  assert.match(latestSql("vendorbill"), /NVL\(tranid, transactionnumber\).*recordtype = 'vendorbill'/);
+  assert.throws(() => latestSql("x'; drop"), /not valid/);
+});

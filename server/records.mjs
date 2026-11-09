@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { cachedMeta, clearMeta } from "./metadata.mjs";
 import { callTool, suiteqlOsmcp, withSource } from "./osmcp.mjs";
 import { searchAnd } from "./netsuite.mjs";
+import { ITEM_TYPES, itemRecordType } from "./lists.mjs";
 
 const SENSITIVE = /ssn|socialsecurity|birth|gender|ethnic|marital|visa|nationality|salary|compensation/i;
 const SCALAR = new Set(["string", "number", "integer", "boolean"]);
@@ -332,11 +333,11 @@ const TRANSACTION_TYPES = new Set([
   "vendorpayment", "vendorcredit", "journalentry", "transferorder", "inventoryadjustment", "fulfillmentrequest",
   "opportunity", "expensereport", "check", "deposit",
 ]);
-const ITEM_TYPES = /item$/;
+const ITEM_RECORD = /item$/;
 
 export function externalIdSql(recordType, externalId) {
   if (!EXTERNAL_ID.test(externalId)) fail("That external id is not valid.");
-  const table = TRANSACTION_TYPES.has(recordType) ? "transaction" : ITEM_TYPES.test(recordType) ? "item" : recordTypeOf(recordType);
+  const table = TRANSACTION_TYPES.has(recordType) ? "transaction" : ITEM_RECORD.test(recordType) ? "item" : recordTypeOf(recordType);
   return `SELECT id FROM ${table} WHERE externalid = '${externalId}'`;
 }
 
@@ -403,6 +404,45 @@ export function lookupSql(source, raw, scope = null) {
   }
   const where = byId && match ? `${base} AND (${match.slice(5)}${byId})` : `${base}${match}`;
   return `SELECT id, ${spec.label} AS label FROM ${spec.table} WHERE ${where} ORDER BY label FETCH FIRST 20 ROWS ONLY`;
+}
+
+// One search across transactions, customers, vendors, employees and items, by number, name or email.
+export function findSql(raw) {
+  const text = String(raw || "").trim();
+  if (text.length < 2) fail("Type at least two letters or digits.");
+  const match = (columns) => searchAnd(columns, text).slice(5);
+  const parts = [
+    `SELECT id, tranid AS label, recordtype AS type, BUILTIN.DF(entity) AS detail, NULL AS sub FROM transaction WHERE ${match(["tranid", "transactionnumber"])}`,
+    `SELECT id, entityid || ' ' || NVL(companyname, '') AS label, 'customer' AS type, email AS detail, NULL AS sub FROM customer WHERE ${match(["entityid", "companyname", "email"])}`,
+    `SELECT id, entityid || ' ' || NVL(companyname, '') AS label, 'vendor' AS type, email AS detail, NULL AS sub FROM vendor WHERE ${match(["entityid", "companyname", "email"])}`,
+    `SELECT id, entityid AS label, 'employee' AS type, email AS detail, NULL AS sub FROM employee WHERE ${match(["entityid", "email"])}`,
+    `SELECT id, itemid AS label, itemtype AS type, displayname AS detail, subtype AS sub FROM item WHERE ${match(["itemid", "displayname"])}`,
+  ];
+  return `SELECT * FROM (${parts.join(" UNION ALL ")}) FETCH FIRST 30 ROWS ONLY`;
+}
+
+export function foundRows(items) {
+  return items
+    .map((row) => {
+      const raw = String(row.type ?? "");
+      const type = Object.hasOwn(ITEM_TYPES, raw) ? itemRecordType(raw, row.sub) : raw;
+      return { id: String(row.id ?? ""), type, label: String(row.label ?? "").trim(), detail: String(row.detail ?? "").trim() };
+    })
+    .filter((row) => row.id && NAME.test(row.type));
+}
+
+// The 50 newest records of one type, so the person can pick one instead of typing an id.
+export function latestSql(recordType) {
+  const type = recordTypeOf(recordType);
+  if (Object.hasOwn(LOOKUPS, type)) {
+    const spec = LOOKUPS[type];
+    return `SELECT id, ${spec.label} AS label, NULL AS detail FROM ${spec.table} WHERE ${spec.where} ORDER BY id DESC FETCH FIRST 50 ROWS ONLY`;
+  }
+  const itemType = Object.entries(ITEM_TYPES).find(([, spec]) => type.startsWith(spec.recordType))?.[0];
+  if (itemType) {
+    return `SELECT id, itemid AS label, displayname AS detail FROM item WHERE itemtype = '${itemType}' ORDER BY id DESC FETCH FIRST 50 ROWS ONLY`;
+  }
+  return `SELECT id, NVL(tranid, transactionnumber) AS label, BUILTIN.DF(entity) AS detail FROM transaction WHERE recordtype = '${type}' ORDER BY id DESC FETCH FIRST 50 ROWS ONLY`;
 }
 
 export function itemDefaultsSql(id) {
@@ -518,6 +558,22 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
       const result = await withSource("records", () => suiteqlOsmcp(sql, 20));
       sendJson(res, 200, {
         options: result.items.map((row) => ({ id: String(row.id ?? ""), label: String(row.label ?? "").trim() })),
+      });
+    },
+
+    "GET /api/records/find": async (req, res, url) => {
+      if (!(await authorized(req, res))) return;
+      const result = await withSource("records", () => suiteqlOsmcp(findSql(url.searchParams.get("q")), 30));
+      sendJson(res, 200, { rows: foundRows(result.items) });
+    },
+
+    "GET /api/records/latest": async (req, res, url) => {
+      if (!(await authorized(req, res))) return;
+      const sql = latestSql(url.searchParams.get("type"));
+      // A type with no SuiteQL table of its own answers with an empty list; the id box still works.
+      const result = await withSource("records", () => suiteqlOsmcp(sql, 50)).catch(() => ({ items: [] }));
+      sendJson(res, 200, {
+        rows: result.items.map((row) => ({ id: String(row.id ?? ""), label: String(row.label ?? "").trim(), detail: String(row.detail ?? "").trim() })),
       });
     },
 

@@ -3,6 +3,7 @@ import { Glyph, glyph } from "./icons";
 import { Combobox, Pick, type Option } from "./pick";
 import { Button, Lookup, SkeletonRecord } from "./load";
 import { FilterRail } from "./rail";
+import { commonTypes, LatestRecords, pushRecent, RecordFinder, typeLabel } from "./finder";
 import { DataTable } from "./table";
 import { BLANK } from "./format";
 import { RefreshButton, refreshScope } from "./refresh";
@@ -441,6 +442,8 @@ export function RecordsPage() {
       ]);
       setRecord(read);
       setOpenId(read.id);
+      const named = read.fields.find((cell) => ["tranId", "entityId", "itemId"].includes(cell.id) && cell.value !== "");
+      pushRecent({ type: recordType, id: read.id, label: String(named?.value ?? read.id) });
       setRecordId(read.id);
       setActions(actionList.actions);
       setLines(startLines(read, lists));
@@ -578,13 +581,25 @@ export function RecordsPage() {
         </div>
         <RefreshButton label="records" onClick={() => refreshScope("records")} />
       </header>
-      <p className="status">Pick a type, then open one by its internal id, or open a row from Orders, Quotes, Invoices, Customers or Items.</p>
+      <p className="status">Find a record by number, name or email. Or pick a type on the left, then pick a record or type its internal id.</p>
+      <RecordFinder
+        onOpen={(nextType, id) => {
+          const link = recordLink(nextType, id);
+          if (location.hash === link) void openFromLink(nextType, id);
+          else location.hash = link;
+        }}
+      />
       {error && <p className="error">{error}</p>}
       <div className="split">
         <FilterRail
           label="Filter types"
           placeholder="Filter types"
-          items={(types || []).map((name) => ({ key: name, title: name }))}
+          items={[
+            ...Object.keys(commonTypes)
+              .filter((name) => types?.includes(name))
+              .map((name) => ({ key: name, title: commonTypes[name], note: name })),
+            ...(types || []).filter((name) => !commonTypes[name]).map((name) => ({ key: name, title: name })),
+          ]}
           selected={type}
           onPick={(name) => choose(name)}
           loading={!types && !error}
@@ -596,7 +611,7 @@ export function RecordsPage() {
             <>
               <div className="pane-head">
                 <strong>
-                  {openId ? `${type} ${String(readCells.tranId?.value || readCells.entityId?.value || readCells.itemId?.value || openId)}` : type}
+                  {openId ? `${typeLabel(type)} ${String(readCells.tranId?.value || readCells.entityId?.value || readCells.itemId?.value || openId)}` : typeLabel(type)}
                 </strong>
                 <div className="filters">
                   <label>
@@ -635,11 +650,14 @@ export function RecordsPage() {
                 </div>
               </div>
               {notice && <p className="status">{notice}</p>}
+              {!openId && !creating && !busy && <LatestRecords type={type} onOpen={(id) => openRecord(id)} />}
               {busy && <Lookup label="Waiting for NetSuite. A write can take up to a minute." />}
-              <label className="search-field">
-                <Glyph icon={glyph.search} size={14} />
-                <input className="search" value={needle} placeholder="Find a field" aria-label="Find a field" onChange={(event) => setNeedle(event.target.value)} />
-              </label>
+              {(openId || formOpen) && (
+                <label className="search-field">
+                  <Glyph icon={glyph.search} size={14} />
+                  <input className="search" value={needle} placeholder="Find a field" aria-label="Find a field" onChange={(event) => setNeedle(event.target.value)} />
+                </label>
+              )}
               {shapeLoading ? (
                 <SkeletonRecord />
               ) : formOpen ? (
