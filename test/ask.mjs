@@ -299,3 +299,18 @@ test("a fulfillment without stock goes back to the model with the reason, not to
   const tool = result.transcript.find((message) => message.role === "tool");
   assert.match(tool.content, /Only 0 available at Boston\. San Francisco \(location id 2\) has 3/);
 });
+
+test("the prompt places Ask inside headless-ns and keeps tool names and NetSuite menus out of replies", async () => {
+  const { systemPrompt } = await import("../server/llm.mjs");
+  const prompt = systemPrompt(identity);
+  assert.match(prompt, /using headless-ns/);
+  assert.match(prompt, /Never describe NetSuite menus or screens/);
+  assert.match(prompt, /offer to do it now/);
+  assert.match(prompt, /Never show tool names to the person/);
+  assert.doesNotMatch(prompt, /Name the figure and the tool/);
+});
+
+test("the prompt counts every active customer, not only companies", async () => {
+  const { systemPrompt } = await import("../server/llm.mjs");
+  assert.match(systemPrompt(identity), /SELECT COUNT\(id\) FROM customer WHERE isinactive = 'F'/);
+});

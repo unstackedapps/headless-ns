@@ -103,3 +103,6 @@ export const estimateShape = {
     },
   ],
 };
+
+// An empty transaction list, for tests that only need a page to stand on.
+export const emptyList = { rows: [], hasMore: false, total: 0, page: 0, statuses: [], hasOpen: false };

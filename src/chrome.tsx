@@ -45,6 +45,7 @@ type AskReply = {
   steps: { name: string; ok: boolean; error?: string }[];
   pending: { name: string; arguments: Record<string, unknown>; summary?: { title: string; details: string[] } }[] | null;
   pendingId?: string;
+  transcript?: unknown[];
 };
 
 function clip(value: string, width: number) {
@@ -104,6 +105,8 @@ export function CommandLine({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const pendingId = useRef("");
+  // The conversation so far, so a follow-up answer reaches Ask with its question.
+  const transcript = useRef<unknown[]>([]);
   const history = useRef<string[]>([]);
   const cursor = useRef(0);
   const draft = useRef("");
@@ -136,6 +139,7 @@ export function CommandLine({
       parts.push(`${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
     }
     pendingId.current = result.pendingId || "";
+    transcript.current = result.transcript || transcript.current;
     if (result.pending?.length) {
       for (const call of result.pending) {
         if (call.summary) parts.push(call.summary.title, ...call.summary.details.map((detail) => `  ${detail}`));
@@ -183,6 +187,8 @@ export function CommandLine({
       }
       if (name === "clear") {
         setLines([]);
+        transcript.current = [];
+        pendingId.current = "";
         return;
       }
       if (name === "themes") {
@@ -259,7 +265,7 @@ export function CommandLine({
           return;
         }
         setBusy(true);
-        showAsk(await postJson<AskReply>("/api/ask", { text: rest, transcript: [] }));
+        showAsk(await postJson<AskReply>("/api/ask", { text: rest, transcript: transcript.current }));
         return;
       }
       if (name === "confirm" || name === "cancel") {
