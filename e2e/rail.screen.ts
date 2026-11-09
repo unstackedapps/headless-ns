@@ -27,6 +27,11 @@ test("the rail pins Overview and Settings, folds its groups, and fits a 900 px w
   await expect(nav.getByRole("link", { name: "Payments", exact: true })).toBeHidden();
 });
 
+test("the header names the app and says it works over MCP", async ({ page }) => {
+  await page.goto("/#/payments");
+  await expect(page.locator(".brand")).toHaveText("headless-nsNetSuite over MCP");
+});
+
 test("each page's kicker is its menu group", async ({ page }) => {
   await page.goto("/#/payments");
   await expect(page.locator(".page-head .kicker")).toHaveText("Sales");

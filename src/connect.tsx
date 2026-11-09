@@ -72,7 +72,7 @@ const setupSteps: Record<Kind, (redirectUri: string) => ReactNode[]> = {
     <li key="5">Paste the client ID here. If Public Client is unchecked on the integration, uncheck it here too and paste the client secret.</li>,
   ],
   custom: () => [
-    <li key="1">Use this for OpenSuiteMCP, hosted or self-hosted, or any other server that exposes the NetSuite MCP tools.</li>,
+    <li key="1">Use this for a server that exposes the NetSuite MCP tools. OpenSuiteMCP, hosted or self-hosted, is the one tested so far.</li>,
     <li key="2">For OpenSuiteMCP, create an agent app in the app portal and choose bearer auth. The hosted URL is https://app.opensuitemcp.com/api/mcp.</li>,
     <li key="3">The NetSuite role behind that server needs MCP Server Connection, Log in using OAuth 2.0 Access Tokens, REST Web Services, and the MCP Standard Tools SuiteApp. Use a role other than Administrator.</li>,
   ],

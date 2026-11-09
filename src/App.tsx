@@ -106,7 +106,7 @@ export function App() {
           <img className="mark" src="/favicon.svg" alt="" width="28" height="28" />
           <span>
             <strong>headless-ns</strong>
-            <em>NetSuite MCP</em>
+            <em>NetSuite over MCP</em>
           </span>
         </div>
         <div className="who">
