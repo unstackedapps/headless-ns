@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { amount, dateLabel, orBlank } from "./format";
 import { DataTable, type Column } from "./table";
 import { RelatedLink } from "./related";
 import { Glyph, glyph } from "./icons";
-import { Lookup, SkeletonRecord } from "./load";
 import { RefreshButton } from "./refresh";
+import { Drawer } from "./drawer";
 import { ListFrame, type ListPayload, RecordActions, StatusPill, explain, listStatus, useDebounced, useLive } from "./lists";
 
 type Customer = {
@@ -101,122 +101,105 @@ function CustomerFilePanel({
   scope: string;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   const customer = file.data?.customer;
   return (
-    <div className="backdrop" role="presentation" onClick={onClose}>
-        <aside className="drawer" role="dialog" aria-label={customer?.name || "Customer"} onClick={(event) => event.stopPropagation()}>
-        <header className="record-top">
-          <div className="drawer-top">
-            <div>
-              <div className="kicker">Customer</div>
-              <h2>{customer?.name || "Customer"}</h2>
-            </div>
-            <div className="actions">
-              {customer && (
-                <>
-                  <RelatedLink kind="customer" id={customer.id} title={customer.name} />
-                  <a className="quiet" href={customer.href} target="_blank" rel="noreferrer">
-                    <Glyph icon={glyph.external} size={14} />
-                    Open in NetSuite
-                  </a>
-                </>
-              )}
-              <RefreshButton label="customer" scope={scope} busy={file.loading && Boolean(customer)} />
-              <button className="quiet" type="button" onClick={onClose}>
-                Close
-              </button>
-            </div>
-          </div>
-          {file.loading && !customer && (
-            <>
-              <Lookup label="Looking up this customer." />
-              <SkeletonRecord />
-            </>
-          )}
-          {file.error && <p className="error">{explain(file.error)}</p>}
+    <Drawer
+      kicker="Customer"
+      title={customer?.name || "Customer"}
+      onClose={onClose}
+      loading={file.loading && !customer && "Looking up this customer."}
+      error={file.error && explain(file.error)}
+      actions={
+        <>
           {customer && (
             <>
-              <div className="highlights">
-                <div>
-                  <span>Company</span>
-                  <strong>{orBlank(customer.company)}</strong>
-                </div>
-                <div>
-                  <span>Subsidiary</span>
-                  <strong>{orBlank(customer.subsidiary)}</strong>
-                </div>
-                <div>
-                  <span>Email</span>
-                  <strong>{orBlank(customer.email)}</strong>
-                </div>
-                <div>
-                  <span>Phone</span>
-                  <strong>{orBlank(customer.phone)}</strong>
-                </div>
-                <div>
-                  <span>Open balance</span>
-                  <strong>
-                    {file.data?.balance.length
-                      ? file.data.balance.map((row) => amount(row.amount, row.currency)).join(", ")
-                      : "0.00"}
-                  </strong>
-                </div>
-              </div>
-              <nav className="quick" aria-label="Related lists">
-                <a href="#related-orders">Orders {file.data?.orders.length ?? 0}</a>
-                <a href="#related-invoices">Invoices {file.data?.invoices.length ?? 0}</a>
-              </nav>
+              <RelatedLink kind="customer" id={customer.id} title={customer.name} />
+              <a className="quiet" href={customer.href} target="_blank" rel="noreferrer">
+                <Glyph icon={glyph.external} size={14} />
+                Open in NetSuite
+              </a>
             </>
           )}
-        </header>
-        {customer && (
-          <div className="record-body">
-            <RelatedList
-              id="related-orders"
-              title="Open orders"
-              count={file.data?.orders.length ?? 0}
-              empty="No open orders."
-              rows={file.data?.orders ?? []}
-              columns={[
-                { key: "number", label: "Number", cell: (row) => row.number },
-                { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
-                { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
-                { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
-                {
-                  key: "actions",
-                  label: "",
-                  cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="salesorder" />,
-                },
-              ]}
-            />
-            <RelatedList
-              id="related-invoices"
-              title="Open invoices"
-              count={file.data?.invoices.length ?? 0}
-              empty="No open invoices."
-              rows={file.data?.invoices ?? []}
-              columns={[
-                { key: "number", label: "Number", cell: (row) => row.number },
-                { key: "due", label: "Due", cell: (row) => dateLabel(row.due) },
-                { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
-                {
-                  key: "actions",
-                  label: "",
-                  cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="invoice" />,
-                },
-              ]}
-            />
-          </div>
-        )}
-      </aside>
-    </div>
+          <RefreshButton label="customer" scope={scope} busy={file.loading && Boolean(customer)} />
+        </>
+      }
+      head={
+        customer && (
+          <>
+            <div className="highlights">
+              <div>
+                <span>Company</span>
+                <strong>{orBlank(customer.company)}</strong>
+              </div>
+              <div>
+                <span>Subsidiary</span>
+                <strong>{orBlank(customer.subsidiary)}</strong>
+              </div>
+              <div>
+                <span>Email</span>
+                <strong>{orBlank(customer.email)}</strong>
+              </div>
+              <div>
+                <span>Phone</span>
+                <strong>{orBlank(customer.phone)}</strong>
+              </div>
+              <div>
+                <span>Open balance</span>
+                <strong>
+                  {file.data?.balance.length
+                    ? file.data.balance.map((row) => amount(row.amount, row.currency)).join(", ")
+                    : "0.00"}
+                </strong>
+              </div>
+            </div>
+            <nav className="quick" aria-label="Related lists">
+              <a href="#related-orders">Orders {file.data?.orders.length ?? 0}</a>
+              <a href="#related-invoices">Invoices {file.data?.invoices.length ?? 0}</a>
+            </nav>
+          </>
+        )
+      }
+    >
+      {customer && (
+        <div className="record-body">
+          <RelatedList
+            id="related-orders"
+            title="Open orders"
+            count={file.data?.orders.length ?? 0}
+            empty="No open orders."
+            rows={file.data?.orders ?? []}
+            columns={[
+              { key: "number", label: "Number", cell: (row) => row.number },
+              { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+              { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
+              { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
+              {
+                key: "actions",
+                label: "",
+                cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="salesorder" />,
+              },
+            ]}
+          />
+          <RelatedList
+            id="related-invoices"
+            title="Open invoices"
+            count={file.data?.invoices.length ?? 0}
+            empty="No open invoices."
+            rows={file.data?.invoices ?? []}
+            columns={[
+              { key: "number", label: "Number", cell: (row) => row.number },
+              { key: "due", label: "Due", cell: (row) => dateLabel(row.due) },
+              { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
+              {
+                key: "actions",
+                label: "",
+                cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="invoice" />,
+              },
+            ]}
+          />
+        </div>
+      )}
+    </Drawer>
   );
 }
 

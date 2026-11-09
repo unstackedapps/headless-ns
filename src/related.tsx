@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Glyph, glyph } from "./icons";
 import { api } from "./api";
+import { Drawer } from "./drawer";
 
 export type RelatedRequest = { kind: "customer" | "transaction" | "item" | "employee"; id: string; title: string };
 
@@ -116,15 +117,6 @@ export function RelatedHost() {
 
   const tree = useMemo(() => (graph ? treeFrom(graph.nodes, graph.edges) : null), [graph]);
 
-  useEffect(() => {
-    if (!request) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setRequest(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [request]);
-
   if (!request) return null;
 
   function openNode(node: TreeNode) {
@@ -135,32 +127,17 @@ export function RelatedHost() {
   }
 
   return (
-    <div className="backdrop" role="presentation" onClick={() => setRequest(null)}>
-      <aside className="drawer rel-drawer" role="dialog" aria-label="Related records" onClick={(event) => event.stopPropagation()}>
-        <header className="record-top">
-          <div className="drawer-top">
-            <div>
-              <div className="kicker">Related</div>
-              <h2>{request.title}</h2>
-            </div>
-            <button className="quiet" type="button" onClick={() => setRequest(null)}>
-              <Glyph icon={glyph.close} size={14} />
-              Close
-            </button>
-          </div>
-        </header>
-        <div className="record-body">
-          <p className="status">Deeper shows that record's links. Open goes to NetSuite.</p>
-          {error && <p className="error">{error}</p>}
-          {!tree && !error && <p className="status">Looking up the links.</p>}
-          {tree && tree.children.length === 0 && <p className="status">Nothing else is linked to this record.</p>}
-          {tree && tree.children.length > 0 && (
-            <ul className="rel-tree">
-              <Branch node={tree} depth={0} onOpen={openNode} />
-            </ul>
-          )}
-        </div>
-      </aside>
-    </div>
+    <Drawer kicker="Related" title={request.title} narrow onClose={() => setRequest(null)} error={error}>
+      <div className="record-body">
+        <p className="status">Deeper shows that record's links. Open goes to NetSuite.</p>
+        {!tree && !error && <p className="status">Looking up the links.</p>}
+        {tree && tree.children.length === 0 && <p className="status">Nothing else is linked to this record.</p>}
+        {tree && tree.children.length > 0 && (
+          <ul className="rel-tree">
+            <Branch node={tree} depth={0} onOpen={openNode} />
+          </ul>
+        )}
+      </div>
+    </Drawer>
   );
 }
