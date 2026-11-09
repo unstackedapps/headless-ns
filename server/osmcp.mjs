@@ -278,7 +278,11 @@ async function serverToolNames() {
 export async function listTools() {
   if (toolsCache && Date.now() - toolsAt < 60_000) return toolsCache;
   const result = await mcp("tools/list", {});
-  const tools = result.tools || [];
+  // If one ns_ tool comes under two names, the unprefixed one wins, then the first name in sort order.
+  const listed = result.tools || [];
+  const ranked = [...listed].sort((a, b) => Number(a.name !== plainToolName(a.name)) - Number(b.name !== plainToolName(b.name)) || String(a.name).localeCompare(String(b.name)));
+  const winners = new Set(ranked.filter((tool, index) => ranked.findIndex((other) => plainToolName(other.name) === plainToolName(tool.name)) === index));
+  const tools = listed.filter((tool) => winners.has(tool));
   serverNames = Object.fromEntries(tools.map((tool) => [plainToolName(tool.name), tool.name]));
   toolsCache = tools.map((tool) => ({
     name: plainToolName(tool.name),
