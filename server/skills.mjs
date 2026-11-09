@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, posix, sep } from "node:path";
 import { readFrontmatter } from "./frontmatter.mjs";
+import { readZip } from "./zip.mjs";
 
 export const LIMITS = {
   file: 4_000_000,
@@ -254,6 +255,11 @@ function outline(files, folder = "") {
   return [...entries.values()].sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path));
 }
 
+// Unpacks an uploaded zip with the import limits. Returns { files, skipped } for stage().
+export function unzipSkills(buffer) {
+  return readZip(buffer, { fileLimit: LIMITS.file, totalLimit: LIMITS.total, maxEntries: LIMITS.files });
+}
+
 function digest(files) {
   const hash = createHash("sha256");
   for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
@@ -324,9 +330,11 @@ export function openSkillStore(dataDir) {
   }
 
   // Validates files, writes the skills to a staging folder, and returns the preview. Nothing reaches data/skills yet.
-  function stage(files, source, { playbook } = {}) {
+  // `skipped` lists files a reader already dropped, such as zip symlinks.
+  function stage(files, source, { playbook, skipped = [] } = {}) {
     sweepStaging();
     const found = findSkills(files, { playbook });
+    found.skipped.unshift(...skipped);
     const existing = new Set(list().map((row) => row.name));
     const id = randomBytes(12).toString("hex");
     const root = join(stagingDir, id);
