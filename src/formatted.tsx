@@ -18,9 +18,10 @@ function SpanView({ span }: { span: Span }) {
   return span.text;
 }
 
-export function Markdown({ text }: { text: string }) {
+// compact draws the same blocks with terminal spacing, for the command line.
+export function Markdown({ text, compact = false }: { text: string; compact?: boolean }) {
   return (
-    <div className="md">
+    <div className={compact ? "md md-compact" : "md"}>
       {markdownBlocks(text).map((block, index) => {
         if (block.type === "h") return <h3 key={index}>{spans(block.text)}</h3>;
         if (block.type === "ul") {

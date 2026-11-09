@@ -5,10 +5,34 @@ import { Glyph, glyph } from "./icons";
 import { AskPage } from "./studio";
 import { themes, useTheme } from "./theme";
 import { api, postJson } from "./api";
+import { Markdown } from "./formatted";
 
 const screens = menuDefaults.map((item) => item.id);
 
-type Line = { id: number; tone: "in" | "out" | "err"; text: string };
+type Line = { id: number; tone: "in" | "out" | "err" | "md"; text: string };
+
+type Running = { label: string; started: number; cancel?: () => void };
+
+const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
+function seconds(started: number) {
+  return Math.max(0, Math.round((Date.now() - started) / 1000));
+}
+
+// The live line while a command runs: a braille spinner, a label and the seconds so far.
+function Working({ label, started }: Running) {
+  const [tick, setTick] = useState(0);
+  const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), still ? 1000 : 80);
+    return () => clearInterval(timer);
+  }, [still]);
+  return (
+    <pre className="cli-work" role="status">
+      <span className="cli-mark">{still ? "…" : frames[tick % frames.length]}</span> {label} {seconds(started)}s
+    </pre>
+  );
+}
 
 const commands = new Set(["help", "clear", "themes", "theme", "open", "sql", "ask", "confirm", "cancel", "who", "layout"]);
 
@@ -47,6 +71,12 @@ type AskReply = {
   pendingId?: string;
   transcript?: unknown[];
 };
+
+class Cancelled extends Error {
+  constructor(readonly seconds: number) {
+    super(`Cancelled after ${seconds}s.`);
+  }
+}
 
 function clip(value: string, width: number) {
   if (value.length > width) return `${value.slice(0, Math.max(1, width - 1))}…`;
@@ -103,7 +133,8 @@ export function CommandLine({
   const [dragging, setDragging] = useState(false);
   const [lines, setLines] = useState<Line[]>([{ id: 1, tone: "out", text: "headless-ns command line. Type help." }]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState<Running | null>(null);
+  const busy = running !== null;
   const pendingId = useRef("");
   // The conversation so far, so a follow-up answer reaches Ask with its question.
   const transcript = useRef<unknown[]>([]);
@@ -135,19 +166,18 @@ export function CommandLine({
   function showAsk(result: AskReply) {
     const parts = [];
     if (result.answer) parts.push(result.answer);
-    for (const step of result.steps || []) {
-      parts.push(`${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
-    }
+    const steps = (result.steps || []).map((step) => `- ${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
+    if (steps.length) parts.push(steps.join("\n"));
     pendingId.current = result.pendingId || "";
     transcript.current = result.transcript || transcript.current;
     if (result.pending?.length) {
       for (const call of result.pending) {
-        if (call.summary) parts.push(call.summary.title, ...call.summary.details.map((detail) => `  ${detail}`));
-        else parts.push(`${call.name} ${JSON.stringify(call.arguments, null, 2)}`);
+        if (call.summary) parts.push([`**${call.summary.title}**`, ...call.summary.details.map((detail) => `- ${detail}`)].join("\n"));
+        else parts.push(`${call.name}\n\`\`\`\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\``);
       }
-      parts.push("Nothing was posted yet. Type confirm to run this on NetSuite, or cancel.");
+      parts.push("Type **confirm** to run this on NetSuite, or **cancel** to drop it.");
     }
-    push("out", parts.join("\n") || "No answer came back.");
+    push("md", parts.join("\n\n") || "No answer came back.");
   }
 
   function startResize(event: ReactPointerEvent) {
@@ -246,10 +276,8 @@ export function CommandLine({
           push("err", "Add a SELECT after sql.");
           return;
         }
-        setBusy(true);
-        const result = await postJson<{ columns: string[]; rows: Record<string, unknown>[]; hasMore: boolean }>(
-          "/api/query",
-          { sql: rest },
+        const result = await track("Running query", (signal) =>
+          postJson<{ columns: string[]; rows: Record<string, unknown>[]; hasMore: boolean }>("/api/query", { sql: rest }, { signal }),
         );
         if (!result.rows.length) {
           push("out", "The query returned no rows.");
@@ -264,8 +292,7 @@ export function CommandLine({
           push("err", "Add a question after ask.");
           return;
         }
-        setBusy(true);
-        showAsk(await postJson<AskReply>("/api/ask", { text: rest, transcript: transcript.current }));
+        showAsk(await track("Thinking", (signal) => postJson<AskReply>("/api/ask", { text: rest, transcript: transcript.current }, { signal })));
         return;
       }
       if (name === "confirm" || name === "cancel") {
@@ -275,19 +302,42 @@ export function CommandLine({
         }
         const id = pendingId.current;
         pendingId.current = "";
-        setBusy(true);
-        showAsk(await postJson<AskReply>("/api/ask/confirm", { id, approved: name === "confirm" }));
+        // A change that started on NetSuite cannot be called back, so this one has no cancel.
+        showAsk(await track(name === "confirm" ? "Running the change" : "Dropping the change", () =>
+          postJson<AskReply>("/api/ask/confirm", { id, approved: name === "confirm" }), false));
         return;
       }
       push("err", "No command by that name. Type help.");
     } catch (reason) {
-      push("err", reason instanceof Error ? reason.message : "The command failed.");
+      if (reason instanceof Cancelled) push("out", `Cancelled after ${reason.seconds}s.`);
+      else push("err", reason instanceof Error ? reason.message : "The command failed.");
+    }
+  }
+
+  // Shows the live line while task runs, then "Done in Ns". Escape or Ctrl+C cancels a task that allows it.
+  async function track<T>(label: string, task: (signal: AbortSignal) => Promise<T>, cancellable = true): Promise<T> {
+    const controller = new AbortController();
+    const started = Date.now();
+    setRunning({ label, started, cancel: cancellable ? () => controller.abort() : undefined });
+    try {
+      const result = await task(controller.signal);
+      push("out", `Done in ${seconds(started)}s`);
+      return result;
+    } catch (reason) {
+      if (controller.signal.aborted) throw new Cancelled(seconds(started));
+      throw reason;
     } finally {
-      setBusy(false);
+      setRunning(null);
     }
   }
 
   function onKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (running && (event.key === "Escape" || (event.ctrlKey && event.key.toLowerCase() === "c"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      running.cancel?.();
+      return;
+    }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       if (!history.current.length) return;
@@ -311,7 +361,7 @@ export function CommandLine({
       {open && !minimized && <div className="cli-grip" onPointerDown={startResize} role="separator" aria-orientation="horizontal" aria-label="Resize command line" />}
       <header className="drawer-bar">
         <strong>Command line</strong>
-        <span className="status">{busy ? "Running" : "headless-ns"}</span>
+        <span className="status">{running?.cancel ? "Esc or Ctrl+C cancels" : running ? "Running" : "headless-ns"}</span>
         <div className="portlet-tools">
           <button className="quiet" type="button" onClick={() => setMinimized((value) => !value)}>
             {minimized ? "Restore" : "Minimize"}
@@ -323,18 +373,25 @@ export function CommandLine({
       </header>
       {!minimized && (
         <div className="cli-log" ref={logRef} onClick={() => inputRef.current?.focus()}>
-          {lines.map((line) => (
-            <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
-              {line.tone === "in" ? (
-                <>
-                  <span className="cli-mark">hns&gt; </span>
-                  <CommandText text={line.text} />
-                </>
-              ) : (
-                line.text
-              )}
-            </pre>
-          ))}
+          {lines.map((line) =>
+            line.tone === "md" ? (
+              <div key={line.id} className="cli-out">
+                <Markdown text={line.text} compact />
+              </div>
+            ) : (
+              <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
+                {line.tone === "in" ? (
+                  <>
+                    <span className="cli-mark">hns&gt; </span>
+                    <CommandText text={line.text} />
+                  </>
+                ) : (
+                  line.text
+                )}
+              </pre>
+            ),
+          )}
+          {running && <Working {...running} />}
           <form
             className="cli-prompt"
             onSubmit={(event) => {
@@ -353,7 +410,8 @@ export function CommandLine({
                 aria-label="Command"
                 spellCheck={false}
                 autoCapitalize="off"
-                disabled={!open || busy}
+                disabled={!open}
+                readOnly={busy}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={onKey}
               />

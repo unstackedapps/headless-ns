@@ -1094,6 +1094,12 @@ details.panel summary { cursor: pointer; font-weight: 300; }
 .cli-in { color: var(--ink); }
 .cli-out { color: var(--muted); }
 .cli-err { color: var(--danger); }
+.cli-work { color: var(--muted); }
+.md-compact { color: var(--ink); line-height: 24px; }
+.md-compact p, .md-compact ul, .md-compact ol, .md-compact h3, .md-compact pre { margin: 0 0 4px; }
+.md-compact h3 { font-size: inherit; font-weight: 600; }
+.md-compact ul, .md-compact ol { padding-left: 2ch; }
+.md-compact code { color: var(--cli-cmd); background: none; padding: 0; font-size: inherit; }
 .cli-cmd { color: var(--cli-cmd); }
 .cli-arg { color: var(--ink); }
 .cli-prompt { display: flex; align-items: center; gap: 8px; height: 24px; }
