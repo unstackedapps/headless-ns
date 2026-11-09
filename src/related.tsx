@@ -15,7 +15,7 @@ function openRelated(detail: RelatedRequest) {
 
 export function RelatedLink({ kind, id, title }: RelatedRequest) {
   return (
-    <button className="linkish" type="button" onClick={() => openRelated({ kind, id, title })}>
+    <button className="linkish" type="button" aria-label={`Related records for ${title}`} onClick={() => openRelated({ kind, id, title })}>
       <Glyph icon={glyph.related} size={14} />
       Related
     </button>

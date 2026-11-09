@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { mockApi, session } from "./mock";
 
-// Every list page fits beside the open Ask drawer at 1440 x 900, with long names and amounts.
+// Every list page keeps pills, row links, dates and amounts on one line at 1280 and 1440 px wide,
+// with and without the Ask drawer. A table too wide for the space scrolls sideways inside its frame.
 const base = { fetchedAt: new Date().toISOString(), tokenExpiresAt: null, source: "NetSuite MCP", hasMore: false, total: 3, page: 0 };
 const party = "6 Duis Elementum Industries Industries International Holdings";
 const tx = Array.from({ length: 3 }, (_, index) => ({
@@ -23,23 +24,56 @@ const items = [{ id: "760", name: "Breville Bambino Plus BES500BSS Espresso Mach
 const pages = ["orders", "quotes", "invoices", "fulfillments", "payments", "returns", "purchaseorders", "receipts", "bills", "billpayments", "customers", "vendors", "items", "people"];
 
 for (const view of pages) {
-  test(`${view} fits beside the Ask drawer`, async ({ page }) => {
-    await mockApi(page, {
-      "/api/session": session,
-      "/api/config": { llm: { id: "m", configured: true, model: "gemma" }, models: { connections: [], activeId: "m" } },
-      "/api/tx": { ...base, rows: tx, statuses: [{ id: "A", label: "Open" }], hasOpen: true },
-      "/api/customers": { ...base, rows: entities },
-      "/api/vendors": { ...base, rows: entities },
-      "/api/employees": { ...base, rows: people },
-      "/api/items": { ...base, rows: items, types: [] },
-    });
-    await page.goto(`/#/${view}`);
-    await page.getByRole("button", { name: "Ask", exact: true }).click();
-    const wrap = page.locator("main .table-wrap");
-    await expect(wrap.getByRole("row")).not.toHaveCount(0);
-    await page.waitForTimeout(250);
-    const { scroll, client } = await wrap.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
-    expect(scroll, `${view} table is ${scroll - client}px too wide`).toBeLessThanOrEqual(client + 1);
-    if (view === "orders") await page.screenshot({ path: "e2e/shots/6b-fit-orders.png" });
-  });
+  for (const width of [1280, 1440]) {
+    for (const ask of [false, true]) {
+      test(`${view} at ${width} px ${ask ? "with" : "without"} the Ask drawer keeps short values on one line`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await mockApi(page, {
+          "/api/session": session,
+          "/api/config": { llm: { id: "m", configured: true, model: "gemma" }, models: { connections: [], activeId: "m" } },
+          "/api/tx": { ...base, rows: tx, statuses: [{ id: "A", label: "Open" }], hasOpen: true },
+          "/api/customers": { ...base, rows: entities },
+          "/api/vendors": { ...base, rows: entities },
+          "/api/employees": { ...base, rows: people },
+          "/api/items": { ...base, rows: items, types: [] },
+        });
+        await page.goto(`/#/${view}`);
+        if (ask) await page.getByRole("button", { name: "Ask", exact: true }).click();
+        const wrap = page.locator("main .table-wrap");
+        await expect(wrap.getByRole("row")).not.toHaveCount(0);
+        await page.waitForTimeout(250);
+        const short = wrap.locator(".pill, .row-actions, td.num, td.nowrap");
+        expect(await short.count()).toBeGreaterThan(0);
+        // A value wrapped when its text boxes sit on more than one line.
+        const wrapped = await short.evaluateAll((els) =>
+          els
+            .filter((el) => {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              const tops = [...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => rect.top);
+              return Math.max(...tops) - Math.min(...tops) > 8;
+            })
+            .map((el) => el.textContent),
+        );
+        expect(wrapped, `${view} wraps these values`).toEqual([]);
+        // The page itself never scrolls sideways. Only the table frame does.
+        const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        expect(pageWidth).toBeLessThanOrEqual(0);
+        if (view === "orders" && ask) await page.screenshot({ path: `e2e/shots/fit-orders-${width}.png` });
+      });
+    }
+  }
 }
+
+test("each order row has Related, Details and Open links, each with its own label", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/tx": { ...base, rows: tx, statuses: [{ id: "A", label: "Open" }], hasOpen: true },
+  });
+  await page.goto("/#/orders");
+  const actions = page.locator("main .row-actions").first();
+  await expect(actions).toHaveText(/Related\s*Details\s*Open/);
+  await expect(actions.getByRole("button", { name: "Related records for SO640", exact: true })).toBeVisible();
+  await expect(actions.getByRole("link", { name: "Details for SO640", exact: true })).toHaveAttribute("href", /records/);
+  await expect(actions.getByRole("link", { name: "Open SO640 in NetSuite", exact: true })).toBeVisible();
+});
