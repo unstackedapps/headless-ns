@@ -2,6 +2,14 @@
 
 <h1 align="center">headless-ns</h1>
 
+<p align="center"><strong>NetSuite over MCP</strong></p>
+
+<p align="center">
+  <a href="https://github.com/unstackedapps/headless-ns/actions/workflows/test.yml"><img src="https://github.com/unstackedapps/headless-ns/actions/workflows/test.yml/badge.svg" alt="test"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license: MIT"></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D23.6-brightgreen" alt="node >=23.6">
+</p>
+
 <p align="center">A browser app for NetSuite. It reads and writes your account through NetSuite's AI Connector, signed in with NetSuite OAuth, or through a custom MCP server such as OpenSuiteMCP.</p>
 
 ![The Orders list with the Ask drawer open](docs/orders-and-ask.png)
@@ -85,3 +93,7 @@ npm run e2e:live
 ```
 
 Live tests write to NetSuite. They create quotes, orders, fulfillments, invoices, payments, purchase orders, receipts and bills with memos that start with "headless-ns", such as "headless-ns workflow test". Sign in once in a browser first.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
