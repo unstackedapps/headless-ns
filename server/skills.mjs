@@ -1,0 +1,340 @@
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, extname, join, sep } from "node:path";
+import { readFrontmatter } from "./frontmatter.mjs";
+
+export const LIMITS = {
+  file: 4_000_000,
+  image: 1_000_000,
+  skill: 20_000_000,
+  total: 60_000_000,
+  files: 2500,
+  skills: 200,
+  path: 240,
+  staleMs: 30 * 60_000,
+};
+
+const TEXT = new Set([".md", ".mdc", ".txt", ".json", ".yaml", ".yml", ".csv", ".sql", ".xml", ".html", ".css", ".js", ".mjs", ".cjs", ".ts", ".py", ".sh"]);
+const IMAGES = new Set([".png", ".svg", ".jpg"]);
+const KNOWN_KEYS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
+const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+
+function fail(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+// Returns why a relative path from an upload, zip or git tree is unsafe, or "".
+export function pathProblem(rel) {
+  const path = String(rel);
+  if (!path) return "The path is empty.";
+  if (path.length > LIMITS.path) return "The path is over 240 characters.";
+  if (/[\\\u0000-\u001f\u007f]/.test(path)) return "The path has a backslash or a control character.";
+  if (path.startsWith("/") || /^[A-Za-z]:/.test(path)) return "The path is absolute.";
+  if (path.split("/").some((part) => part === "" || part === "." || part === "..")) return "The path has an empty, . or .. part.";
+  return "";
+}
+
+const isHidden = (path) => path.split("/").some((part) => part.startsWith("."));
+
+// Why Ask can't keep this file, or "".
+function fileProblem(path, bytes) {
+  const ext = extname(path).toLowerCase();
+  if (IMAGES.has(ext)) return bytes.length > LIMITS.image ? "Image over 1 MB" : "";
+  if (!TEXT.has(ext)) return "File type Ask can't use";
+  if (bytes.length > LIMITS.file) return "File over 4 MB";
+  try {
+    utf8.decode(bytes);
+  } catch {
+    return "Not UTF-8 text";
+  }
+  return "";
+}
+
+const slug = (text) =>
+  String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/, "");
+
+// Checks a SKILL.md header. Returns the facts the preview and index need.
+export function checkSkill(text, folder) {
+  const parsed = readFrontmatter(text);
+  if (!parsed) throw fail("SKILL.md has no frontmatter. It must start with ---.");
+  const { data } = parsed;
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name) throw fail("The frontmatter has no name.");
+  if (name.length > 64 || !NAME.test(name)) throw fail(`The name "${name.slice(0, 80)}" must be 1 to 64 lowercase letters, digits and single hyphens.`);
+  const description = typeof data.description === "string" ? data.description.trim() : "";
+  if (!description) throw fail("The frontmatter has no description.");
+  if (description.length > 1024) throw fail("The description is over 1,024 characters.");
+  if (data.compatibility !== undefined && String(data.compatibility).length > 500) throw fail("compatibility is over 500 characters.");
+  if (data.metadata !== undefined && (typeof data.metadata !== "object" || Array.isArray(data.metadata))) throw fail("metadata must be a map.");
+  const warnings = [];
+  if (folder && folder !== name) warnings.push(`The folder is "${folder}" but the skill is named "${name}". Ask uses "${name}".`);
+  return {
+    name,
+    description,
+    license: typeof data.license === "string" ? data.license.trim() : "",
+    compatibility: typeof data.compatibility === "string" ? data.compatibility : "",
+    metadata: data.metadata || {},
+    ignoredKeys: Object.keys(data).filter((key) => !KNOWN_KEYS.has(key)),
+    warnings,
+  };
+}
+
+// Wraps one Markdown file (AGENTS.md, CLAUDE.md, a .mdc rule or any playbook) as a one-file skill.
+export function wrapPlaybook(path, bytes, { name, description } = {}) {
+  let text;
+  try {
+    text = utf8.decode(bytes);
+  } catch {
+    throw fail(`${path} is not UTF-8 text.`);
+  }
+  let parsed = null;
+  try {
+    parsed = readFrontmatter(text);
+  } catch {
+    parsed = null;
+  }
+  const body = (parsed ? parsed.body : text).trim();
+  const parts = path.split("/");
+  const file = parts.at(-1).replace(/\.(md|mdc)$/i, "");
+  const generic = /^(agents|claude|readme|skill)$/i.test(file) && parts.length > 1;
+  const finalName = slug(name || (generic ? parts.at(-2) : file)) || "playbook";
+  const firstParagraph = body
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .find((block) => block && !block.startsWith("#"));
+  const finalDescription = String(description || parsed?.data?.description || firstParagraph || `Playbook from ${parts.at(-1)}`)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1024);
+  const skill = `---\nname: ${finalName}\ndescription: ${JSON.stringify(finalDescription)}\n---\n\n${body}\n`;
+  return { path: `${finalName}/SKILL.md`, bytes: Buffer.from(skill) };
+}
+
+// Groups uploaded files into skills. `files` is [{ path, bytes }] with paths relative to the upload.
+export function findSkills(files, { playbook } = {}) {
+  let total = 0;
+  for (const file of files) {
+    const problem = pathProblem(file.path);
+    if (problem) throw fail(`${String(file.path).slice(0, 120)}: ${problem}`);
+    total += file.bytes.length;
+  }
+  if (files.length > LIMITS.files) throw fail(`The import has ${files.length} files. The limit is ${LIMITS.files}.`);
+  if (total > LIMITS.total) throw fail("The import is over 60 MB unpacked.");
+  const usable = files.filter((file) => !file.path.split("/").some((part) => part === ".git" || part === ".DS_Store"));
+  let roots = usable
+    .filter((file) => file.path === "SKILL.md" || file.path.endsWith("/SKILL.md"))
+    .map((file) => file.path.slice(0, -"SKILL.md".length).replace(/\/$/, ""))
+    .sort((a, b) => a.length - b.length);
+  // A SKILL.md inside another skill is just one of that skill's files.
+  roots = roots.filter((root, index) => !roots.slice(0, index).some((outer) => outer === "" || root.startsWith(`${outer}/`)));
+  if (!roots.length) {
+    const markdown = usable.filter((file) => /\.(md|mdc)$/i.test(file.path) && !isHidden(file.path));
+    if (markdown.length !== 1) throw fail("No SKILL.md found. Import a skill folder, a plugin, or one Markdown file.");
+    const wrapped = wrapPlaybook(markdown[0].path, markdown[0].bytes, playbook);
+    return findSkills([wrapped]);
+  }
+  const skills = [];
+  const skipped = [];
+  const claimed = new Set();
+  for (const root of roots) {
+    const prefix = root ? `${root}/` : "";
+    const kept = [];
+    for (const file of usable) {
+      if (!file.path.startsWith(prefix)) continue;
+      claimed.add(file.path);
+      const rel = file.path.slice(prefix.length);
+      const problem = isHidden(rel) ? "Hidden file" : fileProblem(rel, file.bytes);
+      if (problem) skipped.push({ path: file.path, reason: problem });
+      else kept.push({ path: rel, bytes: file.bytes });
+    }
+    skills.push({ root, folder: root.split("/").at(-1) || "", files: kept });
+  }
+  for (const file of files) if (!claimed.has(file.path)) skipped.push({ path: file.path, reason: "Not inside a skill folder" });
+  return { skills, skipped };
+}
+
+function digest(files) {
+  const hash = createHash("sha256");
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    hash.update(`${file.path}\0${createHash("sha256").update(file.bytes).digest("hex")}\n`);
+  }
+  return hash.digest("hex");
+}
+
+// Writes a file under root without following links or overwriting, and refuses to leave root.
+function writeInside(root, rel, bytes) {
+  const target = join(root, rel);
+  if (!target.startsWith(root + sep)) throw fail(`${rel}: The path leaves the folder.`);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, bytes, { flag: "wx" });
+}
+
+// Throws when a folder holds anything that is not a plain file or folder.
+function assertPlainTree(dir) {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const info = lstatSync(full);
+    if (info.isDirectory()) assertPlainTree(full);
+    else if (!info.isFile()) throw fail(`${entry} is not a plain file.`);
+  }
+}
+
+function cleanSource(source) {
+  const kind = ["folder", "zip", "markdown", "git"].includes(source?.kind) ? source.kind : "folder";
+  if (kind !== "git") return { kind };
+  return { kind, url: String(source.url), ref: String(source.ref || ""), sha: String(source.sha), path: String(source.path || "") };
+}
+
+export function openSkillStore(dataDir) {
+  const indexFile = join(dataDir, "skills.json");
+  const skillsDir = join(dataDir, "skills");
+  const stagingDir = join(skillsDir, ".staging");
+
+  function list() {
+    if (!existsSync(indexFile)) return [];
+    try {
+      const rows = JSON.parse(readFileSync(indexFile, "utf8"));
+      return Array.isArray(rows) ? rows.filter((row) => row && NAME.test(String(row.name))) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function save(rows) {
+    mkdirSync(dataDir, { recursive: true });
+    const sorted = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+    writeFileSync(indexFile, JSON.stringify(sorted, null, 2));
+    return sorted;
+  }
+
+  function find(name) {
+    const row = list().find((item) => item.name === String(name || ""));
+    if (!row) throw fail(`No skill named ${String(name || "").slice(0, 80)}.`, 404);
+    return row;
+  }
+
+  function sweepStaging() {
+    if (!existsSync(stagingDir)) return;
+    const cutoff = Date.now() - LIMITS.staleMs;
+    for (const entry of readdirSync(stagingDir)) {
+      const full = join(stagingDir, entry);
+      if (statSync(full).mtimeMs < cutoff) rmSync(full, { recursive: true, force: true });
+    }
+  }
+
+  // Validates files, writes the skills to a staging folder, and returns the preview. Nothing reaches data/skills yet.
+  function stage(files, source, { playbook } = {}) {
+    sweepStaging();
+    const found = findSkills(files, { playbook });
+    const existing = new Set(list().map((row) => row.name));
+    const id = randomBytes(12).toString("hex");
+    const root = join(stagingDir, id);
+    const skills = [];
+    const problems = [];
+    const seen = new Set();
+    for (const skill of found.skills) {
+      const label = skill.root || "SKILL.md";
+      try {
+        const head = skill.files.find((file) => file.path === "SKILL.md");
+        const facts = checkSkill(utf8.decode(head.bytes), skill.folder);
+        if (seen.has(facts.name)) throw fail(`Another skill in this import is also named ${facts.name}.`);
+        const size = skill.files.reduce((sum, file) => sum + file.bytes.length, 0);
+        if (size > LIMITS.skill) throw fail("The skill is over 20 MB.");
+        seen.add(facts.name);
+        for (const file of skill.files) writeInside(root, `${facts.name}/${file.path}`, file.bytes);
+        skills.push({
+          ...facts,
+          root: skill.root,
+          exists: existing.has(facts.name),
+          size,
+          sha256: digest(skill.files),
+          files: skill.files.map((file) => ({ path: file.path, size: file.bytes.length })).sort((a, b) => a.path.localeCompare(b.path)),
+        });
+      } catch (error) {
+        problems.push({ path: label, error: error.message });
+      }
+    }
+    const preview = { id, source: cleanSource(source), skills, problems, skipped: found.skipped.slice(0, 200), skippedCount: found.skipped.length };
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "stage.json"), JSON.stringify(preview));
+    return preview;
+  }
+
+  function staged(id) {
+    const clean = String(id || "");
+    const file = join(stagingDir, clean, "stage.json");
+    if (!/^[a-f0-9]{24}$/.test(clean) || !existsSync(file)) throw fail("That preview expired. Start the import again.");
+    return JSON.parse(readFileSync(file, "utf8"));
+  }
+
+  // Moves the chosen staged skills into data/skills. `replace` names the skills that may overwrite a saved one.
+  function importStaged(id, names, replace = []) {
+    const preview = staged(id);
+    const wanted = new Set(Array.isArray(names) ? names.map(String) : []);
+    const replacing = new Set(Array.isArray(replace) ? replace.map(String) : []);
+    let rows = list();
+    const imported = [];
+    const kept = [];
+    for (const skill of preview.skills) {
+      if (!wanted.has(skill.name)) continue;
+      const exists = rows.some((row) => row.name === skill.name);
+      if (exists && !replacing.has(skill.name)) {
+        kept.push(skill.name);
+        continue;
+      }
+      if (!exists && rows.length >= LIMITS.skills) throw fail(`${LIMITS.skills} skills are saved. Remove one before importing more.`);
+      const from = join(stagingDir, preview.id, skill.name);
+      assertPlainTree(from);
+      const target = join(skillsDir, skill.name);
+      const old = join(stagingDir, `${preview.id}-old-${skill.name}`);
+      // Swap by rename so a failure leaves the old copy whole.
+      if (existsSync(target)) renameSync(target, old);
+      try {
+        renameSync(from, target);
+      } catch (error) {
+        if (existsSync(old)) renameSync(old, target);
+        throw error;
+      }
+      rmSync(old, { recursive: true, force: true });
+      const previous = rows.find((row) => row.name === skill.name);
+      const row = {
+        name: skill.name,
+        description: skill.description,
+        license: skill.license,
+        enabled: previous ? previous.enabled : true,
+        source: preview.source,
+        importedAt: new Date().toISOString(),
+        sha256: skill.sha256,
+        files: skill.files,
+      };
+      rows = [...rows.filter((item) => item.name !== skill.name), row];
+      imported.push(skill.name);
+    }
+    save(rows);
+    rmSync(join(stagingDir, preview.id), { recursive: true, force: true });
+    return { imported, kept };
+  }
+
+  function toggle(name, enabled) {
+    const row = find(name);
+    return save(list().map((item) => (item.name === row.name ? { ...item, enabled: Boolean(enabled) } : item)));
+  }
+
+  function remove(name) {
+    const row = find(name);
+    rmSync(join(skillsDir, row.name), { recursive: true, force: true });
+    return save(list().filter((item) => item.name !== row.name));
+  }
+
+  return { dir: skillsDir, list, find, stage, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
+}
+
+export const skillStore = openSkillStore("data");
