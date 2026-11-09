@@ -62,19 +62,39 @@ function savedHint(hint: string) {
 
 const setupSteps: Record<Kind, (redirectUri: string) => ReactNode[]> = {
   netsuite: (redirectUri) => [
-    <li key="1">Under Setup &gt; Company &gt; Enable Features, turn on Server SuiteScript, OAuth 2.0, and REST Web Services.</li>,
-    <li key="2">From the SuiteApps tab, install MCP Standard Tools.</li>,
-    <li key="3">On the role, add MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web Services. The Administrator role cannot use this connection.</li>,
-    <li key="4">
-      Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns. Turn on Authorization Code Grant and the NetSuite AI Connector Service scope. Use this redirect URI:
+    <li key="1">
+      Go to Setup &gt; Company &gt; Enable Features. Check Server SuiteScript on the SuiteCloud tab. On the same tab, check REST Web Services under Web Services
+      and OAuth 2.0 under Manage Authentication.
+    </li>,
+    <li key="2">Go to SuiteCloud &gt; SuiteApp Marketplace and install MCP Standard Tools.</li>,
+    <li key="3">
+      Make a role under Setup &gt; Users/Roles &gt; Manage Roles &gt; New. Give it MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web
+      Services at Full. Add View or Edit on the records you will use: customers, vendors, items, transactions, and files. The Administrator role cannot use
+      this connection.
+    </li>,
+    <li key="4">Assign the role to each person who signs in.</li>,
+    <li key="5">
+      Go to Setup &gt; Integration &gt; Manage Integrations &gt; New. Name it headless-ns and set State to Enabled. Check Authorization Code Grant. Under
+      OAuth 2.0 scopes, check only NetSuite AI Connector Service. Use this redirect URI:
       <span className="uri">{redirectUri}</span>
     </li>,
-    <li key="5">Paste the client ID here. If Public Client is unchecked on the integration, uncheck it here too and paste the client secret.</li>,
+    <li key="6">
+      Save the integration and paste its client ID here. NetSuite shows the ID only once. If Public Client is unchecked on the integration, uncheck it here too
+      and paste the client secret.
+    </li>,
   ],
   custom: () => [
-    <li key="1">Use this for a server that exposes the NetSuite MCP tools. OpenSuiteMCP, hosted or self-hosted, is the one tested so far.</li>,
-    <li key="2">For OpenSuiteMCP, create an agent app in the app portal and choose bearer auth. The hosted URL is https://app.opensuitemcp.com/api/mcp.</li>,
-    <li key="3">The NetSuite role behind that server needs MCP Server Connection, Log in using OAuth 2.0 Access Tokens, REST Web Services, and the MCP Standard Tools SuiteApp. Use a role other than Administrator.</li>,
+    <li key="1">Use this for an MCP server or gateway that offers the NetSuite tools. It takes the server's URL and a bearer token. OpenSuiteMCP and Mint (Mintive) are tested.</li>,
+    <li key="2">OpenSuiteMCP: create an agent app in its app portal, choose bearer auth, and copy the app's MCP URL.</li>,
+    <li key="3">
+      Mint: in NetSuite, make an integration for Mint with State Enabled, Authorization Code Grant, Public Client, only the NetSuite AI Connector Service
+      scope, and redirect URI https://app.mintmcp.com/oauth/callback. In Mint, install NetSuite from the MCP store with that client ID and connect your
+      NetSuite account. Then open the Virtual MCP, copy its URL, and create an API key in its settings.
+    </li>,
+    <li key="4">
+      The NetSuite role behind the server needs the same setup as a NetSuite OAuth role: MCP Server Connection, Log in using OAuth 2.0 Access Tokens, REST Web
+      Services, record permissions, and the MCP Standard Tools SuiteApp. Use a role other than Administrator.
+    </li>,
   ],
 };
 
@@ -227,7 +247,7 @@ export function ConnectStep({
               required
               type="url"
               pattern="https://.*"
-              placeholder="https://app.opensuitemcp.com/api/mcp"
+              placeholder="https://your-server/mcp"
               onChange={(event) => setUrl(event.target.value)}
             />
           </label>

@@ -21,10 +21,14 @@
 ## What it needs
 
 - Node 24. The tests load TypeScript files directly, which needs Node 23.6 or later.
-- A NetSuite account with one of these:
-  - An integration record with the `mcp` scope, for NetSuite OAuth.
-  - A custom MCP server URL and bearer token. OpenSuiteMCP is the one tested so far.
-- An AI model key for Ask, if you want Ask. Claude, Grok, Gemini, OpenAI, Groq, Mistral and OpenAI-compatible hosts are listed. Only an OpenAI-compatible host running Gemma 4 has been tested live.
+- A NetSuite account set up like this:
+  - Features, under Setup > Company > Enable Features: Server SuiteScript on the SuiteCloud tab, REST Web Services under Web Services, and OAuth 2.0 under Manage Authentication.
+  - The MCP Standard Tools SuiteApp, from SuiteCloud > SuiteApp Marketplace.
+  - A role other than Administrator, with MCP Server Connection, Log in using OAuth 2.0 Access Tokens and REST Web Services at Full, plus View or Edit on the records you use: customers, vendors, items, transactions and files. Assign it to each person who signs in.
+- One way to connect:
+  - NetSuite OAuth: an integration record with State set to Enabled, Authorization Code Grant, only the NetSuite AI Connector Service scope, and the redirect URI that setup shows.
+  - A custom MCP server URL and bearer token. OpenSuiteMCP and Mint (Mintive) are tested.
+- An AI model key for Ask, if you want Ask. Claude, Grok, Gemini, OpenAI, Groq, Mistral and OpenAI-compatible hosts are listed. Claude, Gemini, OpenAI and an OpenAI-compatible host running Gemma 4 are tested live.
 - Port 5173. The NetSuite integration's redirect URI points there.
 
 ## Quick start

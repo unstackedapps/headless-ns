@@ -205,3 +205,28 @@ test("a saved custom server is tested on load, so its failure shows after a relo
   await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Test again" })).toBeVisible();
 });
+
+test("setup's how-to names where each feature lives, the role's records, the integration's state and scope, and the tested custom servers", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": { ...session, signedIn: false, ai: false },
+    "/api/connector": connector,
+  });
+  await page.goto("/");
+  await page.getByText("How to set this up").click();
+  const steps = page.locator("ol.steps");
+  await expect(steps).toContainText("Check Server SuiteScript on the SuiteCloud tab");
+  await expect(steps).toContainText("REST Web Services under Web Services");
+  await expect(steps).toContainText("OAuth 2.0 under Manage Authentication");
+  await expect(steps).toContainText("SuiteCloud > SuiteApp Marketplace and install MCP Standard Tools");
+  await expect(steps).toContainText("customers, vendors, items, transactions, and files");
+  await expect(steps).toContainText("Assign the role to each person who signs in.");
+  await expect(steps).toContainText("set State to Enabled");
+  await expect(steps).toContainText("check only NetSuite AI Connector Service");
+  await expect(steps).toContainText("https://localhost:5173/api/auth/callback");
+
+  await pick(page, "Connection", "Custom MCP server");
+  await expect(steps).toContainText("OpenSuiteMCP and Mint (Mintive) are tested");
+  await expect(steps).toContainText("https://app.mintmcp.com/oauth/callback");
+  await expect(page.getByLabel("Server URL")).toHaveAttribute("placeholder", "https://your-server/mcp");
+  await expect(page.getByText("opensuitemcp.com")).toHaveCount(0);
+});
