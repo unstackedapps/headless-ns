@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/node-%3E%3D23.6-brightgreen" alt="node >=23.6">
 </p>
 
-<p align="center">A browser app for NetSuite. It reads and writes your account through NetSuite's AI Connector, signed in with NetSuite OAuth, or through a custom MCP server such as OpenSuiteMCP.</p>
+<p align="center">A browser app for NetSuite. It reads and writes your NetSuite account. You sign in with NetSuite OAuth, or connect your own MCP server.</p>
 
 ![The Invoices list showing open invoices for many customers, with due dates, amounts and NetSuite links](docs/invoices.png)
 
@@ -23,12 +23,12 @@
 - Run SuiteQL in the Query editor, page through the rows, save the query and download a CSV.
 - Find any record by number, name or email, and open, edit, transform or attach a file to it.
 - Run saved searches and saved reports, and browse the file cabinet.
-- Ask questions in plain words. Ask reads the account and proposes changes, and nothing changes until you confirm.
+- Ask questions in plain words. Ask reads the account and suggests edits. It saves nothing until you confirm.
 - Type commands in the command line: `open`, `sql`, `ask`, `confirm`, `theme` and more.
 
 ## What it needs
 
-- Node 24. The tests load TypeScript files directly, which needs Node 23.6 or later.
+- Node 23.6 or later.
 - A NetSuite account set up like this:
   - Features, under Setup > Company > Enable Features: Server SuiteScript on the SuiteCloud tab, REST Web Services under Web Services, and OAuth 2.0 under Manage Authentication.
   - The MCP Standard Tools SuiteApp, from SuiteCloud > SuiteApp Marketplace.
@@ -36,7 +36,7 @@
 - One way to connect:
   - NetSuite OAuth: an integration record with State set to Enabled, Authorization Code Grant, only the NetSuite AI Connector Service scope, and the redirect URI that setup shows.
   - A custom MCP server URL and bearer token. OpenSuiteMCP and Mint (Mintive) are tested.
-- An AI model key for Ask, if you want Ask. Claude, Grok, Gemini, OpenAI, Groq, Mistral and OpenAI-compatible hosts are listed. Claude, Gemini, OpenAI and an OpenAI-compatible host running Gemma 4 are tested live.
+- An AI model key, if you want Ask. Tested live: Claude, Gemini, OpenAI, and Gemma 4 on an OpenAI-compatible host. Also listed: Grok, Groq and Mistral.
 - Port 5173. The NetSuite integration's redirect URI points there.
 
 ## Quick start
@@ -61,7 +61,7 @@ flowchart LR
   S -- API key --> M[AI model]
 ```
 
-- NetSuite stays the system of record. headless-ns keeps no copy of your data, except NetSuite's record types, tables and fields, which it caches for a day in `data/metadata-<account>.json`.
+- Your data stays in NetSuite. The app caches only NetSuite's record types, tables and fields, for one day, in `data/metadata-<account>.json`.
 - The browser holds only an httpOnly session cookie. NetSuite tokens and model keys stay on the local server.
 - Saved models live in `data/models.json` and saved queries in `data/queries.json`. Git ignores `data/`.
 
