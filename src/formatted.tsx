@@ -43,6 +43,30 @@ export function Markdown({ text, compact = false }: { text: string; compact?: bo
           );
         }
         if (block.type === "pre") return <pre key={index}>{block.text}</pre>;
+        if (block.type === "table") {
+          return (
+            <div key={index} className="md-table">
+              <table>
+                <thead>
+                  <tr>
+                    {block.head.map((cell, cellIndex) => (
+                      <th key={cellIndex}>{spans(cell)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {block.head.map((_, cellIndex) => (
+                        <td key={cellIndex}>{spans(row[cellIndex] ?? "")}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
         return <p key={index}>{spans(block.text)}</p>;
       })}
     </div>

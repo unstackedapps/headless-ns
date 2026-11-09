@@ -136,7 +136,13 @@ test("Ask behind Mint sees plain ns_ names, applies the read and write rules, an
   const { ask } = await import("../server/llm.mjs");
   const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } };
   const mint = ["netsuite__ns_runCustomSuiteQL", "netsuite__ns_createRecord", "netsuite__ns_getSessionInfo"];
-  const common = { connection: { apiKey: "k", provider: "openai", model: "mock" }, identity: { accountId: "TD3138390", roleId: "customrole1302" }, query: async () => [] };
+  const { openSkillStore } = await import("../server/skills.mjs");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // An empty skill store, so skills imported into this machine's data/ don't change the tool list.
+  const skills = openSkillStore(mkdtempSync(join(tmpdir(), "hn-mint-")));
+  const common = { connection: { apiKey: "k", provider: "openai", model: "mock" }, identity: { accountId: "TD3138390", roleId: "customrole1302" }, query: async () => [], skills };
   await withServer(mint, async (sent) => {
     let offered = [];
     let turn = 0;

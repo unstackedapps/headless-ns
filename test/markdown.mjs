@@ -30,3 +30,15 @@ test("Ask's steps use plain words instead of tool names", async () => {
   assert.equal(stepText({ name: "ns_getFooBar", ok: true }), "Called get foo bar");
   assert.equal(toolTitle("ns_runReport"), "Run a report");
 });
+
+test("a Markdown table becomes rows and cells, and a lone pipe line stays text", () => {
+  const blocks = markdownBlocks("Top vendors:\n| # | Vendor | Spend |\n|---|:---|---:|\n| 1 | **China Manufacturer** | 978,708.02 |\n| 2 | Brocade |\n\nDone.");
+  assert.deepEqual(blocks.map((block) => block.type), ["p", "table", "p"]);
+  assert.deepEqual(blocks[1].head, ["#", "Vendor", "Spend"]);
+  assert.deepEqual(blocks[1].rows, [
+    ["1", "**China Manufacturer**", "978,708.02"],
+    ["2", "Brocade"],
+  ]);
+  assert.equal(markdownBlocks("a | b | c")[0].type, "p");
+  assert.equal(markdownBlocks("| not a table |\nnext line")[0].type, "p");
+});

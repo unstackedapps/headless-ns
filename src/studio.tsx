@@ -12,9 +12,10 @@ import { orBlank } from "./format";
 import { ShapeSelect, ThemeSelect } from "./theme";
 import { api, postJson } from "./api";
 import { PageHead } from "./head";
+import { SkillsSection } from "./skills";
 import { stepText, toolTitle } from "./steps";
 
-type Step = { name: string; ok: boolean; error?: string };
+type Step = { name: string; ok: boolean; error?: string; detail?: string };
 type PendingCall = {
   id: string;
   name: string;
@@ -1099,6 +1100,7 @@ export function SettingsPage() {
           Save Ask's tools
         </button>
       </section>
+      <SkillsSection onMessage={setMessage} onError={setError} />
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { readJsonBody } from "./http.mjs";
 import { toolKind } from "./kinds.mjs";
-import { ask, confirmAsk, pingModel } from "./llm.mjs";
+import { ask, confirmAsk, pingModel, skillListing } from "./llm.mjs";
 import { modelStore } from "./models.mjs";
 import { listModels } from "./providers.mjs";
 import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
@@ -8,6 +8,7 @@ import { readPolicy, writePolicy } from "./policy.mjs";
 import { recordRoutes } from "./records.mjs";
 import { flowRoutes } from "./workflows.mjs";
 import { listTrace } from "./trace.mjs";
+import { LIMITS, skillStore, unzipSkills } from "./skills.mjs";
 
 const NEEDS_CONFIRM = new Set(["write", "internal", "app"]);
 
@@ -202,10 +203,111 @@ function llmPayload() {
   };
 }
 
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+// The saved skills without their file lists, plus whether Ask sees shortened descriptions.
+function skillsPayload(skills = skillStore) {
+  const rows = skills.list();
+  return {
+    skills: rows.map(({ files, ...row }) => ({
+      ...row,
+      fileCount: files.length,
+      size: files.reduce((sum, item) => sum + item.size, 0),
+      scripts: files.filter((item) => /\.(py|sh)$/i.test(item.path)).length,
+    })),
+    shortened: skillListing(rows.filter((row) => row.enabled)).shortened,
+  };
+}
+
+// A staged preview with a file count per skill, not the file list.
+const slimPreview = (preview) => ({ ...preview, skills: preview.skills.map(({ files, ...skill }) => ({ ...skill, fileCount: files.length })) });
+
+const base64Bytes = (value, label) => {
+  if (typeof value !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) throw badRequest(`${label} must be base64.`);
+  return Buffer.from(value, "base64");
+};
+
+// Turns a stage request into files for the store. Folder uploads send [{ path, base64 }].
+async function stageSkills(body, skills = skillStore) {
+  const playbook = body.playbook && typeof body.playbook === "object" ? { name: String(body.playbook.name || ""), description: String(body.playbook.description || "") } : undefined;
+  if (body.kind === "git") return skills.stageGit({ url: body.url, ref: body.ref, path: body.path });
+  if (body.kind === "zip") {
+    const unpacked = unzipSkills(base64Bytes(body.data, "The zip"));
+    return skills.stage(unpacked.files, { kind: "zip" }, { skipped: unpacked.skipped, playbook });
+  }
+  if (body.kind === "markdown") {
+    const name = String(body.fileName || "").split("/").pop();
+    if (!/\.(md|mdc)$/i.test(name)) throw badRequest("Choose a .md or .mdc file.");
+    return skills.stage([{ path: name, bytes: base64Bytes(body.data, "The file") }], { kind: "markdown" }, { playbook });
+  }
+  if (body.kind === "files") {
+    if (!Array.isArray(body.files) || !body.files.length) throw badRequest("Choose a folder.");
+    if (body.files.length > LIMITS.files) throw badRequest(`The folder has ${body.files.length} files. The limit is ${LIMITS.files}.`);
+    const files = body.files.map((item) => ({ path: String(item?.path || ""), bytes: base64Bytes(item?.base64, String(item?.path || "A file")) }));
+    return skills.stage(files, { kind: "folder" }, { playbook });
+  }
+  throw badRequest("Choose a folder, a zip, a Markdown file or a Git URL.");
+}
+
+export function skillRoutes({ sendJson, authorized, skills = skillStore }) {
+  return {
+    "GET /api/skills": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      sendJson(res, 200, skillsPayload(skills));
+    },
+
+    "POST /api/skills/stage": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      // Base64 adds a third, so 45 MB carries about 33 MB of files.
+      const body = await readJsonBody(req, 45_000_000);
+      sendJson(res, 200, slimPreview(await stageSkills(body, skills)));
+    },
+
+    "POST /api/skills/import": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      const result = skills.importStaged(body.stagedId, body.names, body.replace);
+      sendJson(res, 200, { ...result, ...skillsPayload(skills) });
+    },
+
+    "POST /api/skills/update": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      const result = await skills.update(body.name);
+      sendJson(res, 200, result.preview ? { ...result, preview: slimPreview(result.preview) } : result);
+    },
+
+    "POST /api/skills/toggle": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      skills.toggle(body.name, body.enabled === true);
+      sendJson(res, 200, skillsPayload(skills));
+    },
+
+    "POST /api/skills/remove": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      skills.remove(body.name);
+      sendJson(res, 200, skillsPayload(skills));
+    },
+
+    "POST /api/skills/file": async (req, res) => {
+      if (!(await authorized(req, res))) return;
+      const body = await readJsonBody(req);
+      sendJson(res, 200, skills.file(body.name, body.path));
+    },
+  };
+}
+
 export function studioRoutes({ sendJson, authorized }) {
   return {
     ...recordRoutes({ sendJson, authorized, readJsonBody }),
     ...flowRoutes({ sendJson, authorized }),
+    ...skillRoutes({ sendJson, authorized }),
     "GET /api/config": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const identity = await withSource("settings", () => osmcpIdentity());

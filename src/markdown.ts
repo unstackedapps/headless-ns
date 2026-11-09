@@ -5,7 +5,8 @@ export type Block =
   | { type: "h"; level: number; text: string }
   | { type: "ul"; items: string[] }
   | { type: "ol"; items: string[] }
-  | { type: "pre"; text: string };
+  | { type: "pre"; text: string }
+  | { type: "table"; head: string[]; rows: string[][] };
 
 const inline = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*([^*]+)\*/g;
 
@@ -41,9 +42,26 @@ function isNumbered(line: string) {
   return /^\d+\.\s+\S/.test(line);
 }
 
+function isRow(line: string) {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+// "| a | b |" to ["a", "b"].
+function cells(line: string) {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+}
+
+// A header row, then a divider like |---|:--:|, then body rows.
+function isTableStart(lines: string[], index: number) {
+  return isRow(lines[index]) && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(lines[index + 1]);
+}
+
 export function markdownBlocks(source: string): Block[] {
-  // shortcut: a heading mark later on the same line starts its own block
-  const lines = source.replace(/\r\n/g, "\n").replace(/ +(?=#{1,3} )/g, "\n").split("\n");
+  // shortcut: a heading mark later on the same line starts its own block, except in a table row, where "| # |" is a column
+  const lines = source
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .flatMap((line) => (isRow(line) ? [line] : line.replace(/ +(?=#{1,3} )/g, "\n").split("\n")));
   const blocks: Block[] = [];
   let index = 0;
   while (index < lines.length) {
@@ -69,6 +87,17 @@ export function markdownBlocks(source: string): Block[] {
       index += 1;
       continue;
     }
+    if (isTableStart(lines, index)) {
+      const head = cells(line);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && isRow(lines[index])) {
+        rows.push(cells(lines[index]));
+        index += 1;
+      }
+      blocks.push({ type: "table", head, rows });
+      continue;
+    }
     if (isBullet(line)) {
       const items: string[] = [];
       while (index < lines.length && isBullet(lines[index])) {
@@ -88,7 +117,7 @@ export function markdownBlocks(source: string): Block[] {
       continue;
     }
     const para: string[] = [];
-    while (index < lines.length && lines[index].trim() && !isFence(lines[index]) && !isHeading(lines[index]) && !isBullet(lines[index]) && !isNumbered(lines[index])) {
+    while (index < lines.length && lines[index].trim() && !isFence(lines[index]) && !isHeading(lines[index]) && !isBullet(lines[index]) && !isNumbered(lines[index]) && !isTableStart(lines, index)) {
       para.push(lines[index].trim());
       index += 1;
     }

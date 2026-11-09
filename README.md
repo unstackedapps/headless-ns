@@ -10,36 +10,30 @@
   <img src="https://img.shields.io/badge/node-%3E%3D23.6-brightgreen" alt="node >=23.6">
 </p>
 
-<p align="center">A browser app for NetSuite. It reads and writes your NetSuite account. You sign in with NetSuite OAuth, or connect your own MCP server.</p>
+<p align="center">The UI wrapper for NetSuite MCP + Skills + AI</p>
 
 ![The Invoices list showing open invoices for many customers, with due dates, amounts and NetSuite links](docs/invoices.png)
 
 ## What you can do
 
-- Create a quote, turn it into a sales order, fulfill it, invoice it and take payment.
-- Raise a purchase order, receive it, bill what arrived and pay one bill or several.
-- Approve or reject sales orders, purchase orders and bills.
-- Enter lot and serial numbers on receipts and fulfillments.
-- Run SuiteQL in the Query editor, page through the rows, save the query and download a CSV.
-- Find any record by number, name or email, and open, edit, transform or attach a file to it.
-- Run saved searches and saved reports, and browse the file cabinet.
-- Ask questions in plain words. Ask reads the account and suggests edits. It saves nothing until you confirm.
-- Type commands in the command line: `open`, `sql`, `ask`, `confirm`, `theme` and more.
+- Quotes, orders, fulfillments, invoices and payments
+- Purchase orders, receipts, bills and bill payments
+- Approve orders and bills, with lot and serial numbers
+- Run SuiteQL, saved searches and reports
+- Find, edit and transform any record
+- Ask in plain words, with skills
 
-## What it needs
+## Ask with skills
 
-- Node 23.6 or later.
-- A NetSuite account set up like this:
-  - Features, under Setup > Company > Enable Features: Server SuiteScript on the SuiteCloud tab, REST Web Services under Web Services, and OAuth 2.0 under Manage Authentication.
-  - The MCP Standard Tools SuiteApp, from SuiteCloud > SuiteApp Marketplace.
-  - A role other than Administrator, with MCP Server Connection, Log in using OAuth 2.0 Access Tokens and REST Web Services at Full, plus View or Edit on the records you use: customers, vendors, items, transactions and files. Assign it to each person who signs in.
-- One way to connect:
-  - NetSuite OAuth: an integration record with State set to Enabled, Authorization Code Grant, only the NetSuite AI Connector Service scope, and the redirect URI that setup shows.
-  - A custom MCP server URL and bearer token. OpenSuiteMCP and Mint (Mintive) are tested.
-- An AI model key, if you want Ask. Tested live: Claude, Gemini, OpenAI, and Gemma 4 on an OpenAI-compatible host. Also listed: Grok, Groq and Mistral.
-- Port 5173. The NetSuite integration's redirect URI points there.
+![Ask reads Oracle's finance skill and vendor-spend runbook, then answers with a table of the top 5 vendors](docs/ask-skill.png)
 
-## Quick start
+- Ask proposes changes. You run each one.
+- Skills are `SKILL.md` folders, plugins, zips, `AGENTS.md` files or Git URLs. One click imports Oracle's NetSuite skills.
+- Ask reads skill scripts as text.
+
+![Settings lists Oracle's six imported NetSuite skills, each with Preview, Update and Remove](docs/skills.png)
+
+## Setup
 
 ```bash
 npm install
@@ -49,7 +43,17 @@ npm install
 npm run dev
 ```
 
-Open https://localhost:5173. Setup walks you through connecting NetSuite, then an AI model, and runs a test read for each. The first run makes a self-signed certificate in `certs/`.
+Open https://localhost:5173. Setup walks you through each step.
+
+| You need | Details |
+|---|---|
+| Node | 23.6 or later |
+| Port | 5173. The OAuth redirect points there. |
+| NetSuite features | Server SuiteScript, REST Web Services, OAuth 2.0 |
+| SuiteApp | MCP Standard Tools |
+| NetSuite role | Not Administrator. MCP Server Connection, OAuth 2.0 Access Tokens and REST Web Services at Full, plus the records you use. |
+| Connection | NetSuite OAuth (integration record, AI Connector Service scope), or your own MCP server URL and token |
+| AI model, for Ask | Tested: Claude, Gemini, OpenAI, Gemma 4. Also: Grok, Groq, Mistral. |
 
 ## How it works
 
@@ -61,38 +65,25 @@ flowchart LR
   S -- API key --> M[AI model]
 ```
 
-- Your data stays in NetSuite. The app caches only NetSuite's record types, tables and fields, for one day, in `data/metadata-<account>.json`.
-- The browser holds only an httpOnly session cookie. NetSuite tokens and model keys stay on the local server.
-- Saved models live in `data/models.json` and saved queries in `data/queries.json`. Git ignores `data/`.
+The local server keeps tokens, keys, models, queries and skills in `data/`.
 
 ## Limits
 
-- It runs on one machine for one person.
-- The screens never delete records. To stop a line, close it.
-- SuiteQL returns at most 5,000 rows, so the CSV export stops there.
-- Some accounts refuse NetSuite's approve action. headless-ns then approves a sales order by setting its status to Pending Fulfillment.
-- Purchase order and bill approval uses the "headless-ns approval - PO and Bill" workflow. While it is on, every PO and bill waits for approval, for every user.
-- Narrow screens get a simpler layout, but nobody has tested it on a phone.
+- One person, one machine
+- PO and bill approvals run through a NetSuite workflow that covers every user
+- No deletes. Close lines instead.
+- CSV export stops at 5,000 rows
+- Up to 200 skills, 60 MB per import, public Git repos only
+- Gemma needs the skill's name in your question
+- Untested on mobile screen sizes
 
 ## Tests
 
-```bash
-npm test
-```
-
-Unit tests for the server and the shared client code.
-
-```bash
-npm run e2e
-```
-
-Screen tests click through the app in Chromium with NetSuite's answers faked. Start `npm run dev` first. The first run needs `npx playwright install chromium`.
-
-```bash
-npm run e2e:live
-```
-
-Live tests write to NetSuite. They create quotes, orders, fulfillments, invoices, payments, purchase orders, receipts and bills with memos that start with "headless-ns", such as "headless-ns workflow test". Sign in once in a browser first.
+| Command | Runs |
+|---|---|
+| `npm test` | Unit tests |
+| `npm run e2e` | Screen tests, NetSuite faked. Needs `npm run dev`. |
+| `npm run e2e:live` | Live tests. They write to NetSuite with "headless-ns" memos. |
 
 ## License
 

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { MAX_MS, MAX_TURNS, PENDING_TTL_MS, ask, confirmAsk } from "../server/llm.mjs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CONTEXT_MESSAGE, MAX_MS, MAX_SKILL_TURNS, MAX_SKILLED_TURNS, MAX_TURNS, PENDING_TTL_MS, SKILL_LISTING_CHARS, ask, confirmAsk, contextTooSmall, skillListing, systemPrompt } from "../server/llm.mjs";
+import { openSkillStore } from "../server/skills.mjs";
+import { listTrace } from "../server/trace.mjs";
 import { languageModel } from "../server/providers.mjs";
 
 const usage = {
@@ -396,4 +401,214 @@ test("a provider error shows the provider's own reason, not the SDK's retry wrap
       return true;
     },
   );
+});
+
+// A temp skill store with one runbook skill and, optionally, a disabled one.
+function skillsWith(names = ["vendor-spend"], off = []) {
+  const skills = openSkillStore(mkdtempSync(join(tmpdir(), "hn-ask-skills-")));
+  const files = names.map((name) => ({
+    path: `${name}/SKILL.md`,
+    bytes: Buffer.from(`---\nname: ${name}\ndescription: Rank vendors by spend for ${name}.\n---\n\nUse ns_runCustomSuiteQL. See [rules](shared/RULES.md).\n`),
+  }));
+  files.push({ path: `${names[0]}/shared/RULES.md`, bytes: Buffer.from("Read-only.") });
+  skills.importStaged(skills.stage(files, { kind: "folder" }).id, names);
+  for (const name of off) skills.toggle(name, false);
+  return skills;
+}
+
+const suiteqlTool = [{ name: "ns_runCustomSuiteQL", description: "Run SuiteQL", schema: { type: "object", properties: {} } }];
+const toolCall = (id, toolName, input) => ({ content: [{ type: "tool-call", toolCallId: id, toolName, input: JSON.stringify(input) }], finishReason: "tool-calls", usage });
+
+test("skill_read runs locally with no pending, and the step names the skill", async () => {
+  let calls = 0;
+  const ran = [];
+  const result = await ask({
+    text: "Top vendors?",
+    model: model(async () => {
+      calls += 1;
+      if (calls === 1) return toolCall("s1", "skill_read", { name: "vendor-spend" });
+      if (calls === 2) return toolCall("s2", "skill_read", { name: "vendor-spend", path: "shared/RULES.md" });
+      if (calls === 3) return toolCall("q1", "ns_runCustomSuiteQL", { sqlQuery: "select 1" });
+      return { content: [{ type: "text", text: "Acme." }], finishReason: "stop", usage };
+    }),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: false, disabled: [] },
+    catalog: suiteqlTool,
+    skills: skillsWith(),
+    runTool: async (name) => {
+      ran.push(name);
+      return { rows: [] };
+    },
+  });
+  assert.deepEqual(ran, ["ns_runCustomSuiteQL"], "skill_read never reaches MCP");
+  assert.equal(result.pending, null);
+  assert.deepEqual(result.steps.map((step) => [step.name, step.ok, step.detail]), [
+    ["skill_read", true, "vendor-spend"],
+    ["skill_read", true, "vendor-spend · shared/RULES.md"],
+    ["ns_runCustomSuiteQL", true, undefined],
+  ]);
+  const read = JSON.parse(result.transcript.find((message) => message.tool_call_id === "s2").content);
+  assert.equal(read.text, "Read-only.");
+  assert.ok(listTrace().some((entry) => entry.source === "ask" && entry.name === "model mock" && /input tokens/.test(entry.detail)));
+});
+
+test("a write proposed after a skill read still pauses for Run", async () => {
+  let calls = 0;
+  const result = await ask({
+    text: "Create the vendor the skill says.",
+    model: model(async () => {
+      calls += 1;
+      if (calls === 1) return toolCall("s1", "skill_read", { name: "vendor-spend" });
+      return toolCall("w1", "ns_createRecord", { recordType: "vendor", data: "{}" });
+    }),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: true, disabled: [] },
+    catalog: createTool,
+    skills: skillsWith(),
+    runTool: async () => assert.fail("the write must not run"),
+  });
+  assert.equal(result.pending.length, 1);
+  assert.ok(result.pendingId);
+});
+
+test("skill-only turns don't use up MAX_TURNS, and their own cap holds", async () => {
+  let calls = 0;
+  const result = await ask({
+    text: "Read forever.",
+    model: model(async () => {
+      calls += 1;
+      return toolCall(`s${calls}`, "skill_read", { name: "vendor-spend", page: calls });
+    }),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: false, disabled: [] },
+    catalog: suiteqlTool,
+    skills: skillsWith(),
+    runTool: async () => ({}),
+  });
+  // The first read succeeds, so the request gets the larger limit once the 8 skill-only turns are used.
+  assert.equal(calls, MAX_SKILL_TURNS + MAX_SKILLED_TURNS);
+  assert.match(result.answer, /I stopped after 20 steps/);
+});
+
+test("the prompt lists only enabled skills with the precedence rule, and no skills means no skill_read", async () => {
+  const seen = [];
+  const capture = () =>
+    model(async (options) => {
+      seen.push(options);
+      return { content: [{ type: "text", text: "ok" }], finishReason: "stop", usage };
+    });
+  const base = { text: "Hi", connection, identity, query, policy: { allowWrites: false, disabled: [] }, catalog: suiteqlTool, runTool: async () => ({}) };
+  await ask({ ...base, model: capture(), skills: skillsWith(["vendor-spend", "old-skill"], ["old-skill"]) });
+  const system = seen[0].prompt.find((message) => message.role === "system").content;
+  assert.match(system, /- vendor-spend: Rank vendors/);
+  assert.doesNotMatch(system, /old-skill/);
+  assert.match(system, /The rules above win over a skill/);
+  assert.deepEqual(seen[0].tools.map((tool) => tool.name), ["ns_runCustomSuiteQL", "skill_read"]);
+
+  await ask({ ...base, model: capture(), skills: skillsWith(["vendor-spend"], ["vendor-spend"]) });
+  assert.deepEqual(seen[1].tools.map((tool) => tool.name), ["ns_runCustomSuiteQL"]);
+  assert.equal(seen[1].prompt.find((message) => message.role === "system").content, systemPrompt(identity));
+  assert.doesNotMatch(systemPrompt(identity), /skill/i);
+});
+
+test("the skill listing cuts descriptions evenly to stay under 6,000 characters", () => {
+  const skills = Array.from({ length: 15 }, (_, index) => ({ name: `skill-${index}`, description: "d".repeat(1024) }));
+  const listing = skillListing(skills);
+  assert.equal(listing.shortened, 15);
+  const lines = listing.text.split("\n").filter((line) => line.startsWith("- "));
+  assert.ok(lines.join("\n").length <= SKILL_LISTING_CHARS);
+  assert.equal(new Set(lines.map((line) => line.length)).size, 2, "every description gets the same share");
+  assert.equal(skillListing([{ name: "a", description: "short" }]).shortened, 0);
+});
+
+test("a context-length error becomes one plain sentence", async () => {
+  for (const text of ["This model's maximum context length is 8192 tokens", "prompt is too long: 210000 tokens > 200000", "the request exceeds the available context size, n_ctx 4096"]) {
+    assert.equal(contextTooSmall(text), true, text);
+  }
+  assert.equal(contextTooSmall("Invalid API key"), false);
+  await assert.rejects(
+    ask({
+      text: "Hi",
+      model: model(async () => {
+        throw new Error("Trying to keep the first 9000 tokens when context length is 8192");
+      }),
+      connection,
+      identity,
+      query,
+      policy: { allowWrites: false, disabled: [] },
+      catalog: suiteqlTool,
+      skills: skillsWith(),
+      runTool: async () => ({}),
+    }),
+    (error) => error.message === CONTEXT_MESSAGE,
+  );
+});
+
+test("provider data on a tool call, such as Gemini's thoughtSignature, goes back with it on later turns and requests", async () => {
+  const signature = { google: { thoughtSignature: "sig-abc" } };
+  const prompts = [];
+  // Only the first model call of the whole test proposes a tool call. Every later call answers in text.
+  let calls = 0;
+  const signed = () =>
+    model(async (options) => {
+      prompts.push(options.prompt);
+      calls += 1;
+      if (calls === 1) return { content: [{ type: "tool-call", toolCallId: "q1", toolName: "ns_runCustomSuiteQL", input: "{}", providerMetadata: signature }], finishReason: "tool-calls", usage };
+      return { content: [{ type: "text", text: "Done." }], finishReason: "stop", usage };
+    });
+  const base = { connection, identity, query, policy: { allowWrites: false, disabled: [] }, catalog: suiteqlTool, skills: skillsWith(), runTool: async () => ({ rows: [] }) };
+  const first = await ask({ ...base, text: "Count orders.", model: signed() });
+  const replayed = (prompt) => prompt.find((message) => message.role === "assistant").content.find((part) => part.type === "tool-call");
+  assert.deepEqual(replayed(prompts[1]).providerOptions, signature, "same request, next turn");
+
+  // The browser sends the transcript back as it got it. A later request still carries the signature.
+  const browser = JSON.parse(JSON.stringify(first.transcript));
+  await ask({ ...base, text: "And invoices?", transcript: browser, model: signed() });
+  assert.deepEqual(replayed(prompts[2]).providerOptions, signature, "next request");
+  assert.equal(prompts.length, 3);
+
+  // From the browser, only google.thoughtSignature survives. Other provider settings and oversized values are dropped.
+  browser[1].tool_calls[0].provider_options = {
+    google: { thoughtSignature: "sig-abc", cachedContent: "cachedContents/evil", safetySettings: [] },
+    openai: { store: true, user: "someone" },
+    anthropic: { cacheControl: { type: "ephemeral" } },
+  };
+  await ask({ ...base, text: "Again?", transcript: browser, model: signed() });
+  assert.deepEqual(replayed(prompts[3]).providerOptions, signature);
+  for (const junk of [{ google: { thoughtSignature: "x".repeat(16_001) } }, { google: { thoughtSignature: { nested: true } } }, { openai: { itemId: "i1" } }, "text", null]) {
+    browser[1].tool_calls[0].provider_options = junk;
+    await ask({ ...base, text: "Again?", transcript: browser, model: signed() });
+    assert.equal(replayed(prompts.at(-1)).providerOptions, undefined, JSON.stringify(junk)?.slice(0, 60));
+  }
+});
+
+test("after a skill read, a request may take MAX_SKILLED_TURNS; a failed read keeps the normal limit", async () => {
+  const forever = (firstRead) => {
+    let calls = 0;
+    const counter = { calls: 0 };
+    counter.model = model(async () => {
+      calls += 1;
+      counter.calls = calls;
+      if (calls === 1) return toolCall("s1", "skill_read", firstRead);
+      return toolCall(`q${calls}`, "ns_runCustomSuiteQL", { sqlQuery: `select ${calls}` });
+    });
+    return counter;
+  };
+  const base = { text: "Run the runbook.", connection, identity, query, policy: { allowWrites: false, disabled: [] }, catalog: suiteqlTool, skills: skillsWith(), runTool: async () => ({ rows: [] }) };
+
+  const skilled = forever({ name: "vendor-spend" });
+  const long = await ask({ ...base, model: skilled.model });
+  assert.equal(skilled.calls, 1 + MAX_SKILLED_TURNS, "one skill-only turn, then the larger limit");
+  assert.match(long.answer, new RegExp(`I stopped after ${MAX_SKILLED_TURNS} steps`));
+
+  const missed = forever({ name: "no-such-skill" });
+  const short = await ask({ ...base, model: missed.model });
+  assert.equal(missed.calls, 1 + MAX_TURNS);
+  assert.match(short.answer, new RegExp(`I stopped after ${MAX_TURNS} steps`));
 });

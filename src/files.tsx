@@ -11,7 +11,7 @@ type Entry = { id: string; kind: "folder" | "file"; name: string; path: string }
 type Page = { entries: Entry[]; hasMore: boolean; cursor: string | null };
 type Preview = { name: string; path?: string; text?: string; image?: string; note?: string };
 
-function fileToBase64(file: File) {
+export function fileToBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

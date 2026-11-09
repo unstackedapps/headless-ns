@@ -28,7 +28,10 @@ export function toolTitle(name: string) {
 }
 
 // "Ran a SuiteQL query", or "Could not run a SuiteQL query. <reason>"
-export function stepText(step: { name: string; ok: boolean; error?: string }) {
+export function stepText(step: { name: string; ok: boolean; error?: string; detail?: string }) {
+  if (step.name === "skill_read") {
+    return step.ok ? `Read skill ${step.detail}` : `Could not read skill ${step.detail}.${step.error ? ` ${step.error}` : ""}`;
+  }
   const [past, base] = verbs[step.name] || [`Called ${spaced(step.name)}`, `call ${spaced(step.name)}`];
   if (step.ok) return past;
   return `Could not ${base}.${step.error ? ` ${step.error}` : ""}`;
