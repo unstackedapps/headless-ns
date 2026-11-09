@@ -47,6 +47,16 @@ test("a new key for a provider replaces the old key on every model saved for it"
   assert.equal(gemma.apiKey, "sk-gemma-2222");
 });
 
+test("two OpenAI-compatible hosts keep their own keys", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "hn-models-")), "models.json");
+  const store = openModelStore(file, { seed: false });
+  const gemma = store.save({ provider: "compatible", baseUrl: "https://llm-studio.extendro.com/v1", model: "google/gemma-4-26b-a4b", apiKey: "sk-studio-1111" }).connections[0].id;
+  const other = store.save({ provider: "compatible", baseUrl: "https://other.example/v1", model: "local-model", apiKey: "sk-other-2222" }).connections[1].id;
+  store.save({ provider: "compatible", baseUrl: "https://other.example/v1", model: "local-model-2", apiKey: "sk-other-3333" });
+  assert.equal(store.require(gemma).apiKey, "sk-studio-1111");
+  assert.equal(store.require(other).apiKey, "sk-other-3333");
+});
+
 test("setup tests a draft without saving it, and reuses the saved key for the same provider URL", () => {
   const file = join(mkdtempSync(join(tmpdir(), "hn-models-")), "models.json");
   const store = openModelStore(file, { seed: false });
