@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, sep } from "node:path";
+import { dirname, extname, join, posix, sep } from "node:path";
 import { readFrontmatter } from "./frontmatter.mjs";
 
 export const LIMITS = {
@@ -159,6 +159,99 @@ export function findSkills(files, { playbook } = {}) {
   }
   for (const file of files) if (!claimed.has(file.path)) skipped.push({ path: file.path, reason: "Not inside a skill folder" });
   return { skills, skipped };
+}
+
+export const PAGE_CHARS = 12_000;
+const SCRIPTS = new Set([".py", ".sh"]);
+const SCRIPT_NOTE = "Ask can't run this script. Use it as a description of the steps.";
+
+// GitHub's heading anchors: lowercase, punctuation dropped, spaces to hyphens.
+const anchorOf = (heading) =>
+  heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} _-]/gu, "")
+    .replace(/ /g, "-");
+
+// The lines under `#anchor`, up to the next heading at the same or a higher level. Null when absent.
+export function sectionOf(text, anchor) {
+  const lines = text.split("\n");
+  let fence = false;
+  let start = -1;
+  let level = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^\s*(```|~~~)/.test(lines[index])) fence = !fence;
+    const match = !fence && /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(lines[index]);
+    if (!match) continue;
+    if (start >= 0 && match[1].length <= level) return lines.slice(start, index).join("\n").trimEnd();
+    if (start < 0 && anchorOf(match[2]) === anchor.toLowerCase()) {
+      start = index;
+      level = match[1].length;
+    }
+  }
+  return start >= 0 ? lines.slice(start).join("\n").trimEnd() : null;
+}
+
+// Rewrites relative Markdown links to paths from the skill root, so the model can pass them straight back.
+export function rewriteLinks(text, file) {
+  const dir = posix.dirname(file);
+  return text.replace(/\]\(([^()\s]+)\)/g, (whole, target) => {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("/")) return whole;
+    const [path, anchor] = target.split("#");
+    const resolved = path ? posix.normalize(posix.join(dir, path)) : file;
+    if (resolved.startsWith("../") || resolved === "..") return whole;
+    return `](${resolved}${anchor !== undefined ? `#${anchor}` : ""})`;
+  });
+}
+
+// Splits text into pages whose JSON form stays under PAGE_CHARS, so the 14,000-character tool result cap never cuts one.
+export function pagesOf(text, size = PAGE_CHARS) {
+  const cost = (part) => JSON.stringify(part).length - 2;
+  const pages = [];
+  let current = "";
+  let used = 0;
+  const flush = () => {
+    if (current) pages.push(current);
+    current = "";
+    used = 0;
+  };
+  for (const line of text.split(/(?<=\n)/)) {
+    let rest = line;
+    // A line longer than a page (a minified JSON file) is cut by length, shrinking until its escaped form fits.
+    while (cost(rest) > size) {
+      flush();
+      let cut = size;
+      while (cost(rest.slice(0, cut)) > size) cut = Math.floor((cut * size) / cost(rest.slice(0, cut))) - 1;
+      pages.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    const more = cost(rest);
+    if (used + more > size) flush();
+    current += rest;
+    used += more;
+  }
+  flush();
+  return pages.length ? pages : [""];
+}
+
+// One line per top-level file, and one per folder with its file count, so a 300-file skill lists in a few lines.
+function outline(files, folder = "") {
+  const prefix = folder ? `${folder}/` : "";
+  const entries = new Map();
+  for (const file of files) {
+    if (!file.path.startsWith(prefix)) continue;
+    const rest = file.path.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash < 0) entries.set(rest, { path: prefix + rest, size: file.size });
+    else {
+      const key = `${rest.slice(0, slash)}/`;
+      const entry = entries.get(key) || { path: prefix + key, files: 0 };
+      entry.files += 1;
+      entries.set(key, entry);
+    }
+  }
+  const rank = (entry) => (entry.path === "SKILL.md" ? 0 : 1);
+  return [...entries.values()].sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path));
 }
 
 function digest(files) {
@@ -334,7 +427,41 @@ export function openSkillStore(dataDir) {
     return save(list().filter((item) => item.name !== row.name));
   }
 
-  return { dir: skillsDir, list, find, stage, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
+  // skill_read: a skill's body and outline, a folder's outline, one file, or one #section of a file. Read-only.
+  function read({ name, path, page } = {}) {
+    const row = list().find((item) => item.name === String(name || "") && item.enabled);
+    if (!row) throw fail(`No skill named ${String(name || "").slice(0, 80)}.`, 404);
+    const [rawPath, anchor] = String(path || "SKILL.md").replace(/^\.\//, "").split("#");
+    const file = rawPath.replace(/\/$/, "") || "SKILL.md";
+    const known = row.files.find((item) => item.path === file);
+    if (!known) {
+      const inside = row.files.some((item) => item.path.startsWith(`${file}/`));
+      if (inside && !pathProblem(file)) return { name: row.name, folder: file, files: outline(row.files, file) };
+      throw fail(`No file ${file.slice(0, 120)} in ${row.name}. Files: ${outline(row.files).map((item) => item.path).join(", ")}`, 404);
+    }
+    const ext = extname(file).toLowerCase();
+    if ([".png", ".jpg", ".svg"].includes(ext)) return { name: row.name, path: file, text: "This is an image. Ask can't view it." };
+    let text = readFileSync(join(skillsDir, row.name, file), "utf8");
+    if (file === "SKILL.md") text = readFrontmatter(text)?.body ?? text;
+    if (anchor) {
+      const section = sectionOf(text, anchor);
+      if (section === null) throw fail(`No section #${anchor.slice(0, 80)} in ${file}.`, 404);
+      text = section;
+    }
+    text = rewriteLinks(text.trim(), file);
+    if (SCRIPTS.has(ext)) text = `${SCRIPT_NOTE}\n\n${text}`;
+    const pages = pagesOf(text);
+    const number = Math.min(Math.max(1, Math.floor(Number(page) || 1)), pages.length);
+    return {
+      name: row.name,
+      path: anchor ? `${file}#${anchor}` : file,
+      ...(pages.length > 1 ? { page: number, pages: pages.length } : {}),
+      text: pages[number - 1],
+      ...(file === "SKILL.md" && !anchor && number === 1 ? { files: outline(row.files) } : {}),
+    };
+  }
+
+  return { dir: skillsDir, list, find, read, stage, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
 }
 
 export const skillStore = openSkillStore("data");

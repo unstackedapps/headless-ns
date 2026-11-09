@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { parseYaml, readFrontmatter } from "../server/frontmatter.mjs";
-import { LIMITS, checkSkill, findSkills, openSkillStore, pathProblem } from "../server/skills.mjs";
+import { LIMITS, PAGE_CHARS, checkSkill, findSkills, openSkillStore, pagesOf, pathProblem, rewriteLinks, sectionOf } from "../server/skills.mjs";
 
 const file = (path, text) => ({ path, bytes: Buffer.isBuffer(text) ? text : Buffer.from(text) });
 const skillMd = (name, description = `Does ${name} things.`, extra = "") => `---\nname: ${name}\ndescription: ${description}\n${extra}---\n\n# ${name}\n\nBody of ${name}.\n`;
@@ -195,4 +195,81 @@ test("toggle and remove", () => {
   assert.equal(existsSync(join(skills.dir, "a")), false);
   assert.deepEqual(skills.list().map((row) => row.name), ["b"]);
   assert.throws(() => skills.remove("nope"), /No skill named nope/);
+});
+
+function finance() {
+  const skills = store();
+  const runbook = `---\nname: vendor-spend\ndescription: x\n---\nLoad [SafeWords](../../SKILL.md#safewords) and [retrieval](../../shared/contracts/RETRIEVAL.md).\nSee [docs](https://example.com/a.md) and [above](#scope).\n\n## Scope\n\nTop 5.\n`;
+  const body = `${skillMd("fin")}\n## SafeWords\n\nNever post.\n\n### Detail\n\nStill SafeWords.\n\n\`\`\`\n## Not a heading\n\`\`\`\n\n## Other\n\nOther text.\n`;
+  const files = [
+    file("fin/SKILL.md", body),
+    file("fin/runbooks/vendor-spend/RUNBOOK.md", runbook),
+    file("fin/shared/contracts/RETRIEVAL.md", "Retrieve."),
+    file("fin/shared/tools/bind.py", "print('bind')"),
+    file("fin/shared/big.md", Array.from({ length: 3000 }, (_, index) => `Line ${index} "quoted" text.`).join("\n")),
+    file("fin/assets/logo.png", Buffer.from([0x89, 0x50])),
+  ];
+  skills.importStaged(skills.stage(files, { kind: "folder" }).id, ["fin"]);
+  return skills;
+}
+
+test("skill_read with no path returns the body without frontmatter and a short outline", () => {
+  const result = finance().read({ name: "fin" });
+  assert.equal(result.path, "SKILL.md");
+  assert.doesNotMatch(result.text, /^---/);
+  assert.match(result.text, /^# fin/);
+  assert.deepEqual(result.files, [
+    { path: "SKILL.md", size: result.files[0].size },
+    { path: "assets/", files: 1 },
+    { path: "runbooks/", files: 1 },
+    { path: "shared/", files: 3 },
+  ]);
+});
+
+test("skill_read lists a folder, rewrites links to root paths, and reads #sections", () => {
+  const skills = finance();
+  assert.deepEqual(skills.read({ name: "fin", path: "shared" }).files.map((item) => item.path), ["shared/big.md", "shared/contracts/", "shared/tools/"]);
+  const runbook = skills.read({ name: "fin", path: "runbooks/vendor-spend/RUNBOOK.md" }).text;
+  assert.match(runbook, /\]\(SKILL\.md#safewords\)/);
+  assert.match(runbook, /\]\(shared\/contracts\/RETRIEVAL\.md\)/);
+  assert.match(runbook, /\]\(https:\/\/example\.com\/a\.md\)/);
+  assert.match(runbook, /\]\(runbooks\/vendor-spend\/RUNBOOK\.md#scope\)/);
+  const section = skills.read({ name: "fin", path: "SKILL.md#safewords" });
+  assert.equal(section.path, "SKILL.md#safewords");
+  assert.match(section.text, /Never post\.[\s\S]*Still SafeWords\.[\s\S]*Not a heading/);
+  assert.doesNotMatch(section.text, /Other text/);
+  assert.throws(() => skills.read({ name: "fin", path: "SKILL.md#nope" }), /No section #nope/);
+});
+
+test("skill_read pages long files under the tool result cap", () => {
+  const skills = finance();
+  const first = skills.read({ name: "fin", path: "shared/big.md" });
+  assert.equal(first.page, 1);
+  assert.ok(first.pages > 1);
+  assert.ok(JSON.stringify(first).length < 14000);
+  const last = skills.read({ name: "fin", path: "shared/big.md", page: first.pages });
+  assert.match(last.text, /Line 2999/);
+  assert.equal(skills.read({ name: "fin", path: "shared/big.md", page: 999 }).page, first.pages);
+  const long = "x\"".repeat(40_000);
+  const pages = pagesOf(long);
+  assert.equal(pages.join(""), long);
+  assert.ok(pages.every((page) => JSON.stringify(page).length - 2 <= PAGE_CHARS));
+});
+
+test("skill_read refuses unknown paths and disabled skills, and labels scripts", () => {
+  const skills = finance();
+  assert.throws(() => skills.read({ name: "fin", path: "../../etc/passwd" }), /No file \.\.\/\.\.\/etc\/passwd in fin\. Files: SKILL\.md, assets\/, runbooks\/, shared\//);
+  assert.throws(() => skills.read({ name: "fin", path: "shared/missing.md" }), /No file shared\/missing\.md/);
+  assert.match(skills.read({ name: "fin", path: "shared/tools/bind.py" }).text, /^Ask can't run this script\./);
+  assert.match(skills.read({ name: "fin", path: "assets/logo.png" }).text, /image/);
+  skills.toggle("fin", false);
+  assert.throws(() => skills.read({ name: "fin" }), /No skill named fin/);
+  assert.throws(() => skills.read({ name: "other" }), /No skill named other/);
+});
+
+test("sectionOf and rewriteLinks edge cases", () => {
+  assert.equal(sectionOf("# A\n\ntext\n# B", "missing"), null);
+  assert.equal(sectionOf("## Step 1: Scope\nx\n## Next", "step-1-scope"), "## Step 1: Scope\nx");
+  assert.equal(rewriteLinks("[x](../../../outside.md)", "a/b.md"), "[x](../../../outside.md)");
+  assert.equal(rewriteLinks("[x](./c.md)", "a/b.md"), "[x](a/c.md)");
 });
