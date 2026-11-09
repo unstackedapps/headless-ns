@@ -32,7 +32,6 @@ export const session = {
   roleId: "customrole_test",
   configured: true,
   ai: true,
-  discovery: {},
 };
 
 export function flowLine(overrides: Record<string, unknown> = {}) {

@@ -8,8 +8,6 @@ import {
   REDIRECT_URI,
   accountHost,
   accountId,
-  clientId,
-  clientSecret,
   connector,
   customMcpToken,
   customMcpUrl,
@@ -39,14 +37,10 @@ import {
   field,
   getDiscovery,
   pkcePair,
-  publicDiscovery,
   recordHref,
   transactionHref,
   refreshTokens,
   searchAnd,
-  suiteql,
-  userInfo,
-  verifyIdToken,
 } from "./netsuite.mjs";
 
 // A stable secret lets sealed sign-in sessions survive a restart.
@@ -185,7 +179,7 @@ async function ensureFresh(session) {
   if (!session.refreshToken) throw new Error("The NetSuite access token expired. Sign in again.");
   const tokens = await refreshTokens(
     session.refreshToken,
-    session.mcp ? { clientId: mcpClientId(), clientSecret: mcpClientSecret() } : {},
+    { clientId: mcpClientId(), clientSecret: mcpClientSecret() },
   );
   session.accessToken = tokens.access_token;
   if (tokens.refresh_token) session.refreshToken = tokens.refresh_token;
@@ -249,22 +243,9 @@ function schedule(task) {
   });
 }
 
-async function runQuery(session, sql, limit, page = 0) {
-  try {
-    return await suiteql(session.accessToken, sql, limit, page);
-  } catch (error) {
-    if (error.status !== 401 || !session.refreshToken) throw error;
-    session.expiresAt = 0;
-    await ensureFresh(session);
-    return suiteql(session.accessToken, sql, limit, page);
-  }
-}
-
-function query(session, sql, limit, source = "ledger", page = 0) {
-  if (session.via === "custom" || session.via === "netsuite") {
-    return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit, page)));
-  }
-  return schedule(() => runQuery(session, sql, limit, page));
+// Every read goes through the MCP connection the request runs under.
+function query(_session, sql, limit, source = "ledger", page = 0) {
+  return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit, page)));
 }
 
 function rowsOf(result, map) {
@@ -344,26 +325,12 @@ async function countOf(session, sql) {
 
 const routes = {
   async session(_req, res) {
-    let discovery = null;
-    let discoveryError = null;
-    if (accountId()) {
-      try {
-        discovery = publicDiscovery(await getDiscovery());
-      } catch (error) {
-        discoveryError = error.message;
-      }
-    }
     const base = {
-      configured: Boolean(clientId()),
-      confidential: Boolean(clientSecret()),
       accountId: accountLabel(),
       accountMissing: !accountId(),
       redirectUri: REDIRECT_URI,
-      scopes: "openid email rest_webservices",
       ephemeralSecret: sessionSecretIsEphemeral(),
       ai: modelStore.view().connections.some((row) => row.configured),
-      discovery,
-      discoveryError,
     };
     const kind = connector();
     if (kind === "custom") {
@@ -424,34 +391,13 @@ const routes = {
     }
     sendJson(res, 200, {
       ...base,
-      signedIn: kind === "netsuite" ? false : Boolean(session),
-      via: kind === "netsuite" ? "netsuite" : session ? "oidc" : null,
+      signedIn: false,
+      via: kind,
       roleId: null,
-      email: session?.email ?? null,
-      expiresAt: session ? new Date(session.expiresAt).toISOString() : null,
+      email: null,
+      expiresAt: null,
       osmcpError: null,
     });
-  },
-
-  async login(_req, res) {
-    if (!clientId()) {
-      redirect(res, "/?auth_error=" + encodeURIComponent("Add NETSUITE_CLIENT_ID to .env before signing in."));
-      return;
-    }
-    if (!accountId()) {
-      redirect(res, "/?auth_error=" + encodeURIComponent("Add the NetSuite account ID in Settings before signing in."));
-      return;
-    }
-    const state = randomBytes(24).toString("base64url");
-    const nonce = randomBytes(24).toString("base64url");
-    const { verifier, challenge } = pkcePair();
-    const location = await authorizationRedirect(state, nonce, challenge);
-    redirect(res, location, [
-      cookie("hn_oauth", seal({ state, nonce, verifier, created: Date.now() }), {
-        maxAge: 600,
-        path: "/api/auth",
-      }),
-    ]);
   },
 
   async callback(req, res, url) {
@@ -471,7 +417,7 @@ const routes = {
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
     const company = url.searchParams.get("company");
-    if (!pending || pending.state !== state || !code || Date.now() - pending.created > 10 * 60 * 1000) {
+    if (!pending || pending.flow !== "mcp" || pending.state !== state || !code || Date.now() - pending.created > 10 * 60 * 1000) {
       redirect(res, "/?auth_error=" + encodeURIComponent("This sign-in expired. Start it again."), [
         cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
       ]);
@@ -486,40 +432,21 @@ const routes = {
       );
       return;
     }
-    if (pending.flow === "mcp") {
-      const tokens = await exchangeCode(code, pending.verifier, {
-        clientId: mcpClientId(),
-        clientSecret: mcpClientSecret(),
-      });
-      const sid = randomBytes(32).toString("base64url");
-      sessions.set(sid, {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token || "",
-        expiresAt: Date.now() + Math.max(30, (tokens.expires_in ?? 3600) - 60) * 1000,
-        email: "",
-        sub: "",
-        mcp: true,
-      });
-      saveSessions();
-      redirect(res, "/#/setup/netsuite", [
-        cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
-        cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
-      ]);
-      return;
-    }
-    const tokens = await exchangeCode(code, pending.verifier);
-    const idToken = await verifyIdToken(tokens.id_token, pending.nonce);
-    const profile = await userInfo(tokens.access_token).catch(() => ({}));
+    const tokens = await exchangeCode(code, pending.verifier, {
+      clientId: mcpClientId(),
+      clientSecret: mcpClientSecret(),
+    });
     const sid = randomBytes(32).toString("base64url");
     sessions.set(sid, {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token || "",
       expiresAt: Date.now() + Math.max(30, (tokens.expires_in ?? 3600) - 60) * 1000,
-      email: profile.email || idToken.email || "",
-      sub: idToken.sub,
+      email: "",
+      sub: "",
+      mcp: true,
     });
     saveSessions();
-    redirect(res, "/#/overview", [
+    redirect(res, "/#/setup/netsuite", [
       cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
       cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
     ]);
@@ -1187,7 +1114,7 @@ async function mcpLogin(_req, res) {
   }
   const state = randomBytes(24).toString("base64url");
   const { verifier, challenge } = pkcePair();
-  const location = await authorizationRedirect(state, "", challenge, {
+  const location = await authorizationRedirect(state, challenge, {
     clientId: mcpClientId(),
     scope: "mcp",
   });
@@ -1201,7 +1128,6 @@ async function mcpLogin(_req, res) {
 
 const apiRoutes = {
   "GET /api/session": routes.session,
-  "GET /api/auth/login": routes.login,
   "GET /api/auth/callback": routes.callback,
   "POST /api/auth/logout": routes.logout,
   "GET /api/auth/mcp/login": mcpLogin,
@@ -1303,17 +1229,8 @@ httpsServer.listen(PORT, "127.0.0.1", () => {
         console.log(`[headless] ${kind} not ready: ${error.message}`);
       });
   }
-  if (!accountId()) {
-    console.log("[headless] no NETSUITE_ACCOUNT_ID set, skipped OIDC discovery");
-    return;
-  }
+  if (!accountId()) return;
   getDiscovery()
-    .then((document) => {
-      console.log(
-        `[headless] OIDC discovery ok for ${accountLabel()} · ${document.jwks.keys.length} signing keys${document.jwksError ? ` · ${document.jwksError}` : ""}`,
-      );
-    })
-    .catch((error) => {
-      console.log(`[headless] OIDC discovery failed: ${error.message}`);
-    });
+    .then(() => console.log(`[headless] NetSuite sign-in ready for ${accountLabel()}`))
+    .catch((error) => console.log(`[headless] NetSuite sign-in not ready: ${error.message}`));
 });

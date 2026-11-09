@@ -129,7 +129,7 @@ export function App() {
           <UserMenu
             accountId={session.accountId}
             roleId={session.roleId}
-            canSignOut={session.via === "oidc" || session.via === "netsuite"}
+            canSignOut={session.via === "netsuite"}
             onSignOut={signOut}
           />
         </div>

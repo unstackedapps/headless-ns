@@ -26,7 +26,6 @@ const ephemeralSecret = randomBytes(32).toString("base64url");
 
 export const PORT = Number(process.env.PORT) || 5173;
 export const REDIRECT_URI = `https://localhost:${PORT}/api/auth/callback`;
-export const SCOPES = "openid email rest_webservices";
 
 export function accountId() {
   return process.env.NETSUITE_ACCOUNT_ID?.trim() || "";
@@ -47,14 +46,6 @@ export function rememberAccount(id) {
 // The account the connection reported, or the one in .env.
 export function knownAccount() {
   return (reportedAccount || accountId()).toUpperCase();
-}
-
-export function clientId() {
-  return process.env.NETSUITE_CLIENT_ID?.trim() || "";
-}
-
-export function clientSecret() {
-  return process.env.NETSUITE_CLIENT_SECRET?.trim() || "";
 }
 
 export function sessionSecret() {

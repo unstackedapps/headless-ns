@@ -9,7 +9,7 @@ import type { ModelsPayload } from "./studio";
 export type SessionInfo = {
   accountId: string;
   signedIn: boolean;
-  via: "custom" | "netsuite" | "oidc" | null;
+  via: "custom" | "netsuite" | null;
   roleId: string | null;
   ai: boolean;
   osmcpError: string | null;
@@ -50,7 +50,7 @@ export function Setup({
 }) {
   const [step, setStep] = useState<SetupStep | "done">(only || "netsuite");
   const [skipped, setSkipped] = useState(false);
-  const signedInVia = session.signedIn && session.via !== "oidc" ? (session.via as Kind) : null;
+  const signedInVia = session.signedIn ? (session.via as Kind) : null;
 
   return (
     <main className="signin">
