@@ -205,7 +205,7 @@ button.linkish:hover { text-decoration: underline; }
 .col-filter { width: 100%; min-width: 96px; height: 28px; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
 .crumb-gap { color: var(--muted); margin: 0 2px; }
-.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.row-actions { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
 .row-actions a { display: inline-flex; align-items: center; gap: 4px; }
 button.linkish { display: inline-flex; align-items: center; gap: 4px; }
 .drawer-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -601,6 +601,8 @@ a.portlet:hover { text-decoration: none; border-color: var(--line-strong); }
 .section + .list-view { margin-top: 16px; }
 .list-bar strong { color: var(--ink); font-size: 13px; }
 .list-view .table-wrap { border: 0; }
+/* A name column keeps a few words per line instead of one. */
+.list-view td:not(.num, .nowrap) { min-width: 10em; }
 .pill {
   display: inline-block;
   padding: 0 7px;
@@ -608,6 +610,7 @@ a.portlet:hover { text-decoration: none; border-color: var(--line-strong); }
   background: var(--soft);
   font-size: 12px;
   line-height: 1.6;
+  white-space: nowrap;
 }
 .pill.ok { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
 .pill.warn { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger); }
@@ -722,12 +725,13 @@ a.portlet:hover { text-decoration: none; border-color: var(--line-strong); }
 .section p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
 .table-wrap { background: var(--panel); border: 1px solid var(--line); overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
-/* Text cells wrap so a table fits beside the Ask drawer. Headers, numbers and dates stay on one line. */
+/* Text cells wrap between words. Headers, numbers, dates, pills and row links stay on one line,
+   so a table beside the Ask drawer scrolls sideways instead of squeezing. */
 th, td {
   text-align: left;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 th, td.num, td.nowrap { white-space: nowrap; }
 th { font-size: 12px; font-weight: 300; color: var(--muted); background: var(--header); }
