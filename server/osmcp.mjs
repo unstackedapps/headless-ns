@@ -262,10 +262,12 @@ let toolsCache = null;
 let toolsAt = 0;
 let serverNames = {};
 
-// A gateway may prefix each tool with its server's name: Mint lists netsuite__ns_runCustomSuiteQL.
-// The app uses the plain ns_ name everywhere and sends the gateway its own name back.
+// The tool list is read live from whichever server is connected. A proxy may put its own prefix in front of
+// NetSuite's tool names (Mint lists netsuite__ns_runCustomSuiteQL). The app keys on NetSuite's ns_ name, whatever
+// the prefix or separator, and sends the server its own name back.
 export function plainToolName(name) {
-  return String(name).replace(/^[\w-]+?__(?=ns_)/, "");
+  const match = /(?:^|[^A-Za-z0-9])(ns_[A-Za-z0-9_]+)$/.exec(String(name));
+  return match ? match[1] : String(name);
 }
 
 async function serverToolNames() {

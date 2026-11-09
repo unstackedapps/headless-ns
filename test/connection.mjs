@@ -47,6 +47,11 @@ test("a gateway's prefixed tool names reach the app as plain ns_ names, and call
   assert.equal(plainToolName("netsuite__ns_runCustomSuiteQL"), "ns_runCustomSuiteQL");
   assert.equal(plainToolName("ns_runCustomSuiteQL"), "ns_runCustomSuiteQL");
   assert.equal(plainToolName("osmcp_whoami"), "osmcp_whoami");
+  for (const prefixed of ["netsuite.ns_getRecord", "netsuite/ns_getRecord", "netsuite_ns_getRecord", "netsuite-prod:ns_getRecord", "ns_getRecord"]) {
+    assert.equal(plainToolName(prefixed), "ns_getRecord", prefixed);
+  }
+  assert.equal(plainToolName("ns_fileCabinet_app"), "ns_fileCabinet_app");
+  assert.equal(plainToolName("dns_lookup"), "dns_lookup");
   const keys = ["CONNECTOR", "MCP_URL", "MCP_TOKEN"];
   const before = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   const realFetch = globalThis.fetch;
