@@ -12,7 +12,7 @@
 
 <p align="center">A browser app for NetSuite. It reads and writes your account through NetSuite's AI Connector, signed in with NetSuite OAuth, or through a custom MCP server such as OpenSuiteMCP.</p>
 
-![The Orders list showing open sales orders with their status, amount and NetSuite links](docs/orders.png)
+![The Invoices list showing open invoices for many customers, with due dates, amounts and NetSuite links](docs/invoices.png)
 
 ## What you can do
 

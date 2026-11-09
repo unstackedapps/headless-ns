@@ -3,7 +3,7 @@ import { signIn } from "./session";
 
 // Read-only tour of the Phase 6b screens against the live account. Ask and the command line
 // get questions that only read. Screenshots go to e2e/shots/6b-live-*.png, and the README
-// picture, the Orders list at 1440 x 900 with Ask closed, to docs/orders.png.
+// picture, the Invoices list at 1440 x 900 with Ask closed, to docs/invoices.png.
 test("tour the polished screens", async ({ page, context }) => {
   test.setTimeout(10 * 60_000);
   await signIn(context);
@@ -14,7 +14,11 @@ test("tour the polished screens", async ({ page, context }) => {
   await expect(orders.getByRole("row").nth(1)).toBeVisible({ timeout: 60_000 });
   await page.getByRole("navigation", { name: "Sections" }).screenshot({ path: "e2e/shots/6b-live-rail.png" });
   await shot("list");
-  await page.screenshot({ path: "docs/orders.png" });
+  await page.goto("/#/invoices");
+  await expect(page.getByRole("table", { name: "Invoices" }).getByRole("row").nth(1)).toBeVisible({ timeout: 60_000 });
+  await page.screenshot({ path: "docs/invoices.png" });
+  await page.goto("/#/orders");
+  await expect(orders.getByRole("row").nth(1)).toBeVisible({ timeout: 60_000 });
 
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   const drawer = page.getByRole("complementary", { name: "Ask" });
