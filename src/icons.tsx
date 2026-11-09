@@ -1,6 +1,8 @@
 import {
   Activity,
   ArrowDown,
+  ArrowLeft,
+  ChevronDown,
   ArrowUp,
   BarChart3,
   Banknote,
@@ -100,4 +102,6 @@ export const glyph = {
   down: ArrowDown,
   eye: Eye,
   eyeOff: EyeOff,
+  back: ArrowLeft,
+  chevron: ChevronDown,
 };

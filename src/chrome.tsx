@@ -54,6 +54,7 @@ const help = [
   "theme <name>     Switch theme. Light: ledger, paper, day. Dark: ink, graphite, night",
   "themes           List themes",
   "sql <select>     Run one SELECT",
+  "sql @<name>      Run a query saved on the Query page",
   "ask <question>   Ask about this account",
   "confirm          Run the change Ask proposed",
   "cancel           Drop the change Ask proposed",
@@ -273,11 +274,15 @@ export function CommandLine({
       }
       if (name === "sql") {
         if (!rest) {
-          push("err", "Add a SELECT after sql.");
+          push("err", "Add a SELECT or @name after sql.");
           return;
         }
         const result = await track("Running query", (signal) =>
-          postJson<{ columns: string[]; rows: Record<string, unknown>[]; hasMore: boolean }>("/api/query", { sql: rest }, { signal }),
+          postJson<{ columns: string[]; rows: Record<string, unknown>[]; hasMore: boolean }>(
+            "/api/query",
+            rest.startsWith("@") ? { name: rest.slice(1).trim() } : { sql: rest },
+            { signal },
+          ),
         );
         if (!result.rows.length) {
           push("out", "The query returned no rows.");

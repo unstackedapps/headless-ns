@@ -177,7 +177,7 @@ export function SideNav({ view }: { view: PageId }) {
                 }}
               >
                 {group}
-                <Glyph icon={glyph.down} size={12} />
+                <Glyph icon={glyph.chevron} size={14} />
               </summary>
               {rows.map(row)}
             </details>

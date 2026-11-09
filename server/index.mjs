@@ -29,6 +29,7 @@ import { walkRelated } from "./related.mjs";
 import { ITEM_TYPES, PAGE_SIZE, TX_LISTS, itemListSql, itemRecordType, pageOf, txListSql, vendorListSql } from "./lists.mjs";
 import { studioRoutes } from "./studio.mjs";
 import { cachedMeta } from "./metadata.mjs";
+import { assertReadQuery, findQuery, queryPage, queryRoutes } from "./queries.mjs";
 import { prefetchMeta } from "./records.mjs";
 import {
   accountLabel,
@@ -923,33 +924,6 @@ async function txList(req, res, url) {
   });
 }
 
-function assertReadQuery(sql) {
-  const text = String(sql || "").trim();
-  if (!text) {
-    const error = new Error("Add a SELECT after sql.");
-    error.status = 400;
-    throw error;
-  }
-  if (text.length > 4000) {
-    const error = new Error("That query is too long.");
-    error.status = 400;
-    throw error;
-  }
-  const stripped = text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--.*$/gm, " ").trim();
-  const one = stripped.endsWith(";") ? stripped.slice(0, -1).trim() : stripped;
-  if (one.includes(";")) {
-    const error = new Error("Send one statement.");
-    error.status = 400;
-    throw error;
-  }
-  if (!/^(select|with)\b/i.test(one) || /\b(insert|update|delete|merge|drop|alter|create|grant|exec)\b/i.test(one)) {
-    const error = new Error("Only a SELECT can run from here.");
-    error.status = 400;
-    throw error;
-  }
-  return one;
-}
-
 const TYPE_LABELS = {
   CustInvc: "Invoice",
   SalesOrd: "Sales order",
@@ -1103,12 +1077,20 @@ async function querySql(req, res) {
   const session = await authorized(req, res);
   if (!session) return;
   const body = await readJsonBody(req);
-  const sql = assertReadQuery(body.sql);
-  const result = await query(session, sql, 40, "cli");
-  const rows = Array.isArray(result.items) ? result.items.slice(0, 40) : [];
+  // sql @name in the command line runs a saved query.
+  const saved = body.name ? findQuery(body.name) : null;
+  if (body.name && !saved) {
+    sendJson(res, 400, { error: `No saved query is named ${String(body.name).slice(0, 60)}.` });
+    return;
+  }
+  const sql = assertReadQuery(saved ? saved.sql : body.sql);
+  const { page, size } = queryPage(body);
+  const result = await query(session, sql, size, "query", page);
+  const rows = Array.isArray(result.items) ? result.items.slice(0, size) : [];
   sendJson(res, 200, {
     columns: rows.length ? Object.keys(rows[0]) : [],
     rows,
+    page,
     total: result.total,
     hasMore: Boolean(result.hasMore),
   });
@@ -1235,6 +1217,7 @@ const apiRoutes = {
   "GET /api/employees": routes.employees,
   "GET /api/me": routes.me,
   "POST /api/query": querySql,
+  ...queryRoutes({ sendJson, authorized, readJsonBody }),
   "GET /api/related": (req, res, url) => relatedGraph(req, res, url),
   ...studioRoutes({ sendJson, authorized }),
 };
