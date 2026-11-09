@@ -169,8 +169,8 @@ function CustomerFilePanel({
             empty="No open orders."
             rows={file.data?.orders ?? []}
             columns={[
-              { key: "number", label: "Number", cell: (row) => row.number },
-              { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+              { key: "number", label: "Number", nowrap: true, cell: (row) => row.number },
+              { key: "date", label: "Date", nowrap: true, cell: (row) => dateLabel(row.date) },
               { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
               { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
               {
@@ -187,8 +187,8 @@ function CustomerFilePanel({
             empty="No open invoices."
             rows={file.data?.invoices ?? []}
             columns={[
-              { key: "number", label: "Number", cell: (row) => row.number },
-              { key: "due", label: "Due", cell: (row) => dateLabel(row.due) },
+              { key: "number", label: "Number", nowrap: true, cell: (row) => row.number },
+              { key: "due", label: "Due", nowrap: true, cell: (row) => dateLabel(row.due) },
               { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
               {
                 key: "actions",

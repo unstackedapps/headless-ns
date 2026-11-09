@@ -98,9 +98,9 @@ export function TransactionList({
         rowKey={(row) => row.id}
         empty={`No ${title.toLowerCase()} matched.`}
         columns={[
-          { key: "number", label: "Number", cell: (row) => <a href={flowLink(recordType, row.id)}>{row.number || row.id}</a> },
-          { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
-          ...(money ? [{ key: "due", label: "Due", cell: (row: Row) => dateLabel(row.due) }] : []),
+          { key: "number", label: "Number", nowrap: true, cell: (row) => <a href={flowLink(recordType, row.id)}>{row.number || row.id}</a> },
+          { key: "date", label: "Date", nowrap: true, cell: (row) => dateLabel(row.date) },
+          ...(money ? [{ key: "due", label: "Due", nowrap: true, cell: (row: Row) => dateLabel(row.due) }] : []),
           { key: "party", label: party, cell: (row) => orBlank(row.name) },
           ...(hasStatus ? [{ key: "status", label: "Status", cell: (row: Row) => <StatusPill value={row.status} /> }] : []),
           { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },

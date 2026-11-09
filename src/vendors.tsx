@@ -133,8 +133,8 @@ function VendorPanel({
             empty="No open purchase orders."
             rows={file.data?.orders ?? []}
             columns={[
-              { key: "number", label: "Number", cell: (row) => <a href={flowLink("purchaseorder", row.id)} onClick={onClose}>{row.number}</a> },
-              { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+              { key: "number", label: "Number", nowrap: true, cell: (row) => <a href={flowLink("purchaseorder", row.id)} onClick={onClose}>{row.number}</a> },
+              { key: "date", label: "Date", nowrap: true, cell: (row) => dateLabel(row.date) },
               { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
               { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
             ]}
@@ -146,8 +146,8 @@ function VendorPanel({
             empty="No open bills."
             rows={file.data?.bills ?? []}
             columns={[
-              { key: "number", label: "Number", cell: (row) => <a href={flowLink("vendorbill", row.id)} onClick={onClose}>{row.number}</a> },
-              { key: "due", label: "Due", cell: (row) => dateLabel(row.due) },
+              { key: "number", label: "Number", nowrap: true, cell: (row) => <a href={flowLink("vendorbill", row.id)} onClick={onClose}>{row.number}</a> },
+              { key: "due", label: "Due", nowrap: true, cell: (row) => dateLabel(row.due) },
               { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
               { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
             ]}

@@ -41,7 +41,7 @@ export function PeoplePage() {
           { key: "title", label: "Title", cell: (row) => orBlank(row.title) },
           { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
           { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
-          { key: "hired", label: "Hired", cell: (row) => dateLabel(row.hireDate) },
+          { key: "hired", label: "Hired", nowrap: true, cell: (row) => dateLabel(row.hireDate) },
           {
             key: "rep",
             label: "Sales rep",

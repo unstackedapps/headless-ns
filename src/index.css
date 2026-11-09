@@ -205,7 +205,8 @@ button.linkish:hover { text-decoration: underline; }
 .col-filter { width: 100%; min-width: 96px; height: 28px; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
 .crumb-gap { color: var(--muted); margin: 0 2px; }
-.row-actions { display: flex; align-items: center; gap: 12px; }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.row-actions a { display: inline-flex; align-items: center; gap: 4px; }
 button.linkish { display: inline-flex; align-items: center; gap: 4px; }
 .drawer-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .drawer h2, .drawer h3 { margin: 0 0 8px; font-size: 16px; font-weight: 300; }
@@ -721,12 +722,14 @@ a.portlet:hover { text-decoration: none; border-color: var(--line-strong); }
 .section p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
 .table-wrap { background: var(--panel); border: 1px solid var(--line); overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
+/* Text cells wrap so a table fits beside the Ask drawer. Headers, numbers and dates stay on one line. */
 th, td {
   text-align: left;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
+th, td.num, td.nowrap { white-space: nowrap; }
 th { font-size: 12px; font-weight: 300; color: var(--muted); background: var(--header); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:last-child td { border-bottom: 0; }
@@ -882,7 +885,6 @@ textarea.code, .result {
   font-size: 12px;
   white-space: pre-wrap;
 }
-.loose td, .loose th { white-space: normal; }
 .loose td.when, .loose th.when { white-space: nowrap; font-variant-numeric: tabular-nums; }
 details.panel summary { cursor: pointer; font-weight: 300; }
 

@@ -5,6 +5,8 @@ export type Column<T> = {
   key: string;
   label: ReactNode;
   num?: boolean;
+  // Keeps a short value, such as a date or a number, on one line.
+  nowrap?: boolean;
   className?: string;
   sort?: "ascending" | "descending" | "none";
   cell: (row: T, index: number) => ReactNode;
@@ -81,6 +83,6 @@ export function DataTable<T>({
   );
 }
 
-function cellClass(column: { num?: boolean; className?: string }) {
-  return [column.num ? "num" : "", column.className || ""].filter(Boolean).join(" ") || undefined;
+function cellClass(column: { num?: boolean; nowrap?: boolean; className?: string }) {
+  return [column.num ? "num" : "", column.nowrap ? "nowrap" : "", column.className || ""].filter(Boolean).join(" ") || undefined;
 }
