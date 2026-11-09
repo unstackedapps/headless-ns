@@ -22,7 +22,7 @@ import {
   sessionSecretIsEphemeral,
   validAccountId,
 } from "./env.mjs";
-import { clearMcpCache, listTools, missingNetSuiteTools, osmcpIdentity, plainConnectionError, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { callTool, clearMcpCache, listTools, missingNetSuiteTools, osmcpIdentity, plainConnectionError, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
 import { modelStore } from "./models.mjs";
 import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
@@ -1169,9 +1169,12 @@ async function testConnection(req, res) {
   if (!session) return;
   clearMcpCache();
   try {
-    const missing = missingNetSuiteTools((await listTools()).map((tool) => tool.name));
+    const names = (await listTools()).map((tool) => tool.name);
+    const missing = missingNetSuiteTools(names);
     if (missing) {
-      sendJson(res, 400, { error: missing });
+      // OpenSuiteMCP hides the NetSuite tools while its NetSuite login is broken, and says why.
+      const status = names.includes("osmcp_connection_status") ? await callTool("osmcp_connection_status", {}).catch(() => null) : null;
+      sendJson(res, 400, { error: status?.connected === false && status.remediation ? status.remediation : missing });
       return;
     }
     const identity = await withSource("setup", () => osmcpIdentity());
