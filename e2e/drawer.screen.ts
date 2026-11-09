@@ -43,7 +43,7 @@ test("Related opens over a drawer, and Escape closes only the top one", async ({
     "/api/related": { nodes: [{ id: "c", label: "Acme Supply", detail: "", focus: true, kind: "customer", recordId: "341" }], edges: [] },
   });
   await page.goto("/#/customers");
-  await page.getByRole("button", { name: "Acme Supply" }).click();
+  await page.getByRole("button", { name: "Acme Supply", exact: true }).click();
   const file = page.getByRole("dialog", { name: "Acme Supply" }).first();
   await file.getByRole("button", { name: "Related" }).click();
   await expect(page.getByText("Nothing else is linked to this record.")).toBeVisible();

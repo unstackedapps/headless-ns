@@ -64,3 +64,16 @@ for (const view of pages) {
     }
   }
 }
+
+test("each order row has Related, Details and Open links, each with its own label", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/tx": { ...base, rows: tx, statuses: [{ id: "A", label: "Open" }], hasOpen: true },
+  });
+  await page.goto("/#/orders");
+  const actions = page.locator("main .row-actions").first();
+  await expect(actions).toHaveText(/Related\s*Details\s*Open/);
+  await expect(actions.getByRole("button", { name: "Related records for SO640", exact: true })).toBeVisible();
+  await expect(actions.getByRole("link", { name: "Details for SO640", exact: true })).toHaveAttribute("href", /records/);
+  await expect(actions.getByRole("link", { name: "Open SO640 in NetSuite", exact: true })).toBeVisible();
+});

@@ -209,8 +209,8 @@ export function RecordActions({
     <div className="row-actions">
       {kind !== "vendor" && <RelatedLink kind={kind} id={id} title={title} />}
       {recordType && (
-        <a href={recordLink(recordType, id)} aria-label={`Open ${title} in Records`}>
-          Records
+        <a href={recordLink(recordType, id)} aria-label={`Details for ${title}`}>
+          Details
         </a>
       )}
       <NetSuiteLink href={href} label={title} />

@@ -205,7 +205,9 @@ button.linkish:hover { text-decoration: underline; }
 .col-filter { width: 100%; min-width: 96px; height: 28px; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
 .crumb-gap { color: var(--muted); margin: 0 2px; }
-.row-actions { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.row-actions { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+/* A thin line between the links, so "Related" and "Details" read as two links. */
+.row-actions > * + * { padding-left: 10px; border-left: 1px solid var(--line); }
 .row-actions a { display: inline-flex; align-items: center; gap: 4px; }
 button.linkish { display: inline-flex; align-items: center; gap: 4px; }
 .drawer-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
