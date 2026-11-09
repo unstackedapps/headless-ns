@@ -227,6 +227,8 @@ test("setup's how-to names where each feature lives, the role's records, the int
   await pick(page, "Connection", "Custom MCP server");
   await expect(steps).toContainText("OpenSuiteMCP and Mint (Mintive) are tested");
   await expect(steps).toContainText("https://app.mintmcp.com/oauth/callback");
+  await expect(steps).toContainText("In Mint, install NetSuite from the MCP store");
+  await expect(steps).toContainText("In Mint, open the Virtual MCP, copy its URL, and create an API key");
   await expect(page.getByLabel("Server URL")).toHaveAttribute("placeholder", "https://your-server/mcp");
   await expect(page.getByText("opensuitemcp.com")).toHaveCount(0);
 });

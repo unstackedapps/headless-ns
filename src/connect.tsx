@@ -87,11 +87,13 @@ const setupSteps: Record<Kind, (redirectUri: string) => ReactNode[]> = {
     <li key="1">Use this for an MCP server or gateway that offers the NetSuite tools. It takes the server's URL and a bearer token. OpenSuiteMCP and Mint (Mintive) are tested.</li>,
     <li key="2">OpenSuiteMCP: create an agent app in its app portal, choose bearer auth, and copy the app's MCP URL.</li>,
     <li key="3">
-      Mint: in NetSuite, make an integration for Mint with State Enabled, Authorization Code Grant, Public Client, only the NetSuite AI Connector Service
-      scope, and redirect URI https://app.mintmcp.com/oauth/callback. In Mint, install NetSuite from the MCP store with that client ID and connect your
-      NetSuite account. Then open the Virtual MCP, copy its URL, and create an API key in its settings.
+      Mint: in NetSuite, make an integration for Mint. Set State to Enabled, check Authorization Code Grant and Public Client, and check only the NetSuite AI
+      Connector Service scope. Use this redirect URI:
+      <span className="uri">https://app.mintmcp.com/oauth/callback</span>
     </li>,
-    <li key="4">
+    <li key="4">In Mint, install NetSuite from the MCP store with that integration's client ID, and connect your NetSuite account.</li>,
+    <li key="5">In Mint, open the Virtual MCP, copy its URL, and create an API key in its settings.</li>,
+    <li key="6">
       The NetSuite role behind the server needs the same setup as a NetSuite OAuth role: MCP Server Connection, Log in using OAuth 2.0 Access Tokens, REST Web
       Services, record permissions, and the MCP Standard Tools SuiteApp. Use a role other than Administrator.
     </li>,
