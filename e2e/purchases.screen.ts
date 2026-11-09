@@ -101,7 +101,7 @@ test.describe("purchase orders", () => {
     await expect(page.getByText(/Only .* available/)).toHaveCount(0);
     await page.getByRole("spinbutton", { name: "Quantity" }).fill("2");
     await page.getByLabel(/I mean to run this/).check();
-    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await page.getByRole("button", { name: "Create receipt" }).click();
     await expect(page).toHaveURL(/type=itemreceipt&id=701/);
     const transform = writes.find((write) => write.path === "/api/records/transform");
     expect(transform?.body).toMatchObject({ sourceRecordType: "purchaseorder", targetRecordType: "itemreceipt" });
@@ -187,13 +187,13 @@ test.describe("purchase orders", () => {
     await page.getByRole("textbox", { name: "Lot 1 for line 1" }).fill("LOT-A");
     await page.getByRole("spinbutton", { name: "Lot 1 quantity for line 1" }).fill("2");
     await page.getByLabel(/I mean to run this/).check();
-    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await page.getByRole("button", { name: "Create receipt" }).click();
     await expect(page.getByText("Line 1 receives 3, but its lot quantities add up to 2.")).toBeVisible();
     await page.getByRole("button", { name: "Add another lot" }).click();
     await expect(page.getByRole("spinbutton", { name: "Lot 2 quantity for line 1" })).toHaveValue("1");
     await page.getByRole("textbox", { name: "Lot 2 for line 1" }).fill("LOT-B");
     await expect(page.getByText("Lots: 3 of 3 entered")).toBeVisible();
-    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await page.getByRole("button", { name: "Create receipt" }).click();
     await expect(page).toHaveURL(/type=itemreceipt&id=705/);
     const transform = writes.find((write) => write.path === "/api/records/transform");
     expect(transform?.body.fulfill.lines[0].numbers).toEqual([
@@ -215,7 +215,7 @@ test.describe("purchase orders", () => {
     await page.getByRole("textbox", { name: "Serial 1 for line 1" }).fill("SN-1");
     await page.getByRole("textbox", { name: "Serial 2 for line 1" }).fill("SN-2");
     await page.getByLabel(/I mean to run this/).check();
-    await page.getByRole("button", { name: "Create item receipt" }).click();
+    await page.getByRole("button", { name: "Create receipt" }).click();
     await expect(page).toHaveURL(/type=itemreceipt&id=706/);
     const transform = writes.find((write) => write.path === "/api/records/transform");
     expect(transform?.body.fulfill.lines[0].numbers).toEqual([

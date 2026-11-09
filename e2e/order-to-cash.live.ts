@@ -64,8 +64,8 @@ test("quote to paid invoice through the screens", async ({ page, context }) => {
   await shot("7-payment-form");
   await page.getByLabel("Memo").fill(MEMO);
   await page.getByLabel(/I mean to run this/).check();
-  await page.getByRole("button", { name: "Create customer payment" }).click();
-  await expect(page.locator(".kicker", { hasText: "Customer payment" })).toBeVisible({ timeout: 120_000 });
+  await page.getByRole("button", { name: "Create payment" }).click();
+  await expect(page.locator(".kicker", { hasText: "Payment" })).toBeVisible({ timeout: 120_000 });
   await page.getByRole("heading", { name: "Lines" }).waitFor();
   await shot("8-payment");
 

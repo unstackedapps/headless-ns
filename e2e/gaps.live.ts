@@ -70,7 +70,7 @@ test("lot receipt, bill for the received quantity and a partial payment", async 
   await page.getByRole("textbox", { name: "Lot 2 for line 1" }).fill(`HNS-${RUN}-B`);
   await expect(page.getByText("Lots: 3 of 3 entered")).toBeVisible();
   await shot("1-receive-lots");
-  await submit(page, "Create item receipt", "Item receipt");
+  await submit(page, "Create receipt", "Receipt");
   await shot("2-receipt");
 
   await page.getByRole("link", { name: /^PO\d+/ }).click();
@@ -168,7 +168,7 @@ test("serial receipt, then a payment that leaves out the bill it started from", 
   await page.getByRole("textbox", { name: "Serial 1 for line 1" }).fill(`HNS-${RUN}-S1`);
   await page.getByRole("textbox", { name: "Serial 2 for line 1" }).fill(`HNS-${RUN}-S2`);
   await shot("12-receive-serials");
-  await submit(page, "Create item receipt", "Item receipt");
+  await submit(page, "Create receipt", "Receipt");
   await shot("13-serial-receipt");
 
   await page.getByRole("link", { name: /^PO\d+/ }).click();
@@ -209,7 +209,7 @@ test("a purchase order and its bill wait for approval; Approve and Reject move t
   await shot("2-po-approved");
 
   await page.getByRole("button", { name: "Receive", exact: true }).click();
-  await submit(page, "Create item receipt", "Item receipt");
+  await submit(page, "Create receipt", "Receipt");
   await page.getByRole("link", { name: /^PO\d+/ }).click();
   await landed(page, "Purchase order");
   await page.getByRole("button", { name: "Bill", exact: true }).click();

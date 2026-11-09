@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./session";
 
-// Writes to NetSuite: one purchase order, item receipt, vendor bill and bill payment.
+// Writes to NetSuite: one purchase order, receipt, vendor bill and bill payment.
 // Every record gets the memo "headless-ns workflow test". Screenshots go to e2e/shots/p2p-*.png.
 const MEMO = "headless-ns workflow test";
 
@@ -52,7 +52,7 @@ test("purchase order to paid bill through the screens", async ({ page, context }
   await page.getByRole("button", { name: "Receive", exact: true }).click();
   await expect(page.getByRole("spinbutton", { name: "Quantity" })).toHaveValue("2");
   await shot("4-receive-form");
-  await submit(page, "Create item receipt", "Item receipt");
+  await submit(page, "Create receipt", "Receipt");
   await shot("5-receipt");
 
   await page.getByRole("link", { name: /^PO\d+/ }).click();

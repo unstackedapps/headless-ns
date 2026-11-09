@@ -21,7 +21,7 @@ test("tour the order screens", async ({ page, context }) => {
   await shot("fulfill-form");
   await page.goto("/#/transaction?type=invoice&id=12348");
   await page.getByRole("button", { name: "Receive payment" }).click();
-  await page.getByRole("button", { name: "Create customer payment" }).waitFor();
+  await page.getByRole("button", { name: "Create payment" }).waitFor();
   await shot("payment-form");
   await page.goto("/#/payments");
   await page.getByRole("link", { name: /^PYMT/ }).first().click();
