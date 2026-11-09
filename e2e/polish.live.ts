@@ -22,6 +22,15 @@ test("tour the polished screens", async ({ page, context }) => {
   await expect(drawer.getByText("Looking that up.")).toBeHidden({ timeout: 300_000 });
   await expect(drawer.locator(".bubble:not(.user)").last()).toContainText(/\d/);
   await page.screenshot({ path: "docs/orders-and-ask.png" });
+  // With Ask open, each list fits its column instead of scrolling sideways.
+  for (const view of ["orders", "customers", "bills"]) {
+    await page.goto(`/#/${view}`);
+    const wrap = page.locator("main .table-wrap");
+    await expect(wrap.getByRole("row").nth(1)).toBeVisible({ timeout: 60_000 });
+    const { scroll, client } = await wrap.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    expect(scroll, `${view} scrolls sideways by ${scroll - client}px`).toBeLessThanOrEqual(client + 1);
+    await page.screenshot({ path: `e2e/shots/6b-live-fit-${view}.png` });
+  }
   await drawer.getByRole("button", { name: "Close" }).click();
 
   await page.goto("/#/records");
