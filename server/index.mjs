@@ -28,6 +28,8 @@ import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
 import { ITEM_TYPES, PAGE_SIZE, TX_LISTS, itemListSql, itemRecordType, pageOf, txListSql, vendorListSql } from "./lists.mjs";
 import { studioRoutes } from "./studio.mjs";
+import { cachedMeta } from "./metadata.mjs";
+import { prefetchMeta } from "./records.mjs";
 import {
   accountLabel,
   asNumber,
@@ -366,6 +368,7 @@ const routes = {
     if (kind === "custom") {
       try {
         const identity = await osmcpIdentity();
+        void prefetchMeta();
         sendJson(res, 200, {
           ...base,
           accountId: identity.accountId || base.accountId,
@@ -394,6 +397,7 @@ const routes = {
     if (kind === "netsuite" && session?.mcp) {
       try {
         const identity = await withAuth(mcpAuth(session), () => osmcpIdentity());
+        void withAuth(mcpAuth(session), () => prefetchMeta());
         sendJson(res, 200, {
           ...base,
           accountId: identity.accountId || base.accountId,
@@ -849,41 +853,46 @@ const routes = {
   async me(req, res) {
     const session = await authorized(req, res);
     if (!session) return;
-    const identity = await osmcpIdentity().catch(() => null);
-    let name = "";
-    let email = session.email || "";
-    let title = "";
-    try {
-      const result = await query(
-        session,
-        `SELECT id, entityid, firstname, lastname, email, title
-         FROM employee
-         WHERE id IN (BUILTIN.NAMED_GROUP('employee', 'me'))`,
-        1,
-        "session",
-      );
-      const row = result.items?.[0];
-      if (row) {
-        const first = String(field(row, "firstname") || "").trim();
-        const last = String(field(row, "lastname") || "").trim();
-        name = [first, last].filter(Boolean).join(" ") || String(field(row, "entityid") || "");
-        email = String(field(row, "email") || email || "");
-        title = String(field(row, "title") || "");
-      }
-    } catch {
-      name = name || email;
-    }
-    const account = identity?.accountId || accountLabel() || "";
-    sendJson(res, 200, {
-      name,
-      email,
-      title,
-      accountId: account.toUpperCase(),
-      roleId: identity?.roleId || "",
-      roleCenter: identity?.roleCenter || "",
-    });
+    // The account menu asks on every page load. The person behind a session does not change in a minute.
+    sendJson(res, 200, await cachedMeta("me", () => whoAmI(session), { ttl: 60_000, disk: false }));
   },
 };
+
+async function whoAmI(session) {
+  const identity = await osmcpIdentity().catch(() => null);
+  let name = "";
+  let email = session.email || "";
+  let title = "";
+  try {
+    const result = await query(
+      session,
+      `SELECT id, entityid, firstname, lastname, email, title
+       FROM employee
+       WHERE id IN (BUILTIN.NAMED_GROUP('employee', 'me'))`,
+      1,
+      "session",
+    );
+    const row = result.items?.[0];
+    if (row) {
+      const first = String(field(row, "firstname") || "").trim();
+      const last = String(field(row, "lastname") || "").trim();
+      name = [first, last].filter(Boolean).join(" ") || String(field(row, "entityid") || "");
+      email = String(field(row, "email") || email || "");
+      title = String(field(row, "title") || "");
+    }
+  } catch {
+    name = name || email;
+  }
+  const account = identity?.accountId || accountLabel() || "";
+  return {
+    name,
+    email,
+    title,
+    accountId: account.toUpperCase(),
+    roleId: identity?.roleId || "",
+    roleCenter: identity?.roleCenter || "",
+  };
+}
 
 // One route for every transaction list: ?list=orders&status=open&q=&page=0.
 async function txList(req, res, url) {

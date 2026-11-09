@@ -15,8 +15,8 @@ export function QueryPage() {
 
   useEffect(() => {
     let stop = false;
-    function load() {
-      api<{ tables: TableInfo[] }>("/api/suiteql")
+    function load(fresh = false) {
+      api<{ tables: TableInfo[] }>(`/api/suiteql${fresh ? "?fresh=1" : ""}`)
         .then((body) => {
           if (!stop) setTables(body.tables);
         })
@@ -27,7 +27,7 @@ export function QueryPage() {
     load();
     const onRefresh = (event: Event) => {
       const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
-      if (!scope || scope === "query") load();
+      if (!scope || scope === "query") load(scope === "query");
     };
     window.addEventListener("hn-refresh", onRefresh);
     return () => {

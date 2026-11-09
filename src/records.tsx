@@ -341,8 +341,8 @@ export function RecordsPage() {
 
   useEffect(() => {
     let stop = false;
-    const loadTypes = () =>
-      api<{ types: string[] }>("/api/records/types")
+    const loadTypes = (fresh = false) =>
+      api<{ types: string[] }>(`/api/records/types${fresh ? "?fresh=1" : ""}`)
         .then((body) => {
           if (!stop) setTypes(body.types);
         })
@@ -352,7 +352,7 @@ export function RecordsPage() {
     loadTypes();
     const onRefresh = (event: Event) => {
       const scope = (event as CustomEvent<{ scope?: string }>).detail?.scope;
-      if (!scope || scope === "records") loadTypes();
+      if (!scope || scope === "records") loadTypes(scope === "records");
     };
     const onHash = () => {
       const next = hashParams();

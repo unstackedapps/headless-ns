@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { cachedMeta, clearMeta } from "./metadata.mjs";
 import { callTool, suiteqlOsmcp, withSource } from "./osmcp.mjs";
 import { searchAnd } from "./netsuite.mjs";
 
@@ -462,19 +463,43 @@ function actionParametersOf(value) {
   return Object.keys(clean).length ? JSON.stringify(clean) : "";
 }
 
+// ?fresh=1 comes from the Refresh button and skips the metadata cache.
+function isFresh(url) {
+  return url?.searchParams?.get("fresh") === "1";
+}
+
+export function recordTypes(fresh = false) {
+  if (fresh) ["fields:", "transforms:"].forEach((prefix) => clearMeta(prefix));
+  return cachedMeta("types", async () => typeNames(await withSource("records", () => callTool("ns_getRecordTypeMetadata", {}))), { fresh });
+}
+
+export function suiteqlTables(fresh = false) {
+  if (fresh) clearMeta("columns:");
+  return cachedMeta("tables", async () => tableNames(await withSource("query", () => callTool("ns_getSuiteQLMetadata", {}))), { fresh });
+}
+
+// Loads the two long lists in the background after sign-in, one call at a time, so the first
+// visit to Records or Query is fast and the pages that load at sign-in keep the other call slots.
+export async function prefetchMeta() {
+  await recordTypes().catch(() => null);
+  await suiteqlTables().catch(() => null);
+}
+
 export function recordRoutes({ sendJson, authorized, readJsonBody }) {
   return {
-    "GET /api/records/types": async (req, res) => {
+    "GET /api/records/types": async (req, res, url) => {
       if (!(await authorized(req, res))) return;
-      const result = await withSource("records", () => callTool("ns_getRecordTypeMetadata", {}));
-      sendJson(res, 200, { types: typeNames(result) });
+      sendJson(res, 200, { types: await recordTypes(isFresh(url)) });
     },
 
     "GET /api/records/fields": async (req, res, url) => {
       if (!(await authorized(req, res))) return;
       const recordType = recordTypeOf(url.searchParams.get("type"));
-      const result = await withSource("records", () => callTool("ns_getRecordTypeMetadata", { recordType }));
-      sendJson(res, 200, { type: recordType, ...formShape(recordType, result?.metadata?.properties) });
+      const shape = await cachedMeta(`fields:${recordType}`, async () => {
+        const result = await withSource("records", () => callTool("ns_getRecordTypeMetadata", { recordType }));
+        return formShape(recordType, result?.metadata?.properties);
+      }, { fresh: isFresh(url) });
+      sendJson(res, 200, { type: recordType, ...shape });
     },
 
     "GET /api/records": async (req, res, url) => {
@@ -552,12 +577,12 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
     "GET /api/records/transforms": async (req, res, url) => {
       if (!(await authorized(req, res))) return;
       const recordType = recordTypeOf(url.searchParams.get("type"));
-      const result = await withSource("records", () =>
-        callTool("ns_getRecordTransformMetadata", { sourceRecordTypeFilter: recordType }),
-      );
-      const targets = (result?.transformations?.items || [])
-        .map((item) => String(item.target || ""))
-        .filter((target) => target);
+      const targets = await cachedMeta(`transforms:${recordType}`, async () => {
+        const result = await withSource("records", () =>
+          callTool("ns_getRecordTransformMetadata", { sourceRecordTypeFilter: recordType }),
+        );
+        return (result?.transformations?.items || []).map((item) => String(item.target || "")).filter((target) => target);
+      }, { fresh: isFresh(url) });
       sendJson(res, 200, { targets });
     },
 
@@ -606,13 +631,15 @@ export function recordRoutes({ sendJson, authorized, readJsonBody }) {
       if (!(await authorized(req, res))) return;
       const recordType = String(url.searchParams.get("type") || "").trim();
       if (!recordType) {
-        const result = await withSource("query", () => callTool("ns_getSuiteQLMetadata", {}));
-        sendJson(res, 200, { tables: tableNames(result) });
+        sendJson(res, 200, { tables: await suiteqlTables(isFresh(url)) });
         return;
       }
       if (!NAME.test(recordType)) fail("That table is not valid.");
-      const result = await withSource("query", () => callTool("ns_getSuiteQLMetadata", { recordType }));
-      sendJson(res, 200, { type: recordType, fields: scalarFields(result?.metadata?.properties) });
+      const fields = await cachedMeta(`columns:${recordType}`, async () => {
+        const result = await withSource("query", () => callTool("ns_getSuiteQLMetadata", { recordType }));
+        return scalarFields(result?.metadata?.properties);
+      }, { fresh: isFresh(url) });
+      sendJson(res, 200, { type: recordType, fields });
     },
   };
 }

@@ -44,6 +44,11 @@ export function rememberAccount(id) {
   if (validAccountId(id)) reportedAccount = id;
 }
 
+// The account the connection reported, or the one in .env.
+export function knownAccount() {
+  return (reportedAccount || accountId()).toUpperCase();
+}
+
 export function clientId() {
   return process.env.NETSUITE_CLIENT_ID?.trim() || "";
 }
