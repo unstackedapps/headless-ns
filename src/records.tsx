@@ -607,9 +607,17 @@ export function RecordsPage() {
           {type && (
             <>
               <div className="pane-head">
-                <strong>
-                  {openId ? `${typeLabel(type)} ${String(readCells.tranId?.value || readCells.entityId?.value || readCells.itemId?.value || openId)}` : typeLabel(type)}
-                </strong>
+                <div className="pane-title">
+                  <strong>
+                    {openId ? `${typeLabel(type)} ${String(readCells.tranId?.value || readCells.entityId?.value || readCells.itemId?.value || openId)}` : typeLabel(type)}
+                  </strong>
+                  {(openId || formOpen) && (
+                    <label className="search-field">
+                      <Glyph icon={glyph.search} size={14} />
+                      <input className="search" value={needle} placeholder="Find a field" aria-label="Find a field" onChange={(event) => setNeedle(event.target.value)} />
+                    </label>
+                  )}
+                </div>
                 <div className="filters">
                   <label>
                     Internal ID
@@ -649,12 +657,6 @@ export function RecordsPage() {
               {notice && <p className="status">{notice}</p>}
               {!openId && !creating && !busy && <LatestRecords type={type} onOpen={(id) => openRecord(id)} />}
               {busy && <Lookup label="Waiting for NetSuite. A write can take up to a minute." />}
-              {(openId || formOpen) && (
-                <label className="search-field">
-                  <Glyph icon={glyph.search} size={14} />
-                  <input className="search" value={needle} placeholder="Find a field" aria-label="Find a field" onChange={(event) => setNeedle(event.target.value)} />
-                </label>
-              )}
               {shapeLoading ? (
                 <SkeletonRecord />
               ) : formOpen ? (

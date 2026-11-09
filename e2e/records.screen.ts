@@ -80,3 +80,28 @@ test("Recent sits in one row under the search box, not styled as the side menu",
   });
   expect(look).toEqual({ direction: "row", border: "0px", background: "rgba(0, 0, 0, 0)" });
 });
+
+test("an open record puts Find a field under its title, level with the Internal ID box", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/records/types": { types: ["salesorder"] },
+    "/api/records/fields": { type: "salesorder", fields: [{ id: "memo", title: "Memo", type: "string" }], sublists: [] },
+    "/api/records/transforms": { targets: [] },
+    "/api/records/actions": { actions: [] },
+    "/api/records": order,
+  });
+  await page.goto("/#/records?type=salesorder&id=17489");
+  const head = page.locator(".split-main > .pane-head");
+  await expect(head.locator("strong")).toHaveText("Sales order SO640");
+  const find = head.getByLabel("Find a field");
+  await expect(find).toBeVisible();
+  const box = async (locator: typeof find) => (await locator.boundingBox())!;
+  const [title, search, id, label] = [
+    await box(head.locator("strong")),
+    await box(find),
+    await box(head.getByRole("textbox", { name: "Internal ID" })),
+    await box(head.locator(".filters label")),
+  ];
+  expect(Math.abs(search.y + search.height - (id.y + id.height))).toBeLessThanOrEqual(2);
+  expect(Math.abs(title.y - label.y)).toBeLessThanOrEqual(4);
+});

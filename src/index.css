@@ -493,6 +493,9 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .split-main .table-wrap.plain { border: 0; background: transparent; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .pane-head .search-field { width: min(280px, 55%); }
+/* Records: the field search sits under the title, so the fields start level with the ID box. */
+.pane-title { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.pane-title .search-field { width: min(280px, 100%); }
 .split-rail .tool span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 8px 8px; font-size: 12px; }
 .rail-head.check { flex-direction: row; align-items: center; }
