@@ -304,7 +304,7 @@ html .hns-screen.is-cover {
 }
 .drawer, .ask-drawer { border-radius: var(--radius-panel) 0 0 var(--radius-panel); }
 .cli { border-radius: var(--radius-panel) var(--radius-panel) 0 0; }
-.primary, .quiet, a.primary, .pick, nav a, .quick a, .drag, .search, .skeleton,
+.primary, .quiet, a.primary, .pick, .app-nav a, .quick a, .drag, .search, .skeleton,
 input:not([type="checkbox"]):not([type="radio"]) {
   border-radius: var(--radius-control);
 }
@@ -383,7 +383,7 @@ code, .mono, .steps code { border-radius: var(--radius-control); }
   font-weight: 300;
 }
 .shell { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
-nav {
+.app-nav {
   position: relative;
   box-sizing: border-box;
   display: flex;
@@ -396,8 +396,8 @@ nav {
   overflow: hidden;
   transition: width 160ms ease;
 }
-nav.is-collapsed { width: 48px; padding-left: 0; padding-right: 0; }
-nav.is-dragging { transition: none; user-select: none; }
+.app-nav.is-collapsed { width: 48px; padding-left: 0; padding-right: 0; }
+.app-nav.is-dragging { transition: none; user-select: none; }
 .nav-links {
   flex: 1;
   min-height: 0;
@@ -423,8 +423,8 @@ summary.nav-label:hover { color: var(--ink); }
 summary.nav-label svg { transition: transform 120ms ease; }
 details.nav-group:not([open]) > summary.nav-label svg { transform: rotate(-90deg); }
 /* The icon-only rail has no room for a gutter: Chrome reserves its default 11 px scrollbar, not the 6 px above, which pushes the icons off center. */
-nav.is-collapsed .nav-links { scrollbar-gutter: auto; scrollbar-width: none; }
-nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
+.app-nav.is-collapsed .nav-links { scrollbar-gutter: auto; scrollbar-width: none; }
+.app-nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
 .nav-bottom { flex: none; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 6px; }
 .nav-note { margin: 0 4px 8px; }
 .nav-row { display: flex; align-items: center; gap: 2px; }
@@ -433,10 +433,10 @@ nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); pa
 .nav-mini { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .nav-tools { display: flex; flex: none; gap: 6px; padding-top: 4px; }
 .nav-toggle { width: 100%; }
-nav.is-collapsed .nav-label,
-nav.is-collapsed .nav-text { display: none; }
-nav.is-collapsed a,
-nav.is-collapsed .nav-toggle {
+.app-nav.is-collapsed .nav-label,
+.app-nav.is-collapsed .nav-text { display: none; }
+.app-nav.is-collapsed a,
+.app-nav.is-collapsed .nav-toggle {
   justify-content: center;
   width: 32px;
   height: 32px;
@@ -444,7 +444,7 @@ nav.is-collapsed .nav-toggle {
   padding: 0;
   border-left-width: 0;
 }
-nav.is-collapsed .nav-tools { flex-direction: column; align-items: center; }
+.app-nav.is-collapsed .nav-tools { flex-direction: column; align-items: center; }
 .nav-grip {
   position: absolute;
   top: 0;
@@ -454,8 +454,8 @@ nav.is-collapsed .nav-tools { flex-direction: column; align-items: center; }
   cursor: ew-resize;
   background: transparent;
 }
-.nav-grip:hover, nav.is-dragging .nav-grip { background: var(--accent); }
-nav a {
+.nav-grip:hover, .app-nav.is-dragging .nav-grip { background: var(--accent); }
+.app-nav a {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -464,8 +464,8 @@ nav a {
   border-left: 3px solid transparent;
   border-radius: var(--radius-control);
 }
-nav a:hover { text-decoration: none; background: var(--soft); }
-nav a[aria-current="page"] { background: var(--soft); color: var(--accent); font-weight: 300; border-left-color: var(--accent); }
+.app-nav a:hover { text-decoration: none; background: var(--soft); }
+.app-nav a[aria-current="page"] { background: var(--soft); color: var(--accent); font-weight: 300; border-left-color: var(--accent); }
 main { padding: 16px 20px 40px; min-width: 0; overflow: auto; }
 main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden; }
 .split-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -1172,7 +1172,7 @@ dialog.confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
 .callout svg { flex: none; margin-top: 2px; color: var(--accent); }
 .callout strong { color: var(--ink); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
-  .ask-drawer, .cli, nav { transition: none; }
+  .ask-drawer, .cli, .app-nav { transition: none; }
 }
 
 @media (max-width: 1100px) {
@@ -1182,7 +1182,7 @@ dialog.confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
   .signin { padding: 20px 12px 40px; }
   .card { padding: 20px 16px 24px; }
   .shell { display: flex; flex-direction: column; }
-  nav, nav.is-collapsed { flex-direction: row; align-items: center; gap: 4px; width: auto; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); flex: none; }
+  .app-nav, .app-nav.is-collapsed { flex-direction: row; align-items: center; gap: 4px; width: auto; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); flex: none; }
   .nav-bottom { flex-direction: row; align-items: center; border-top: 0; padding-top: 0; margin-left: auto; }
   .nav-group { flex-direction: row; align-items: center; }
   .nav-tools { margin-top: 0; padding-top: 0; }
@@ -1191,7 +1191,7 @@ dialog.confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
   .nav-label { padding: 0 8px; }
   .nav-grip { display: none; }
   main { flex: 1; min-height: 0; }
-  nav a { white-space: nowrap; }
+  .app-nav a { white-space: nowrap; }
   .highlights { grid-template-columns: 1fr 1fr; }
   .portlet { grid-column: span 12; }
   .ask-drawer { display: none; width: auto; }

@@ -52,3 +52,31 @@ test("Records finds a record by name, lists the newest of a type, and remembers 
   await expect(page).toHaveURL(/#\/records\?type=salesorder&id=17489/);
   await expect(page.locator(".pane-head strong")).toHaveText("Sales order SO640");
 });
+
+test("Recent sits in one row under the search box, not styled as the side menu", async ({ page }) => {
+  await mockApi(page, { "/api/session": session, "/api/records/types": { types: ["salesorder"] } });
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "hn-records-recent",
+      JSON.stringify([
+        { type: "salesorder", id: "17489", label: "SO640" },
+        { type: "estimate", id: "16391", label: "QUO102" },
+      ]),
+    ),
+  );
+  await page.goto("/#/records");
+  const recent = page.getByRole("navigation", { name: "Recent records" });
+  const chips = recent.getByRole("button");
+  await expect(chips).toHaveCount(2);
+  const tops = await chips.evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)));
+  expect(new Set(tops).size).toBe(1);
+  const search = await page.getByLabel("Find a record").boundingBox();
+  const box = await recent.boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(search!.y + search!.height);
+  expect(box!.width).toBeGreaterThan(400);
+  const look = await recent.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { direction: style.flexDirection, border: style.borderRightWidth, background: style.backgroundColor };
+  });
+  expect(look).toEqual({ direction: "row", border: "0px", background: "rgba(0, 0, 0, 0)" });
+});
