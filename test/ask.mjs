@@ -548,3 +548,41 @@ test("a context-length error becomes one plain sentence", async () => {
     (error) => error.message === CONTEXT_MESSAGE,
   );
 });
+
+test("provider data on a tool call, such as Gemini's thoughtSignature, goes back with it on later turns and requests", async () => {
+  const signature = { google: { thoughtSignature: "sig-abc" } };
+  const prompts = [];
+  // Only the first model call of the whole test proposes a tool call. Every later call answers in text.
+  let calls = 0;
+  const signed = () =>
+    model(async (options) => {
+      prompts.push(options.prompt);
+      calls += 1;
+      if (calls === 1) return { content: [{ type: "tool-call", toolCallId: "q1", toolName: "ns_runCustomSuiteQL", input: "{}", providerMetadata: signature }], finishReason: "tool-calls", usage };
+      return { content: [{ type: "text", text: "Done." }], finishReason: "stop", usage };
+    });
+  const base = { connection, identity, query, policy: { allowWrites: false, disabled: [] }, catalog: suiteqlTool, skills: skillsWith(), runTool: async () => ({ rows: [] }) };
+  const first = await ask({ ...base, text: "Count orders.", model: signed() });
+  const replayed = (prompt) => prompt.find((message) => message.role === "assistant").content.find((part) => part.type === "tool-call");
+  assert.deepEqual(replayed(prompts[1]).providerOptions, signature, "same request, next turn");
+
+  // The browser sends the transcript back as it got it. A later request still carries the signature.
+  const browser = JSON.parse(JSON.stringify(first.transcript));
+  await ask({ ...base, text: "And invoices?", transcript: browser, model: signed() });
+  assert.deepEqual(replayed(prompts[2]).providerOptions, signature, "next request");
+  assert.equal(prompts.length, 3);
+
+  // From the browser, only google.thoughtSignature survives. Other provider settings and oversized values are dropped.
+  browser[1].tool_calls[0].provider_options = {
+    google: { thoughtSignature: "sig-abc", cachedContent: "cachedContents/evil", safetySettings: [] },
+    openai: { store: true, user: "someone" },
+    anthropic: { cacheControl: { type: "ephemeral" } },
+  };
+  await ask({ ...base, text: "Again?", transcript: browser, model: signed() });
+  assert.deepEqual(replayed(prompts[3]).providerOptions, signature);
+  for (const junk of [{ google: { thoughtSignature: "x".repeat(16_001) } }, { google: { thoughtSignature: { nested: true } } }, { openai: { itemId: "i1" } }, "text", null]) {
+    browser[1].tool_calls[0].provider_options = junk;
+    await ask({ ...base, text: "Again?", transcript: browser, model: signed() });
+    assert.equal(replayed(prompts.at(-1)).providerOptions, undefined, JSON.stringify(junk)?.slice(0, 60));
+  }
+});

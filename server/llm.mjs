@@ -136,6 +136,7 @@ function sanitize(transcript) {
       next.tool_calls = message.tool_calls.slice(0, 8).map((call) => ({
         id: String(call.id || "").slice(0, 80),
         type: "function",
+        ...keptProviderOptions(call.provider_options),
         function: {
           name: String(call.function?.name || "").slice(0, 80),
           arguments:
@@ -148,6 +149,14 @@ function sanitize(transcript) {
     if (!next.content && !next.tool_calls) return [];
     return [next];
   });
+}
+
+// Gemini 3 needs each tool call's thoughtSignature back on later turns. The transcript comes back from the browser,
+// so only that one field, as a string, is kept. Any other provider data is dropped and never reaches a provider.
+function keptProviderOptions(value) {
+  const signature = value?.google?.thoughtSignature;
+  if (typeof signature !== "string" || !signature || signature.length > 16_000) return {};
+  return { provider_options: { google: { thoughtSignature: signature } } };
 }
 
 function parseArgs(call) {
@@ -182,6 +191,7 @@ function toModelMessages(messages) {
           toolCallId: call.id,
           toolName: call.function.name,
           input: parseArgs(call),
+          ...(call.provider_options ? { providerOptions: call.provider_options } : {}),
         });
       }
       if (content.length) out.push({ role: "assistant", content });
@@ -230,6 +240,7 @@ function clientCall(call) {
   return {
     id: call.toolCallId,
     type: "function",
+    ...keptProviderOptions(call.providerMetadata),
     function: { name: call.toolName, arguments: JSON.stringify(call.input ?? {}) },
   };
 }
