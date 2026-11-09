@@ -19,6 +19,9 @@ export const MAX_TURNS = 12;
 export const MAX_MS = 4 * 60_000;
 // Turns that only read skills don't use up MAX_TURNS. Loading a runbook takes about 5 reads before the first query.
 export const MAX_SKILL_TURNS = 8;
+// A skill's runbook asks for more queries than a plain question, so once Ask has read a skill the request may take
+// this many turns. MAX_MS still limits the whole request.
+export const MAX_SKILLED_TURNS = 20;
 export const SKILL_LISTING_CHARS = 6000;
 
 // Writes the model proposed, held here until the person confirms them by id.
@@ -310,7 +313,9 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
   const deadline = Date.now() + MAX_MS;
   let turn = 0;
   let skillTurns = 0;
-  while (turn < MAX_TURNS) {
+  let readSkill = false;
+  const limit = () => (readSkill ? MAX_SKILLED_TURNS : MAX_TURNS);
+  while (turn < limit()) {
     if (signal?.aborted) return stopped("You cancelled this request.", steps, clientMessages);
     const left = deadline - Date.now();
     if (left <= 0) return stopped("I ran out of time on this request. Ask me to continue.", steps, clientMessages);
@@ -389,11 +394,12 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
       const content = JSON.stringify(payload).slice(0, 14000);
       clientMessages.push({ role: "tool", tool_call_id: call.toolCallId, name: call.toolName, content });
       steps.push({ name: call.toolName, ok, ...(error ? { error } : {}), ...(SKILL_TOOLS.has(call.toolName) ? { detail: skillDetail(call.input) } : {}) });
+      if (ok && SKILL_TOOLS.has(call.toolName)) readSkill = true;
     }
     messages.length = 0;
     messages.push(...toModelMessages(clientMessages));
   }
-  return stopped(`I stopped after ${MAX_TURNS} steps. Ask me to continue, or ask a narrower question.`, steps, clientMessages);
+  return stopped(`I stopped after ${limit()} steps. Ask me to continue, or ask a narrower question.`, steps, clientMessages);
 }
 
 // Sends skill_read to the skill store and every other tool to MCP.

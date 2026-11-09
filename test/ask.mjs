@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONTEXT_MESSAGE, MAX_MS, MAX_SKILL_TURNS, MAX_TURNS, PENDING_TTL_MS, SKILL_LISTING_CHARS, ask, confirmAsk, contextTooSmall, skillListing, systemPrompt } from "../server/llm.mjs";
+import { CONTEXT_MESSAGE, MAX_MS, MAX_SKILL_TURNS, MAX_SKILLED_TURNS, MAX_TURNS, PENDING_TTL_MS, SKILL_LISTING_CHARS, ask, confirmAsk, contextTooSmall, skillListing, systemPrompt } from "../server/llm.mjs";
 import { openSkillStore } from "../server/skills.mjs";
 import { listTrace } from "../server/trace.mjs";
 import { languageModel } from "../server/providers.mjs";
@@ -491,8 +491,9 @@ test("skill-only turns don't use up MAX_TURNS, and their own cap holds", async (
     skills: skillsWith(),
     runTool: async () => ({}),
   });
-  assert.equal(calls, MAX_SKILL_TURNS + MAX_TURNS);
-  assert.match(result.answer, /I stopped after 12 steps/);
+  // The first read succeeds, so the request gets the larger limit once the 8 skill-only turns are used.
+  assert.equal(calls, MAX_SKILL_TURNS + MAX_SKILLED_TURNS);
+  assert.match(result.answer, /I stopped after 20 steps/);
 });
 
 test("the prompt lists only enabled skills with the precedence rule, and no skills means no skill_read", async () => {
@@ -585,4 +586,29 @@ test("provider data on a tool call, such as Gemini's thoughtSignature, goes back
     await ask({ ...base, text: "Again?", transcript: browser, model: signed() });
     assert.equal(replayed(prompts.at(-1)).providerOptions, undefined, JSON.stringify(junk)?.slice(0, 60));
   }
+});
+
+test("after a skill read, a request may take MAX_SKILLED_TURNS; a failed read keeps the normal limit", async () => {
+  const forever = (firstRead) => {
+    let calls = 0;
+    const counter = { calls: 0 };
+    counter.model = model(async () => {
+      calls += 1;
+      counter.calls = calls;
+      if (calls === 1) return toolCall("s1", "skill_read", firstRead);
+      return toolCall(`q${calls}`, "ns_runCustomSuiteQL", { sqlQuery: `select ${calls}` });
+    });
+    return counter;
+  };
+  const base = { text: "Run the runbook.", connection, identity, query, policy: { allowWrites: false, disabled: [] }, catalog: suiteqlTool, skills: skillsWith(), runTool: async () => ({ rows: [] }) };
+
+  const skilled = forever({ name: "vendor-spend" });
+  const long = await ask({ ...base, model: skilled.model });
+  assert.equal(skilled.calls, 1 + MAX_SKILLED_TURNS, "one skill-only turn, then the larger limit");
+  assert.match(long.answer, new RegExp(`I stopped after ${MAX_SKILLED_TURNS} steps`));
+
+  const missed = forever({ name: "no-such-skill" });
+  const short = await ask({ ...base, model: missed.model });
+  assert.equal(missed.calls, 1 + MAX_TURNS);
+  assert.match(short.answer, new RegExp(`I stopped after ${MAX_TURNS} steps`));
 });
