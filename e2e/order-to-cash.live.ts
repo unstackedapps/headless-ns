@@ -1,26 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./session";
+import { formStep, pick, recordNumber } from "./live";
 
 // Writes to NetSuite: one quote, sales order, fulfillment, invoice and payment.
 // Every record gets the memo "headless-ns workflow test". Screenshots go to e2e/shots/o2c-*.png.
 const MEMO = "headless-ns workflow test";
-
-async function pick(page: Page, label: string, text: string, option: string | RegExp) {
-  const box = page.getByRole("combobox", { name: label });
-  await box.click();
-  await box.fill(text);
-  await page.getByRole("option", { name: option }).first().click();
-}
-
-async function runStep(page: Page, step: string, button: string, kicker: string) {
-  await page.getByRole("button", { name: step, exact: true }).click();
-  const memo = page.getByLabel("Memo");
-  if (await memo.count()) await memo.fill(MEMO);
-  await page.getByLabel(/I mean to run this/).check();
-  await page.getByRole("button", { name: button }).click();
-  await expect(page.locator(".kicker", { hasText: kicker })).toBeVisible({ timeout: 120_000 });
-  await page.getByRole("heading", { name: "Next steps" }).waitFor();
-}
+const runStep = (page: Page, step: string, button: string, kicker: string) => formStep(page, MEMO, step, button, kicker);
 
 test("quote to paid invoice through the screens", async ({ page, context }) => {
   await signIn(context);
@@ -40,9 +25,11 @@ test("quote to paid invoice through the screens", async ({ page, context }) => {
   await page.getByRole("button", { name: "Create quote" }).click();
   await expect(page.getByRole("heading", { name: /^QUO\d+/ })).toBeVisible({ timeout: 120_000 });
   await page.getByRole("heading", { name: "Next steps" }).waitFor();
+  console.log(`quote: ${await recordNumber(page)}`);
   await shot("2-quote");
 
   await runStep(page, "Convert to sales order", "Create sales order", "Sales order");
+  console.log(`sales order: ${await recordNumber(page)}`);
   await shot("3-sales-order");
 
   await page.getByRole("button", { name: "Fulfill", exact: true }).click();
@@ -53,11 +40,13 @@ test("quote to paid invoice through the screens", async ({ page, context }) => {
   await page.getByRole("button", { name: "Create fulfillment" }).click();
   await expect(page.locator(".kicker", { hasText: "Fulfillment" })).toBeVisible({ timeout: 120_000 });
   await page.getByRole("heading", { name: "Lines" }).waitFor();
+  console.log(`fulfillment: ${await recordNumber(page)}`);
   await shot("5-fulfillment");
 
   await page.getByRole("link", { name: /^SO\d+/ }).click();
   await expect(page.getByRole("button", { name: "Bill", exact: true })).toBeVisible();
   await runStep(page, "Bill", "Create invoice", "Invoice");
+  console.log(`invoice: ${await recordNumber(page)}`);
   await shot("6-invoice");
 
   await page.getByRole("button", { name: "Receive payment" }).click();
@@ -66,7 +55,9 @@ test("quote to paid invoice through the screens", async ({ page, context }) => {
   await page.getByLabel(/I mean to run this/).check();
   await page.getByRole("button", { name: "Create payment" }).click();
   await expect(page.locator(".kicker", { hasText: "Payment" })).toBeVisible({ timeout: 120_000 });
-  await page.getByRole("heading", { name: "Lines" }).waitFor();
+  // A payment page has no item lines, only the invoice it paid.
+  await page.getByRole("heading", { name: "Linked records" }).waitFor();
+  console.log(`payment: ${await recordNumber(page)}`);
   await shot("8-payment");
 
   await page.getByRole("link", { name: /^INV\d+/ }).click();

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./session";
+import { approve, landed, pick, runStep, submit as submitWith } from "./live";
 
 // Writes to NetSuite (td3138390), memo "headless-ns phase4 test". Screenshots go to e2e/shots/gaps-*.png.
 // 1. A lot item PO, received 3 of 5 into two new lots, billed for the 3 received.
@@ -7,25 +8,7 @@ import { signIn } from "./session";
 // 3. A sales order for a lot item, fulfilled from two lots.
 const MEMO = "headless-ns phase4 test";
 const RUN = Date.now().toString(36).toUpperCase();
-
-async function pick(page: Page, label: string, text: string, option: string | RegExp) {
-  const box = page.getByRole("combobox", { name: label });
-  await box.click();
-  await box.fill(text);
-  await page.getByRole("option", { name: option }).first().click();
-}
-
-async function landed(page: Page, kicker: string) {
-  await expect(page.locator(".kicker", { hasText: kicker })).toBeVisible({ timeout: 120_000 });
-  await page.getByRole("heading", { name: "Next steps" }).waitFor();
-}
-
-async function submit(page: Page, button: string, kicker: string) {
-  await page.getByLabel("Memo").fill(MEMO);
-  await page.getByLabel(/I mean to run this/).check();
-  await page.getByRole("button", { name: button }).click();
-  await landed(page, kicker);
-}
+const submit = (page: Page, button: string, kicker: string) => submitWith(page, MEMO, button, kicker);
 
 // A Core4Solutions purchase order at San Francisco, made through the new-order screen.
 async function newPurchaseOrder(page: Page, search: string, item: RegExp, quantity: string, rate: string) {
@@ -39,20 +22,6 @@ async function newPurchaseOrder(page: Page, search: string, item: RegExp, quanti
   await page.getByLabel(/I mean to run this/).check();
   await page.getByRole("button", { name: "Create purchase order" }).click();
   await landed(page, "Purchase order");
-}
-
-// Runs a step that has no form fields (Approve, Reject) and waits for the record to reach `status`.
-async function runStep(page: Page, step: string, status: string) {
-  await page.getByRole("button", { name: step, exact: true }).click();
-  await page.getByLabel(/I mean to run this/).check();
-  await page.locator(".step-form").getByRole("button", { name: step }).click();
-  await expect(page.getByText(`${step} is done.`)).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator(".page-tools .pill", { hasText: status })).toBeVisible({ timeout: 60_000 });
-}
-
-// Purchase orders and bills wait for approval in td3138390 (workflow "headless-ns approval - PO and Bill").
-async function approve(page: Page, status: string) {
-  await runStep(page, "Approve", status);
 }
 
 test("lot receipt, bill for the received quantity and a partial payment", async ({ page, context }) => {

@@ -1,29 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./session";
+import { approve, landed, pick, recordNumber, submit as submitWith } from "./live";
 
 // Writes to NetSuite: one purchase order, receipt, vendor bill and bill payment.
 // Every record gets the memo "headless-ns workflow test". Screenshots go to e2e/shots/p2p-*.png.
 const MEMO = "headless-ns workflow test";
-
-async function pick(page: Page, label: string, text: string, option: string | RegExp) {
-  const box = page.getByRole("combobox", { name: label });
-  await box.click();
-  await box.fill(text);
-  await page.getByRole("option", { name: option }).first().click();
-}
-
-async function landed(page: Page, kicker: string) {
-  await expect(page.locator(".kicker", { hasText: kicker })).toBeVisible({ timeout: 120_000 });
-  await page.getByRole("heading", { name: "Next steps" }).waitFor();
-}
-
-async function submit(page: Page, button: string, kicker: string) {
-  const memo = page.getByLabel("Memo");
-  if (await memo.count()) await memo.fill(MEMO);
-  await page.getByLabel(/I mean to run this/).check();
-  await page.getByRole("button", { name: button }).click();
-  await landed(page, kicker);
-}
+const submit = (page: Page, button: string, kicker: string) => submitWith(page, MEMO, button, kicker);
 
 test("purchase order to paid bill through the screens", async ({ page, context }) => {
   await signIn(context);
@@ -46,13 +28,16 @@ test("purchase order to paid bill through the screens", async ({ page, context }
   await shot("2-new-po");
   await page.getByRole("button", { name: "Create purchase order" }).click();
   await landed(page, "Purchase order");
-  await expect(page.locator(".page-tools .pill", { hasText: "Pending Receipt" })).toBeVisible();
+  // Approval routing is on, so the PO waits for approval before it can be received.
+  await approve(page, "Pending Receipt");
+  console.log(`purchase order: ${await recordNumber(page)}`);
   await shot("3-po");
 
   await page.getByRole("button", { name: "Receive", exact: true }).click();
   await expect(page.getByRole("spinbutton", { name: "Quantity" })).toHaveValue("2");
   await shot("4-receive-form");
   await submit(page, "Create receipt", "Receipt");
+  console.log(`receipt: ${await recordNumber(page)}`);
   await shot("5-receipt");
 
   await page.getByRole("link", { name: /^PO\d+/ }).click();
@@ -60,12 +45,15 @@ test("purchase order to paid bill through the screens", async ({ page, context }
   await expect(page.locator(".page-tools .pill", { hasText: "Pending Bill" })).toBeVisible();
   await page.getByRole("button", { name: "Bill", exact: true }).click();
   await submit(page, "Create bill", "Bill");
+  await approve(page, "Open");
+  console.log(`bill: ${await recordNumber(page)}`);
   await shot("6-bill");
 
   await page.getByRole("button", { name: "Pay bill" }).click();
   await pick(page, "Account", "checking", /US Checking/);
   await shot("7-pay-form");
   await submit(page, "Create bill payment", "Bill payment");
+  console.log(`bill payment: ${await recordNumber(page)}`);
   await shot("8-bill-payment");
 
   await page.getByRole("row", { name: /Made from .* Bill / }).getByRole("link").click();
