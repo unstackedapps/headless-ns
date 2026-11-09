@@ -473,6 +473,8 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .pane-head .search-field { width: min(280px, 55%); }
 .split-rail .tool span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-note { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 12px; }
+.split-rail .skeleton-table { padding: 8px 12px; }
 .split-empty {
   min-height: 100%;
   display: grid;

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Glyph, glyph } from "./icons";
 import { Combobox, Pick, type Option } from "./pick";
-import { Button, Lookup } from "./load";
+import { Button, Lookup, SkeletonRecord } from "./load";
+import { FilterRail } from "./rail";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 import { flowLink } from "./transaction";
@@ -314,8 +315,8 @@ export function lineChanges(sublist: Sublist, lines: Line[]) {
 }
 
 export function RecordsPage() {
-  const [types, setTypes] = useState<string[]>([]);
-  const [query, setQuery] = useState("");
+  const [types, setTypes] = useState<string[] | null>(null);
+  const [shapeLoading, setShapeLoading] = useState(false);
   const [type, setType] = useState("");
   const [fields, setFields] = useState<Field[]>([]);
   const [sublists, setSublists] = useState<Sublist[]>([]);
@@ -387,6 +388,7 @@ export function RecordsPage() {
     setError(null);
     setFields([]);
     setSublists([]);
+    setShapeLoading(true);
     const shape = api<{ fields: Field[]; sublists: Sublist[] }>(`/api/records/fields?type=${encodeURIComponent(next)}`);
     shapeRef.current = shape;
     shape
@@ -395,7 +397,10 @@ export function RecordsPage() {
         setFields(body.fields);
         setSublists(body.sublists);
       })
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => {
+        if (typeRef.current === next) setShapeLoading(false);
+      });
     api<{ targets: string[] }>(`/api/records/transforms?type=${encodeURIComponent(next)}`)
       .then((body) => {
         if (typeRef.current !== next) return;
@@ -563,7 +568,6 @@ export function RecordsPage() {
     }
   }
 
-  const shown = types.filter((name) => name.toLowerCase().includes(query.trim().toLowerCase()));
   const formOpen = editing || creating;
   const match = (field: Field) => `${field.title} ${field.id}`.toLowerCase().includes(needle.trim().toLowerCase());
   const visibleFields = fields.filter(match).filter((field) => formOpen || (readCells[field.id] && readCells[field.id].value !== ""));
@@ -586,19 +590,15 @@ export function RecordsPage() {
       <p className="status">Pick a type, then open one by its internal id, or open a row from Orders, Quotes, Invoices, Customers or Items.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">
-        <div className="split-rail">
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input className="search" value={query} placeholder="Filter types" aria-label="Filter types" onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <div className="tool-list">
-            {shown.map((name) => (
-              <button key={name} type="button" className={type === name ? "tool on" : "tool"} onClick={() => choose(name)}>
-                <span>{name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <FilterRail
+          label="Filter types"
+          placeholder="Filter types"
+          items={(types || []).map((name) => ({ key: name, title: name }))}
+          selected={type}
+          onPick={(name) => choose(name)}
+          loading={!types && !error}
+          empty="This role can see no record types."
+        />
         <div className="split-main">
           {!type && <p className="split-empty">Pick a record type on the left.</p>}
           {type && (
@@ -649,7 +649,9 @@ export function RecordsPage() {
                 <Glyph icon={glyph.search} size={14} />
                 <input className="search" value={needle} placeholder="Find a field" aria-label="Find a field" onChange={(event) => setNeedle(event.target.value)} />
               </label>
-              {formOpen ? (
+              {shapeLoading ? (
+                <SkeletonRecord />
+              ) : formOpen ? (
                 <div className="record-form">
                   {visibleFields.map((field) => (
                     <label key={field.id}>

@@ -6,6 +6,7 @@ import { ConfirmCheck } from "./records";
 import { ConnectionSettings } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
+import { FilterRail } from "./rail";
 import { ShapeSelect, ThemeSelect } from "./theme";
 import { api, postJson } from "./api";
 
@@ -394,7 +395,6 @@ function fieldType(spec: { type?: string | string[] }) {
 
 export function WorkbenchPage() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
-  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [raw, setRaw] = useState("");
@@ -447,7 +447,6 @@ export function WorkbenchPage() {
     }));
   }, [tool]);
 
-  const shown = tools.filter((item) => item.name.toLowerCase().includes(query.trim().toLowerCase()));
   const needsConfirm = tool ? tool.kind !== "read" : false;
 
   function argumentsFor() {
@@ -506,32 +505,21 @@ export function WorkbenchPage() {
       </header>
       {loadError && <p className="error">{loadError}</p>}
       {ready && <div className="split">
-        <div className="split-rail">
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input className="search" value={query} placeholder="Filter tools" aria-label="Filter tools" onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <div className="tool-list">
-            {shown.map((item) => (
-              <button
-                key={item.name}
-                type="button"
-                className={item.name === selected ? "tool on" : "tool"}
-                onClick={() => {
-                  setSelected(item.name);
-                  setValues({});
-                  setRaw("");
-                  setConfirm(false);
-                  setResult("");
-                  setError(null);
-                }}
-              >
-                <span>{item.name}</span>
-                <em>{kindLabel[item.kind]}</em>
-              </button>
-            ))}
-          </div>
-        </div>
+        <FilterRail
+          label="Filter tools"
+          placeholder="Filter tools"
+          items={tools.map((item) => ({ key: item.name, title: item.name, note: kindLabel[item.kind] }))}
+          selected={selected}
+          onPick={(name) => {
+            setSelected(name);
+            setValues({});
+            setRaw("");
+            setConfirm(false);
+            setResult("");
+            setError(null);
+          }}
+          limit={500}
+        />
         {tool && (
           <div className="split-main">
             <h2>{tool.name}</h2>

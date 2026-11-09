@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Glyph, glyph } from "./icons";
 import { Lookup, SkeletonTable } from "./load";
 import { refreshScope, RefreshButton } from "./refresh";
+import { FilterRail } from "./rail";
 import { api, postJson } from "./api";
 
 type SearchRow = { id: string; title: string; recordType: string; shared: boolean };
@@ -35,7 +36,6 @@ export function SearchesPage() {
   const [run, setRun] = useState<SearchRun | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [needle, setNeedle] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<{ column: string; dir: "asc" | "desc" } | null>(null);
@@ -111,23 +111,17 @@ export function SearchesPage() {
       <p className="status">Opening one shows the first 50 rows.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">
-        <div className="split-rail">
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input className="search" value={query} placeholder="Filter by name or record" onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <div className="tool-list">
-          {(rows || [])
-            .filter((row) => `${row.title} ${row.recordType}`.toLowerCase().includes(query.trim().toLowerCase()))
-            .map((row) => (
-            <button key={row.id} type="button" className={chosen?.id === row.id ? "tool on" : "tool"} onClick={() => openSearch(row)}>
-              <span>{row.title || row.id}</span>
-              {row.recordType ? <em>{row.recordType}</em> : null}
-            </button>
-          ))}
-          {rows && rows.length === 0 && <p className="status">This role has no saved searches.</p>}
-          </div>
-        </div>
+        <FilterRail
+          label="Filter searches"
+          placeholder="Filter by name or record"
+          items={(rows || []).map((row) => ({ key: row.id, title: row.title || row.id, note: row.recordType || undefined }))}
+          selected={chosen?.id}
+          onPick={(id) => {
+            const row = rows?.find((item) => item.id === id);
+            if (row) openSearch(row);
+          }}
+          empty="This role has no saved searches."
+        />
         <div className="split-main">
           {!chosen && <p className="split-empty">Pick a search on the left.</p>}
           {running && <Lookup label="Running the search." />}

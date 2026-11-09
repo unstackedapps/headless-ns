@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { Glyph, glyph } from "./icons";
+import { useEffect, useRef, useState } from "react";
+import { SkeletonTable } from "./load";
+import { FilterRail } from "./rail";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api } from "./api";
 
@@ -7,11 +8,11 @@ type TableInfo = { name: string; title: string };
 type Field = { id: string; title: string; type: string };
 
 export function QueryPage() {
-  const [tables, setTables] = useState<TableInfo[]>([]);
-  const [query, setQuery] = useState("");
+  const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [chosen, setChosen] = useState<TableInfo | null>(null);
-  const [fields, setFields] = useState<Field[]>([]);
+  const [fields, setFields] = useState<Field[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const chosenRef = useRef("");
 
   useEffect(() => {
     let stop = false;
@@ -36,15 +37,19 @@ export function QueryPage() {
     };
   }, []);
 
-  function choose(table: TableInfo) {
+  function choose(name: string) {
+    const table = tables?.find((item) => item.name === name);
+    if (!table) return;
+    chosenRef.current = name;
     setChosen(table);
+    setFields(null);
     setError(null);
     api<{ fields: Field[] }>(`/api/suiteql?type=${encodeURIComponent(table.name)}`)
-      .then((body) => setFields(body.fields))
+      .then((body) => {
+        if (chosenRef.current === name) setFields(body.fields);
+      })
       .catch((reason: Error) => setError(reason.message));
   }
-
-  const shown = tables.filter((table) => `${table.title} ${table.name}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <div className="split-page">
@@ -58,20 +63,15 @@ export function QueryPage() {
       <p className="status">Pick a table to see the columns you can query.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">
-        <div className="split-rail">
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input className="search" value={query} placeholder="Filter tables" aria-label="Filter tables" onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <div className="tool-list">
-            {shown.map((table) => (
-              <button key={table.name} type="button" className={chosen?.name === table.name ? "tool on" : "tool"} onClick={() => choose(table)}>
-                <span>{table.title}</span>
-                <em>{table.name}</em>
-              </button>
-            ))}
-          </div>
-        </div>
+        <FilterRail
+          label="Filter tables"
+          placeholder="Filter tables"
+          items={(tables || []).map((table) => ({ key: table.name, title: table.title, note: table.name }))}
+          selected={chosen?.name}
+          onPick={choose}
+          loading={!tables && !error}
+          empty="This role can see no tables."
+        />
         <div className="split-main">
           {!chosen && <p className="split-empty">Pick a table on the left.</p>}
           {chosen && (
@@ -80,7 +80,7 @@ export function QueryPage() {
                 <strong>{chosen.title}</strong>
                 <span className="status">{chosen.name}</span>
               </div>
-              <table>
+              {!fields ? <SkeletonTable rows={8} cols={3} /> : <table>
                 <thead>
                   <tr>
                     <th>Column</th>
@@ -104,7 +104,7 @@ export function QueryPage() {
                     </tr>
                   )}
                 </tbody>
-              </table>
+              </table>}
             </>
           )}
         </div>
