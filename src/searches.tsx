@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { Glyph, glyph } from "./icons";
-import { SkeletonTable } from "./load";
+import { Lookup, SkeletonTable } from "./load";
 import { refreshScope, RefreshButton } from "./refresh";
+import { FilterRail } from "./rail";
+import { DataTable } from "./table";
+import { orBlank } from "./format";
+import { api, postJson } from "./api";
+import { PageHead } from "./head";
 
 type SearchRow = { id: string; title: string; recordType: string; shared: boolean };
 type SearchRun = { columns: string[]; rows: Record<string, string | number>[]; total: number };
@@ -34,7 +39,6 @@ export function SearchesPage() {
   const [run, setRun] = useState<SearchRun | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [needle, setNeedle] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<{ column: string; dir: "asc" | "desc" } | null>(null);
@@ -42,10 +46,8 @@ export function SearchesPage() {
   useEffect(() => {
     let stop = false;
     function load() {
-      fetch("/api/searches")
-        .then(async (response) => {
-          const body = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(body.error || "Saved searches did not load.");
+      api<{ rows?: SearchRow[] }>("/api/searches")
+        .then((body) => {
           if (!stop) {
             setRows(body.rows || []);
             setError(null);
@@ -76,14 +78,7 @@ export function SearchesPage() {
     setSort(null);
     setRunning(true);
     try {
-      const response = await fetch("/api/searches/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "The saved search did not run.");
-      setRun(body);
+      setRun(await postJson<SearchRun>("/api/searches/run", { id: row.id }));
     } catch (reason) {
       setRunError(reason instanceof Error ? reason.message : "The saved search did not run.");
     } finally {
@@ -96,12 +91,7 @@ export function SearchesPage() {
   if (!rows && !error) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Saved searches</div>
-            <h1>Searches</h1>
-          </div>
-        </header>
+        <PageHead title="Searches" />
         <SkeletonTable rows={8} cols={2} />
       </>
     );
@@ -109,36 +99,26 @@ export function SearchesPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">Saved searches</div>
-          <h1>Searches</h1>
-        </div>
+      <PageHead title="Searches">
         <RefreshButton label="searches" onClick={() => refreshScope("searches")} />
-      </header>
-      <p className="status">Opening one shows the first 50 rows.</p>
+      </PageHead>
+      <p className="status">A search shows its first 50 rows.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">
-        <div className="split-rail">
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input className="search" value={query} placeholder="Filter by name or record" onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <div className="tool-list">
-          {(rows || [])
-            .filter((row) => `${row.title} ${row.recordType}`.toLowerCase().includes(query.trim().toLowerCase()))
-            .map((row) => (
-            <button key={row.id} type="button" className={chosen?.id === row.id ? "tool on" : "tool"} onClick={() => openSearch(row)}>
-              <span>{row.title || row.id}</span>
-              {row.recordType ? <em>{row.recordType}</em> : null}
-            </button>
-          ))}
-          {rows && rows.length === 0 && <p className="status">This role has no saved searches.</p>}
-          </div>
-        </div>
+        <FilterRail
+          label="Filter searches"
+          placeholder="Filter by name or record"
+          items={(rows || []).map((row) => ({ key: row.id, title: row.title || row.id, note: row.recordType || undefined }))}
+          selected={chosen?.id}
+          onPick={(id) => {
+            const row = rows?.find((item) => item.id === id);
+            if (row) openSearch(row);
+          }}
+          empty="This role has no saved searches."
+        />
         <div className="split-main">
           {!chosen && <p className="split-empty">Pick a search on the left.</p>}
-          {running && <p className="status">Running the search.</p>}
+          {running && <Lookup label="Running the search." />}
           {runError && <p className="error">{runError}</p>}
           {run && (
             <>
@@ -146,51 +126,39 @@ export function SearchesPage() {
                 <Glyph icon={glyph.search} size={14} />
                 <input className="search" value={needle} placeholder="Search these rows" onChange={(event) => setNeedle(event.target.value)} />
               </label>
-              <div className="table-wrap plain">
-                <table>
-                  <thead>
-                    <tr>
-                      {run.columns.map((column) => (
-                        <th key={column} aria-sort={sort?.column === column ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-                          <button className="th-sort" type="button" onClick={() => setSort((current) => (current?.column === column && current.dir === "asc" ? { column, dir: "desc" } : { column, dir: "asc" }))}>
-                            {column}
-                            {sort?.column === column ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
-                          </button>
-                        </th>
-                      ))}
-                    </tr>
-                    <tr>
-                      {run.columns.map((column) => (
-                        <th key={`${column}-filter`}>
-                          <input
-                            className="col-filter"
-                            aria-label={`Filter ${column}`}
-                            value={filters[column] || ""}
-                            placeholder="Filter"
-                            onChange={(event) => setFilters((current) => ({ ...current, [column]: event.target.value }))}
-                          />
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shown.map((row, index) => (
-                      <tr key={index}>
-                        {run.columns.map((column) => (
-                          <td key={column}>{row[column] === "" || row[column] == null ? "—" : String(row[column])}</td>
-                        ))}
-                      </tr>
+              <DataTable
+                label={chosen?.title || "Search results"}
+                wrap="plain"
+                rows={shown}
+                rowKey={(_, index) => index}
+                empty={run.rows.length === 0 ? "The search returned no rows." : "No rows match."}
+                columns={run.columns.map((column) => ({
+                  key: column,
+                  sort: sort?.column === column ? (sort.dir === "asc" ? "ascending" : "descending") : "none",
+                  label: (
+                    <button className="th-sort" type="button" onClick={() => setSort((current) => (current?.column === column && current.dir === "asc" ? { column, dir: "desc" } : { column, dir: "asc" }))}>
+                      {column}
+                      {sort?.column === column ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+                    </button>
+                  ),
+                  cell: (row: Record<string, unknown>) => orBlank(row[column]),
+                }))}
+                head={
+                  <tr>
+                    {run.columns.map((column) => (
+                      <th key={`${column}-filter`}>
+                        <input
+                          className="col-filter"
+                          aria-label={`Filter ${column}`}
+                          value={filters[column] || ""}
+                          placeholder="Filter"
+                          onChange={(event) => setFilters((current) => ({ ...current, [column]: event.target.value }))}
+                        />
+                      </th>
                     ))}
-                    {shown.length === 0 && (
-                      <tr>
-                        <td className="empty" colSpan={Math.max(1, run.columns.length)}>
-                          {run.rows.length === 0 ? "The search returned no rows." : "No rows match."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  </tr>
+                }
+              />
             </>
           )}
         </div>

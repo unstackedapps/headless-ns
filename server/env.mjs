@@ -24,20 +24,28 @@ loadEnvFile();
 
 const ephemeralSecret = randomBytes(32).toString("base64url");
 
-export const PORT = 5173;
+export const PORT = Number(process.env.PORT) || 5173;
 export const REDIRECT_URI = `https://localhost:${PORT}/api/auth/callback`;
-export const SCOPES = "openid email rest_webservices";
 
 export function accountId() {
-  return process.env.NETSUITE_ACCOUNT_ID?.trim() || "TD3138390";
+  return process.env.NETSUITE_ACCOUNT_ID?.trim() || "";
 }
 
-export function clientId() {
-  return process.env.NETSUITE_CLIENT_ID?.trim() || "";
+// NetSuite ids look like 1234567, 1234567_SB1, or TSTDRV123456.
+export function validAccountId(value) {
+  return /^[A-Za-z0-9_-]{1,40}$/.test(String(value ?? ""));
 }
 
-export function clientSecret() {
-  return process.env.NETSUITE_CLIENT_SECRET?.trim() || "";
+// The account an MCP connection reported, so record links work without NETSUITE_ACCOUNT_ID.
+let reportedAccount = "";
+
+export function rememberAccount(id) {
+  if (validAccountId(id)) reportedAccount = id;
+}
+
+// The account the connection reported, or the one in .env.
+export function knownAccount() {
+  return (reportedAccount || accountId()).toUpperCase();
 }
 
 export function sessionSecret() {
@@ -49,41 +57,37 @@ export function sessionSecretIsEphemeral() {
 }
 
 export function accountHost(id = accountId()) {
+  if (!id) throw new Error("Add the NetSuite account ID in Settings.");
   const host = String(id).trim().toLowerCase().replace(/-/g, "_");
   if (!/^[a-z0-9_]+$/.test(host)) {
-    throw new Error("NETSUITE_ACCOUNT_ID is not a valid account id.");
+    throw new Error("NETSUITE_ACCOUNT_ID is not a valid account ID.");
   }
   return host;
 }
 
 export function appOrigin() {
-  return `https://${accountHost()}.app.netsuite.com`;
+  const id = accountId() || reportedAccount;
+  return id ? `https://${accountHost(id)}.app.netsuite.com` : "";
 }
 
 export function suiteTalkHost() {
   return `${accountHost()}.suitetalk.api.netsuite.com`;
 }
 
-export function osmcpUrl() {
-  return process.env.OSMCP_URL?.trim() || "https://app.opensuitemcp.com/api/mcp";
-}
-
-export function osmcpToken() {
-  return process.env.OSMCP_TOKEN?.trim() || "";
-}
-
+// CONNECTOR=opensuitemcp and the OSMCP_* keys are the old names for a custom MCP server.
 export function connector() {
   const value = process.env.CONNECTOR?.trim();
-  if (value === "opensuitemcp" || value === "netsuite" || value === "custom") return value;
-  return osmcpToken() ? "opensuitemcp" : "netsuite";
+  if (value === "netsuite") return value;
+  if (value === "custom" || value === "opensuitemcp") return "custom";
+  return customMcpToken() ? "custom" : "netsuite";
 }
 
 export function customMcpUrl() {
-  return process.env.MCP_URL?.trim() || "";
+  return process.env.MCP_URL?.trim() || process.env.OSMCP_URL?.trim() || "";
 }
 
 export function customMcpToken() {
-  return process.env.MCP_TOKEN?.trim() || "";
+  return process.env.MCP_TOKEN?.trim() || process.env.OSMCP_TOKEN?.trim() || "";
 }
 
 export function mcpClientId() {
@@ -99,19 +103,21 @@ export function mcpSuite() {
 }
 
 export function netsuiteMcpUrl() {
+  if (!accountId()) return "";
   const path = mcpSuite() === "all" ? "all" : "suiteapp/com.netsuite.mcpstandardtools";
   return `https://${suiteTalkHost()}/services/mcp/v1/${path}`;
 }
 
-const SECRET_KEYS = new Set(["OSMCP_TOKEN", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_SECRET", "LLM_API_KEY"]);
+const SECRET_KEYS = new Set(["MCP_TOKEN", "NETSUITE_MCP_CLIENT_SECRET"]);
 
 export function updateEnv(keys, updates) {
   let next = existsSync(".env") ? readFileSync(".env", "utf8") : "";
   if (next.length && !next.endsWith("\n")) next += "\n";
   for (const key of keys) {
     if (!Object.prototype.hasOwnProperty.call(updates, key)) continue;
+    // A blank secret keeps the saved one. null clears it.
     const value = updates[key] == null ? "" : String(updates[key]);
-    if (SECRET_KEYS.has(key) && value.trim() === "") continue;
+    if (SECRET_KEYS.has(key) && updates[key] !== null && value.trim() === "") continue;
     process.env[key] = value.trim();
     const line = `${key}=${encodeEnvValue(value.trim())}`;
     const pattern = new RegExp(`^${key}=.*$`, "m");
@@ -120,32 +126,8 @@ export function updateEnv(keys, updates) {
   writeFileSync(".env", next);
 }
 
-export function llmBaseUrl() {
-  return (process.env.LLM_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/$/, "");
-}
-
-export function llmApiKey() {
-  return process.env.LLM_API_KEY?.trim() || "";
-}
-
-export function llmModel() {
-  return process.env.LLM_MODEL?.trim() || "gpt-4o-mini";
-}
-
-export function llmKeyHint() {
-  const key = llmApiKey();
-  if (!key) return "";
-  return key.length > 8 ? `…${key.slice(-4)}` : "saved";
-}
-
-const LLM_KEYS = ["LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"];
-
 function encodeEnvValue(value) {
   const clean = String(value).replace(/[\r\n]/g, "");
   if (/[\s#"]/.test(clean)) return `"${clean.replace(/"/g, "")}"`;
   return clean;
-}
-
-export function updateLlmEnv(updates) {
-  updateEnv(LLM_KEYS, updates);
 }

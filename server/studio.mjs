@@ -1,39 +1,15 @@
-import { llmApiKey, llmBaseUrl, llmKeyHint, llmModel, updateLlmEnv } from "./env.mjs";
+import { readJsonBody } from "./http.mjs";
 import { toolKind } from "./kinds.mjs";
 import { ask, confirmAsk, pingModel } from "./llm.mjs";
 import { modelStore } from "./models.mjs";
+import { listModels } from "./providers.mjs";
 import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
 import { readPolicy, writePolicy } from "./policy.mjs";
 import { recordRoutes } from "./records.mjs";
+import { flowRoutes } from "./workflows.mjs";
 import { listTrace } from "./trace.mjs";
 
 const NEEDS_CONFIRM = new Set(["write", "internal", "app"]);
-
-function readJsonBody(req, limit = 1_000_000) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("The request body is too large."));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8");
-      if (!text) return resolve({});
-      try {
-        resolve(JSON.parse(text));
-      } catch {
-        reject(new Error("The body was not JSON."));
-      }
-    });
-    req.on("error", reject);
-  });
-}
 
 function publicTool(tool) {
   return {
@@ -229,6 +205,7 @@ function llmPayload() {
 export function studioRoutes({ sendJson, authorized }) {
   return {
     ...recordRoutes({ sendJson, authorized, readJsonBody }),
+    ...flowRoutes({ sendJson, authorized }),
     "GET /api/config": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const identity = await withSource("settings", () => osmcpIdentity());
@@ -248,7 +225,7 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/models": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      sendJson(res, 200, modelStore.save(body));
+      sendJson(res, 200, modelStore.save(body, { activate: body.activate === true }));
     },
 
     "POST /api/models/active": async (req, res) => {
@@ -266,35 +243,18 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/models/test": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      const reply = await pingModel(body.id);
-      sendJson(res, 200, { reply });
-    },
-
-    "POST /api/config/llm": async (req, res) => {
-      if (!(await authorized(req, res))) return;
-      const body = await readJsonBody(req);
-      const baseUrl = String(body.baseUrl || "").trim();
-      if (baseUrl && !/^https?:\/\//.test(baseUrl)) {
-        sendJson(res, 400, { error: "The model URL must start with http:// or https://." });
+      const reply = await pingModel(body.provider ? body : body.id);
+      if (!reply) {
+        sendJson(res, 400, { error: "The model answered with an empty reply. Pick another model." });
         return;
       }
-      updateLlmEnv({
-        LLM_BASE_URL: baseUrl,
-        LLM_MODEL: String(body.model || "").trim(),
-        LLM_API_KEY: String(body.apiKey || ""),
-      });
-      sendJson(res, 200, {
-        configured: Boolean(llmApiKey()),
-        baseUrl: llmBaseUrl(),
-        model: llmModel(),
-        keyHint: llmKeyHint(),
-      });
+      sendJson(res, 200, { reply });
     },
 
-    "POST /api/config/llm/test": async (req, res) => {
+    "POST /api/models/list": async (req, res) => {
       if (!(await authorized(req, res))) return;
-      const reply = await pingModel();
-      sendJson(res, 200, { reply });
+      const body = await readJsonBody(req);
+      sendJson(res, 200, { models: await listModels(modelStore.credentials(body)) });
     },
 
     "POST /api/config/policy": async (req, res) => {
@@ -460,9 +420,12 @@ export function studioRoutes({ sendJson, authorized }) {
         return;
       }
       if (NEEDS_CONFIRM.has(kind) && !body.confirm) {
-        sendJson(res, 400, {
-          error: "This tool can change NetSuite, or it is only for a chat app. Turn on confirm before it runs.",
-        });
+        const why = {
+          write: "This tool changes NetSuite.",
+          app: "This tool draws a screen for chat apps, so it returns little here.",
+          internal: "This tool works on the file cabinet.",
+        }[kind];
+        sendJson(res, 400, { error: `${why} Tick Confirm, then run it.` });
         return;
       }
       const started = Date.now();
@@ -473,13 +436,19 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/ask": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      sendJson(res, 200, await ask({ text: body.text, transcript: body.transcript }));
+      // A closed tab or a cancel in the command line stops the model loop at its next turn.
+      const controller = new AbortController();
+      res.on("close", () => {
+        if (!res.writableEnded) controller.abort();
+      });
+      const result = await ask({ text: body.text, transcript: body.transcript, signal: controller.signal });
+      if (!controller.signal.aborted) sendJson(res, 200, result);
     },
 
     "POST /api/ask/confirm": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      sendJson(res, 200, await confirmAsk({ transcript: body.transcript, approved: Boolean(body.approved) }));
+      sendJson(res, 200, await confirmAsk({ id: body.id, approved: Boolean(body.approved) }));
     },
 
     "GET /api/trace": async (req, res) => {
@@ -503,7 +472,7 @@ export function studioRoutes({ sendJson, authorized }) {
       }
       const dateTo = String(body.dateTo || "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-        sendJson(res, 400, { error: "dateTo is required as YYYY-MM-DD." });
+        sendJson(res, 400, { error: "Enter the end date as YYYY-MM-DD." });
         return;
       }
       const args = { reportId: Number(report.id), dateTo };

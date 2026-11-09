@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import https from "node:https";
 import { createServer } from "vite";
 import {
@@ -8,8 +8,6 @@ import {
   REDIRECT_URI,
   accountHost,
   accountId,
-  clientId,
-  clientSecret,
   connector,
   customMcpToken,
   customMcpUrl,
@@ -17,15 +15,20 @@ import {
   mcpClientSecret,
   mcpSuite,
   netsuiteMcpUrl,
-  osmcpToken,
-  osmcpUrl,
   updateEnv,
   sessionSecret,
   sessionSecretIsEphemeral,
+  validAccountId,
 } from "./env.mjs";
-import { clearMcpCache, osmcpIdentity, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { callTool, clearMcpCache, listTools, missingNetSuiteTools, osmcpIdentity, plainConnectionError, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { modelStore } from "./models.mjs";
+import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
+import { ITEM_TYPES, PAGE_SIZE, TX_LISTS, itemListSql, itemRecordType, pageOf, txListSql, vendorListSql } from "./lists.mjs";
 import { studioRoutes } from "./studio.mjs";
+import { cachedMeta } from "./metadata.mjs";
+import { assertReadQuery, findQuery, queryPage, queryRoutes } from "./queries.mjs";
+import { prefetchMeta } from "./records.mjs";
 import {
   accountLabel,
   asNumber,
@@ -33,19 +36,20 @@ import {
   exchangeCode,
   field,
   getDiscovery,
-  likeTerm,
   pkcePair,
-  publicDiscovery,
   recordHref,
   transactionHref,
   refreshTokens,
-  suiteql,
-  userInfo,
-  verifyIdToken,
+  searchAnd,
 } from "./netsuite.mjs";
 
+// A stable secret lets sealed sign-in sessions survive a restart.
+if (sessionSecretIsEphemeral()) updateEnv(["SESSION_SECRET"], { SESSION_SECRET: randomBytes(32).toString("base64url") });
+
+const SESSIONS_FILE = "data/sessions.json";
 const sessions = new Map();
-const OPEN_ORDER = "('SalesOrd:C','SalesOrd:G','SalesOrd:H')";
+// SuiteQL matches the bare status letter. 'SalesOrd:C' matches nothing.
+const OPEN_ORDER = "('C','G','H')";
 
 function ensureCert() {
   mkdirSync("certs", { recursive: true });
@@ -96,6 +100,32 @@ function unseal(token) {
   return JSON.parse(json);
 }
 
+// Sign-in sessions are kept on disk, sealed with SESSION_SECRET, so a restart keeps users signed in.
+function saveSessions() {
+  try {
+    mkdirSync("data", { recursive: true });
+    const tmp = `${SESSIONS_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ sealed: seal(Object.fromEntries(sessions)) }), { mode: 0o600 });
+    renameSync(tmp, SESSIONS_FILE);
+  } catch (error) {
+    console.log(`[headless] could not save sessions: ${error.message}`);
+  }
+}
+
+function loadSessions() {
+  if (!existsSync(SESSIONS_FILE)) return;
+  try {
+    const saved = unseal(JSON.parse(readFileSync(SESSIONS_FILE, "utf8")).sealed);
+    for (const [sid, session] of Object.entries(saved)) {
+      if (session?.refreshToken || session?.expiresAt > Date.now()) sessions.set(sid, session);
+    }
+  } catch (error) {
+    console.log(`[headless] could not read saved sessions, starting signed out: ${error.message}`);
+  }
+}
+
+loadSessions();
+
 function cookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || "").split(";")) {
@@ -136,9 +166,7 @@ function meta(session) {
     fetchedAt: new Date().toISOString(),
     tokenExpiresAt: session.expiresAt ? new Date(session.expiresAt).toISOString() : null,
     source:
-      session.via === "opensuitemcp" || session.via === "osmcp"
-        ? "OpenSuiteMCP"
-        : session.via === "custom"
+      session.via === "custom"
           ? "MCP server"
           : session.via === "netsuite"
             ? "NetSuite MCP"
@@ -151,11 +179,12 @@ async function ensureFresh(session) {
   if (!session.refreshToken) throw new Error("The NetSuite access token expired. Sign in again.");
   const tokens = await refreshTokens(
     session.refreshToken,
-    session.mcp ? { clientId: mcpClientId(), clientSecret: mcpClientSecret() } : {},
+    { clientId: mcpClientId(), clientSecret: mcpClientSecret() },
   );
   session.accessToken = tokens.access_token;
   if (tokens.refresh_token) session.refreshToken = tokens.refresh_token;
   session.expiresAt = Date.now() + Math.max(30, (tokens.expires_in ?? 3600) - 60) * 1000;
+  saveSessions();
   return session;
 }
 
@@ -171,7 +200,9 @@ function hint(value) {
 
 async function authorized(req, res) {
   const kind = connector();
-  if (kind === "opensuitemcp" || kind === "custom") return { via: kind, expiresAt: 0 };
+  // These hosts use a token from .env, so there is no browser session to check. The server
+  // listens on 127.0.0.1 and handle() refuses cross-site writes; any local process could read .env anyway.
+  if (kind === "custom") return { via: kind, expiresAt: 0 };
   const sid = cookies(req).hn_sid;
   const session = sid ? sessions.get(sid) : null;
   if (!session?.mcp) {
@@ -183,6 +214,7 @@ async function authorized(req, res) {
     return { ...session, via: "netsuite" };
   } catch (error) {
     sessions.delete(sid);
+    saveSessions();
     sendJson(res, 401, { error: error.message || "The NetSuite session expired. Sign in again." });
     return null;
   }
@@ -211,28 +243,9 @@ function schedule(task) {
   });
 }
 
-async function runQuery(session, sql, limit) {
-  try {
-    return await suiteql(session.accessToken, sql, limit);
-  } catch (error) {
-    if (error.status !== 401 || !session.refreshToken) throw error;
-    session.expiresAt = 0;
-    await ensureFresh(session);
-    return suiteql(session.accessToken, sql, limit);
-  }
-}
-
-function query(session, sql, limit, source = "ledger") {
-  if (session.via === "opensuitemcp" || session.via === "osmcp" || session.via === "custom" || session.via === "netsuite") {
-    return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit)));
-  }
-  return schedule(() => runQuery(session, sql, limit));
-}
-
-function searchAnd(columns, raw) {
-  const term = likeTerm(raw);
-  if (!term) return "";
-  return ` AND (${columns.map((column) => `LOWER(${column}) LIKE '%${term}%'`).join(" OR ")})`;
+// Every read goes through the MCP connection the request runs under.
+function query(_session, sql, limit, source = "ledger", page = 0) {
+  return schedule(() => withSource(source, () => suiteqlOsmcp(sql, limit, page)));
 }
 
 function rowsOf(result, map) {
@@ -312,27 +325,18 @@ async function countOf(session, sql) {
 
 const routes = {
   async session(_req, res) {
-    let discovery = null;
-    let discoveryError = null;
-    try {
-      discovery = publicDiscovery(await getDiscovery());
-    } catch (error) {
-      discoveryError = error.message;
-    }
     const base = {
-      configured: Boolean(clientId()),
-      confidential: Boolean(clientSecret()),
       accountId: accountLabel(),
+      accountMissing: !accountId(),
       redirectUri: REDIRECT_URI,
-      scopes: "openid email rest_webservices",
       ephemeralSecret: sessionSecretIsEphemeral(),
-      discovery,
-      discoveryError,
+      ai: modelStore.view().connections.some((row) => row.configured),
     };
     const kind = connector();
-    if (kind === "opensuitemcp" || kind === "custom") {
+    if (kind === "custom") {
       try {
         const identity = await osmcpIdentity();
+        void prefetchMeta();
         sendJson(res, 200, {
           ...base,
           accountId: identity.accountId || base.accountId,
@@ -361,6 +365,7 @@ const routes = {
     if (kind === "netsuite" && session?.mcp) {
       try {
         const identity = await withAuth(mcpAuth(session), () => osmcpIdentity());
+        void withAuth(mcpAuth(session), () => prefetchMeta());
         sendJson(res, 200, {
           ...base,
           accountId: identity.accountId || base.accountId,
@@ -386,30 +391,13 @@ const routes = {
     }
     sendJson(res, 200, {
       ...base,
-      signedIn: kind === "netsuite" ? false : Boolean(session),
-      via: kind === "netsuite" ? "netsuite" : session ? "oidc" : null,
+      signedIn: false,
+      via: kind,
       roleId: null,
-      email: session?.email ?? null,
-      expiresAt: session ? new Date(session.expiresAt).toISOString() : null,
+      email: null,
+      expiresAt: null,
       osmcpError: null,
     });
-  },
-
-  async login(_req, res) {
-    if (!clientId()) {
-      redirect(res, "/?auth_error=" + encodeURIComponent("Add NETSUITE_CLIENT_ID to .env before signing in."));
-      return;
-    }
-    const state = randomBytes(24).toString("base64url");
-    const nonce = randomBytes(24).toString("base64url");
-    const { verifier, challenge } = pkcePair();
-    const location = await authorizationRedirect(state, nonce, challenge);
-    redirect(res, location, [
-      cookie("hn_oauth", seal({ state, nonce, verifier, created: Date.now() }), {
-        maxAge: 600,
-        path: "/api/auth",
-      }),
-    ]);
   },
 
   async callback(req, res, url) {
@@ -429,7 +417,7 @@ const routes = {
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
     const company = url.searchParams.get("company");
-    if (!pending || pending.state !== state || !code || Date.now() - pending.created > 10 * 60 * 1000) {
+    if (!pending || pending.flow !== "mcp" || pending.state !== state || !code || Date.now() - pending.created > 10 * 60 * 1000) {
       redirect(res, "/?auth_error=" + encodeURIComponent("This sign-in expired. Start it again."), [
         cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
       ]);
@@ -444,38 +432,21 @@ const routes = {
       );
       return;
     }
-    if (pending.flow === "mcp") {
-      const tokens = await exchangeCode(code, pending.verifier, {
-        clientId: mcpClientId(),
-        clientSecret: mcpClientSecret(),
-      });
-      const sid = randomBytes(32).toString("base64url");
-      sessions.set(sid, {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token || "",
-        expiresAt: Date.now() + Math.max(30, (tokens.expires_in ?? 3600) - 60) * 1000,
-        email: "",
-        sub: "",
-        mcp: true,
-      });
-      redirect(res, "/#/overview", [
-        cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
-        cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
-      ]);
-      return;
-    }
-    const tokens = await exchangeCode(code, pending.verifier);
-    const idToken = await verifyIdToken(tokens.id_token, pending.nonce);
-    const profile = await userInfo(tokens.access_token).catch(() => ({}));
+    const tokens = await exchangeCode(code, pending.verifier, {
+      clientId: mcpClientId(),
+      clientSecret: mcpClientSecret(),
+    });
     const sid = randomBytes(32).toString("base64url");
     sessions.set(sid, {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token || "",
       expiresAt: Date.now() + Math.max(30, (tokens.expires_in ?? 3600) - 60) * 1000,
-      email: profile.email || idToken.email || "",
-      sub: idToken.sub,
+      email: "",
+      sub: "",
+      mcp: true,
     });
-    redirect(res, "/#/overview", [
+    saveSessions();
+    redirect(res, "/#/setup/netsuite", [
       cookie("hn_sid", sid, { maxAge: 60 * 60 * 24 * 7, path: "/" }),
       cookie("hn_oauth", "", { maxAge: 0, path: "/api/auth" }),
     ]);
@@ -483,7 +454,7 @@ const routes = {
 
   async logout(req, res) {
     const sid = cookies(req).hn_sid;
-    if (sid) sessions.delete(sid);
+    if (sid && sessions.delete(sid)) saveSessions();
     sendJson(res, 200, { ok: true }, [cookie("hn_sid", "", { maxAge: 0, path: "/" })]);
   },
 
@@ -578,22 +549,6 @@ const routes = {
     });
   },
 
-  async orders(req, res, url) {
-    await salesList(req, res, url, {
-      type: "SalesOrd",
-      where: `NVL(t.voided, 'F') = 'F' AND t.status NOT IN ${OPEN_ORDER}`,
-      kind: "salesorder",
-    });
-  },
-
-  async quotes(req, res, url) {
-    await salesList(req, res, url, {
-      type: "Estimate",
-      where: `NVL(t.voided, 'F') = 'F' AND t.status = 'Estimate:A'`,
-      kind: "estimate",
-    });
-  },
-
   async customer(req, res, id) {
     const session = await authorized(req, res);
     if (!session) return;
@@ -676,25 +631,12 @@ const routes = {
     });
   },
 
-  async invoices(req, res, url) {
-    await transactionList(req, res, url, "CustInvc", "invoice", "customer");
-  },
-
-  async bills(req, res, url) {
-    await transactionList(req, res, url, "VendBill", "bill", "vendor");
-  },
-
   async items(req, res, url) {
     const session = await authorized(req, res);
     if (!session) return;
-    const result = await query(
-      session,
-      `SELECT id, itemid, displayname
-       FROM item
-       WHERE isinactive = 'F' AND itemtype = 'InvtPart'${searchAnd(["itemid", "displayname"], url.searchParams.get("q"))}
-       ORDER BY itemid`,
-      200,
-    );
+    const page = pageOf(url.searchParams.get("page"));
+    const sql = itemListSql({ type: url.searchParams.get("type"), q: url.searchParams.get("q") });
+    const result = await query(session, sql, PAGE_SIZE, "ledger", page);
     let balances = new Map();
     let note = null;
     try {
@@ -711,24 +653,103 @@ const routes = {
           available: asNumber(field(row, "available")),
         });
       }
-      if (stock.hasMore) note = "Availability is summed from the first 1,000 inventory balances.";
+      if (stock.hasMore) note = "Available counts add up only the first 1,000 inventory balances.";
     } catch (error) {
       note = error.message;
     }
     sendJson(res, 200, {
       ...meta(session),
       note,
+      page,
+      types: Object.entries(ITEM_TYPES).map(([id, spec]) => ({ id, label: spec.label })),
       ...rowsOf(result, (row) => {
         const stock = balances.get(idOf(row));
+        const itemType = String(field(row, "itemtype") || "");
         return {
           id: idOf(row),
           name: field(row, "itemid") || "",
           displayName: field(row, "displayname") || "",
+          type: ITEM_TYPES[itemType]?.label || itemType,
+          recordType: itemRecordType(itemType, field(row, "subtype")),
           onHand: stock?.onHand ?? null,
           available: stock?.available ?? null,
           href: recordHref("item", idOf(row)),
         };
       }),
+    });
+  },
+
+  async vendors(req, res, url) {
+    const session = await authorized(req, res);
+    if (!session) return;
+    const page = pageOf(url.searchParams.get("page"));
+    const result = await query(session, vendorListSql(url.searchParams.get("q")), PAGE_SIZE, "ledger", page);
+    sendJson(res, 200, {
+      ...meta(session),
+      page,
+      ...rowsOf(result, (row) => ({
+        id: idOf(row),
+        name: field(row, "entityid") || "",
+        company: field(row, "companyname") || "",
+        email: field(row, "email") || "",
+        phone: field(row, "phone") || "",
+        subsidiary: field(row, "subsidiary") || "",
+        href: recordHref("vendor", idOf(row)),
+      })),
+    });
+  },
+
+  // Vendor detail: contact fields, open balance, open purchase orders and open bills.
+  async vendor(req, res, id) {
+    const session = await authorized(req, res);
+    if (!session) return;
+    const found = await query(
+      session,
+      `SELECT v.id, v.entityid, v.companyname, v.email, v.phone, BUILTIN.DF(v.subsidiary) AS subsidiary FROM vendor v WHERE v.id = ${id}`,
+      1,
+    );
+    const row = found.items[0];
+    if (!row) {
+      sendJson(res, 404, { error: "That vendor is not in this account." });
+      return;
+    }
+    const [orders, bills, balances] = await Promise.all([
+      query(session, txListSql("purchaseorders", { status: "open", entity: id }), 25),
+      query(session, txListSql("bills", { status: "open", entity: id }), 25),
+      query(
+        session,
+        `SELECT BUILTIN.DF(currency) AS currency, NVL(SUM(foreignamountunpaid), 0) AS amount
+         FROM transaction
+         WHERE entity = ${id} AND type = 'VendBill' AND NVL(voided, 'F') = 'F' AND foreignamountunpaid <> 0
+         GROUP BY BUILTIN.DF(currency)`,
+        20,
+      ),
+    ]);
+    const tx = (type) => (item) => ({
+      id: idOf(item),
+      number: field(item, "tranid") || "",
+      date: field(item, "trandate") || "",
+      due: field(item, "duedate") || "",
+      status: String(field(item, "status") || "").replace(/^[^:]*:\s*/, ""),
+      currency: field(item, "currency") || "",
+      amount: asNumber(field(item, "amount")),
+      unpaid: asNumber(field(item, "unpaid")),
+      href: transactionHref(type, idOf(item)),
+    });
+    sendJson(res, 200, {
+      ...meta(session),
+      vendor: {
+        id,
+        name: field(row, "entityid") || "",
+        company: field(row, "companyname") || "",
+        email: field(row, "email") || "",
+        phone: field(row, "phone") || "",
+        subsidiary: field(row, "subsidiary") || "",
+        href: recordHref("vendor", id),
+      },
+      balance: balances.items.map((item) => ({ currency: String(field(item, "currency") || ""), amount: asNumber(field(item, "amount")) })),
+      orders: rowsOf(orders, tx("PurchOrd")).rows,
+      bills: rowsOf(bills, tx("VendBill")).rows,
     });
   },
 
@@ -760,159 +781,74 @@ const routes = {
   async me(req, res) {
     const session = await authorized(req, res);
     if (!session) return;
-    const identity = await osmcpIdentity().catch(() => null);
-    let name = "";
-    let email = session.email || "";
-    let title = "";
-    try {
-      const result = await query(
-        session,
-        `SELECT id, entityid, firstname, lastname, email, title
-         FROM employee
-         WHERE id IN (BUILTIN.NAMED_GROUP('employee', 'me'))`,
-        1,
-        "session",
-      );
-      const row = result.items?.[0];
-      if (row) {
-        const first = String(field(row, "firstname") || "").trim();
-        const last = String(field(row, "lastname") || "").trim();
-        name = [first, last].filter(Boolean).join(" ") || String(field(row, "entityid") || "");
-        email = String(field(row, "email") || email || "");
-        title = String(field(row, "title") || "");
-      }
-    } catch {
-      name = name || email;
-    }
-    const account = identity?.accountId || accountLabel() || "";
-    sendJson(res, 200, {
-      name,
-      email,
-      title,
-      accountId: account.toUpperCase(),
-      roleId: identity?.roleId || "",
-      roleCenter: identity?.roleCenter || "",
-    });
+    // The account menu asks on every page load. The person behind a session does not change in a minute.
+    sendJson(res, 200, await cachedMeta("me", () => whoAmI(session), { ttl: 60_000, disk: false }));
   },
 };
 
-async function salesList(req, res, url, { type, where, kind }) {
-  const session = await authorized(req, res);
-  if (!session) return;
-  const term = likeTerm(url.searchParams.get("q"));
-  const match = term
-    ? ` AND (LOWER(t.tranid) LIKE '%${term}%' OR t.entity IN (SELECT id FROM customer WHERE LOWER(entityid) LIKE '%${term}%' OR LOWER(companyname) LIKE '%${term}%'))`
-    : "";
-  const result = await query(
-    session,
-    `SELECT t.id, t.tranid, t.trandate, BUILTIN.DF(t.entity) AS entity, BUILTIN.DF(t.status) AS status,
-            BUILTIN.DF(t.currency) AS currency, t.foreigntotal AS amount
-     FROM transaction t
-     WHERE t.type = '${type}' AND ${where}${match}
-     ORDER BY t.trandate DESC`,
-  );
-  sendJson(res, 200, {
-    ...meta(session),
-    ...rowsOf(result, (row) => ({
-      id: idOf(row),
-      number: field(row, "tranid") || "",
-      date: field(row, "trandate") || "",
-      customer: field(row, "entity") || "",
-      status: field(row, "status") || "",
-      currency: field(row, "currency") || "",
-      amount: asNumber(field(row, "amount")),
-      href: recordHref(kind, idOf(row)),
-    })),
-  });
+async function whoAmI(session) {
+  const identity = await osmcpIdentity().catch(() => null);
+  let name = "";
+  let email = session.email || "";
+  let title = "";
+  try {
+    const result = await query(
+      session,
+      `SELECT id, entityid, firstname, lastname, email, title
+       FROM employee
+       WHERE id IN (BUILTIN.NAMED_GROUP('employee', 'me'))`,
+      1,
+      "session",
+    );
+    const row = result.items?.[0];
+    if (row) {
+      const first = String(field(row, "firstname") || "").trim();
+      const last = String(field(row, "lastname") || "").trim();
+      name = [first, last].filter(Boolean).join(" ") || String(field(row, "entityid") || "");
+      email = String(field(row, "email") || email || "");
+      title = String(field(row, "title") || "");
+    }
+  } catch {
+    name = name || email;
+  }
+  const account = identity?.accountId || accountLabel() || "";
+  return {
+    name,
+    email,
+    title,
+    accountId: account.toUpperCase(),
+    roleId: identity?.roleId || "",
+    roleCenter: identity?.roleCenter || "",
+  };
 }
 
-async function transactionList(req, res, url, type, kind, party) {
+// One route for every transaction list: ?list=orders&status=open&q=&page=0.
+async function txList(req, res, url) {
   const session = await authorized(req, res);
   if (!session) return;
-  const term = likeTerm(url.searchParams.get("q"));
-  const partyTable = party === "vendor" ? "vendor" : "customer";
-  const match = term
-    ? ` AND (LOWER(t.tranid) LIKE '%${term}%' OR t.entity IN (SELECT id FROM ${partyTable} WHERE LOWER(entityid) LIKE '%${term}%' OR LOWER(companyname) LIKE '%${term}%'))`
-    : "";
-  const result = await query(
-    session,
-    `SELECT t.id, t.tranid, t.trandate, t.duedate, BUILTIN.DF(t.entity) AS entity,
-            BUILTIN.DF(t.currency) AS currency, t.foreigntotal AS amount, t.foreignamountunpaid AS unpaid
-     FROM transaction t
-     WHERE t.type = '${type}' AND NVL(t.voided, 'F') = 'F' AND t.foreignamountunpaid <> 0${match}
-     ORDER BY t.duedate`,
-  );
+  const name = String(url.searchParams.get("list") || "");
+  const sql = txListSql(name, { status: url.searchParams.get("status"), q: url.searchParams.get("q") });
+  const spec = TX_LISTS[name];
+  const page = pageOf(url.searchParams.get("page"));
+  const result = await query(session, sql, PAGE_SIZE, "ledger", page);
   sendJson(res, 200, {
     ...meta(session),
+    page,
+    statuses: spec.statuses ? Object.entries(spec.statuses).map(([id, label]) => ({ id, label })) : [],
+    hasOpen: Boolean(spec.open),
     ...rowsOf(result, (row) => ({
       id: idOf(row),
       number: field(row, "tranid") || "",
       date: field(row, "trandate") || "",
       due: field(row, "duedate") || "",
       name: field(row, "entity") || "",
+      status: String(field(row, "status") || "").replace(/^[^:]*:\s*/, ""),
       currency: field(row, "currency") || "",
       amount: asNumber(field(row, "amount")),
       unpaid: asNumber(field(row, "unpaid")),
-      href: recordHref(kind, idOf(row)),
+      href: transactionHref(spec.type, idOf(row)),
     })),
   });
-}
-
-function readJsonBody(req, limit = 200_000) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        const error = new Error("The request body is too large.");
-        error.status = 400;
-        reject(error);
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8");
-      if (!text) return resolve({});
-      try {
-        resolve(JSON.parse(text));
-      } catch {
-        const error = new Error("The body was not JSON.");
-        error.status = 400;
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function assertReadQuery(sql) {
-  const text = String(sql || "").trim();
-  if (!text) {
-    const error = new Error("Add a SELECT after sql.");
-    error.status = 400;
-    throw error;
-  }
-  if (text.length > 4000) {
-    const error = new Error("That query is too long.");
-    error.status = 400;
-    throw error;
-  }
-  const stripped = text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--.*$/gm, " ").trim();
-  const one = stripped.endsWith(";") ? stripped.slice(0, -1).trim() : stripped;
-  if (one.includes(";")) {
-    const error = new Error("Send one statement.");
-    error.status = 400;
-    throw error;
-  }
-  if (!/^(select|with)\b/i.test(one) || /\b(insert|update|delete|merge|drop|alter|create|grant|exec)\b/i.test(one)) {
-    const error = new Error("Only a SELECT can run from here.");
-    error.status = 400;
-    throw error;
-  }
-  return one;
 }
 
 const TYPE_LABELS = {
@@ -1068,12 +1004,20 @@ async function querySql(req, res) {
   const session = await authorized(req, res);
   if (!session) return;
   const body = await readJsonBody(req);
-  const sql = assertReadQuery(body.sql);
-  const result = await query(session, sql, 40, "cli");
-  const rows = Array.isArray(result.items) ? result.items.slice(0, 40) : [];
+  // sql @name in the command line runs a saved query.
+  const saved = body.name ? findQuery(body.name) : null;
+  if (body.name && !saved) {
+    sendJson(res, 400, { error: `No saved query is named ${String(body.name).slice(0, 60)}.` });
+    return;
+  }
+  const sql = assertReadQuery(saved ? saved.sql : body.sql);
+  const { page, size } = queryPage(body);
+  const result = await query(session, sql, size, "query", page);
+  const rows = Array.isArray(result.items) ? result.items.slice(0, size) : [];
   sendJson(res, 200, {
     columns: rows.length ? Object.keys(rows[0]) : [],
     rows,
+    page,
     total: result.total,
     hasMore: Boolean(result.hasMore),
   });
@@ -1084,14 +1028,14 @@ function connectorPayload(req) {
   const session = sid ? sessions.get(sid) : null;
   return {
     kind: connector(),
-    accountId: accountLabel(),
+    accountId: accountId(),
+    accountMissing: !accountId(),
     redirectUri: REDIRECT_URI,
-    osmcpUrl: osmcpUrl(),
-    osmcpHint: hint(osmcpToken()),
     customUrl: customMcpUrl(),
     customHint: hint(customMcpToken()),
     mcpClientId: mcpClientId(),
     mcpSecretHint: hint(mcpClientSecret()),
+    mcpConfidential: Boolean(mcpClientSecret()),
     suite: mcpSuite(),
     netsuiteMcpUrl: netsuiteMcpUrl(),
     mcpSignedIn: Boolean(session?.mcp),
@@ -1101,30 +1045,35 @@ function connectorPayload(req) {
 async function saveConnector(req, res) {
   const body = await readJsonBody(req);
   const kind = String(body.kind || "");
-  if (!["opensuitemcp", "netsuite", "custom"].includes(kind)) {
-    sendJson(res, 400, { error: "Choose OpenSuiteMCP, NetSuite, or another MCP server." });
+  if (!["netsuite", "custom"].includes(kind)) {
+    sendJson(res, 400, { error: "Choose NetSuite OAuth or a custom MCP server." });
     return;
   }
   const customUrl = String(body.customUrl || "").trim();
-  const nextOsmcpUrl = String(body.osmcpUrl || "").trim();
   if (customUrl && !/^https:\/\//.test(customUrl)) {
     sendJson(res, 400, { error: "The MCP server URL must start with https://." });
     return;
   }
-  if (nextOsmcpUrl && !/^https:\/\//.test(nextOsmcpUrl)) {
-    sendJson(res, 400, { error: "The OpenSuiteMCP URL must start with https://." });
+  const nextAccountId = String(body.accountId || "").trim();
+  if (nextAccountId && !validAccountId(nextAccountId)) {
+    sendJson(res, 400, { error: "The account ID can use letters, numbers, _ and -, up to 40 characters." });
+    return;
+  }
+  // clientType is sent only by setup. Public clears the secret. Confidential needs one.
+  const secret = String(body.mcpClientSecret || "");
+  if (body.clientType === "confidential" && !secret.trim() && !mcpClientSecret()) {
+    sendJson(res, 400, { error: "Add the client secret. A confidential client needs it." });
     return;
   }
   updateEnv(
-    ["CONNECTOR", "OSMCP_URL", "OSMCP_TOKEN", "MCP_URL", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_ID", "NETSUITE_MCP_CLIENT_SECRET", "NETSUITE_MCP_SUITE"],
+    ["CONNECTOR", "NETSUITE_ACCOUNT_ID", "MCP_URL", "MCP_TOKEN", "NETSUITE_MCP_CLIENT_ID", "NETSUITE_MCP_CLIENT_SECRET", "NETSUITE_MCP_SUITE"],
     {
       CONNECTOR: kind,
-      OSMCP_URL: nextOsmcpUrl,
-      OSMCP_TOKEN: String(body.osmcpToken || ""),
+      NETSUITE_ACCOUNT_ID: nextAccountId,
       MCP_URL: customUrl,
       MCP_TOKEN: String(body.customToken || ""),
       NETSUITE_MCP_CLIENT_ID: String(body.mcpClientId || "").trim(),
-      NETSUITE_MCP_CLIENT_SECRET: String(body.mcpClientSecret || ""),
+      NETSUITE_MCP_CLIENT_SECRET: body.clientType === "public" ? null : secret,
       NETSUITE_MCP_SUITE: body.suite === "all" ? "all" : "standard",
     },
   );
@@ -1132,14 +1081,40 @@ async function saveConnector(req, res) {
   sendJson(res, 200, connectorPayload(req));
 }
 
+// Setup's first step: one identity call and one SuiteQL read must both pass before Next.
+async function testConnection(req, res) {
+  const session = await authorized(req, res);
+  if (!session) return;
+  clearMcpCache();
+  try {
+    const names = (await listTools()).map((tool) => tool.name);
+    const missing = missingNetSuiteTools(names);
+    if (missing) {
+      // OpenSuiteMCP hides the NetSuite tools while its NetSuite login is broken, and says why.
+      const status = names.includes("osmcp_connection_status") ? await callTool("osmcp_connection_status", {}).catch(() => null) : null;
+      sendJson(res, 400, { error: status?.connected === false && status.remediation ? status.remediation : missing });
+      return;
+    }
+    const identity = await withSource("setup", () => osmcpIdentity());
+    const { n } = await countOf(session, `SELECT COUNT(id) AS n FROM customer WHERE isinactive = 'F'`);
+    sendJson(res, 200, { accountId: identity.accountId || accountLabel(), roleId: identity.roleId, customers: n });
+  } catch (error) {
+    sendJson(res, 400, { error: plainConnectionError(error) });
+  }
+}
+
 async function mcpLogin(_req, res) {
   if (!mcpClientId()) {
     redirect(res, "/?auth_error=" + encodeURIComponent("Add the NetSuite MCP client ID in Settings first."));
     return;
   }
+  if (!accountId()) {
+    redirect(res, "/?auth_error=" + encodeURIComponent("Add the NetSuite account ID in Settings first."));
+    return;
+  }
   const state = randomBytes(24).toString("base64url");
   const { verifier, challenge } = pkcePair();
-  const location = await authorizationRedirect(state, "", challenge, {
+  const location = await authorizationRedirect(state, challenge, {
     clientId: mcpClientId(),
     scope: "mcp",
   });
@@ -1153,34 +1128,41 @@ async function mcpLogin(_req, res) {
 
 const apiRoutes = {
   "GET /api/session": routes.session,
-  "GET /api/auth/login": routes.login,
   "GET /api/auth/callback": routes.callback,
   "POST /api/auth/logout": routes.logout,
   "GET /api/auth/mcp/login": mcpLogin,
   "GET /api/connector": (req, res) => sendJson(res, 200, connectorPayload(req)),
   "POST /api/config/connector": saveConnector,
+  "POST /api/setup/test": testConnection,
   "GET /api/overview": routes.overview,
   "GET /api/activity": routes.activity,
   "GET /api/customers": routes.customers,
-  "GET /api/orders": routes.orders,
-  "GET /api/quotes": routes.quotes,
-  "GET /api/invoices": routes.invoices,
-  "GET /api/bills": routes.bills,
   "GET /api/items": routes.items,
+  "GET /api/tx": txList,
+  "GET /api/vendors": routes.vendors,
   "GET /api/employees": routes.employees,
   "GET /api/me": routes.me,
   "POST /api/query": querySql,
+  ...queryRoutes({ sendJson, authorized, readJsonBody }),
   "GET /api/related": (req, res, url) => relatedGraph(req, res, url),
   ...studioRoutes({ sendJson, authorized }),
 };
 
 async function handle(req, res, vite) {
   const url = new URL(req.url || "/", "https://localhost");
-  const customerMatch = req.method === "GET" ? url.pathname.match(/^\/api\/customers\/(\d+)$/) : null;
+  const customerMatch = req.method === "GET" ? url.pathname.match(/^\/api\/customers\/(\d{1,12})$/) : null;
+  const vendorMatch = req.method === "GET" ? url.pathname.match(/^\/api\/vendors\/(\d{1,12})$/) : null;
   const handler = customerMatch
     ? (request, response) => routes.customer(request, response, customerMatch[1])
-    : apiRoutes[`${req.method} ${url.pathname}`];
+    : vendorMatch
+      ? (request, response) => routes.vendor(request, response, vendorMatch[1])
+      : apiRoutes[`${req.method} ${url.pathname}`];
   if (url.pathname.startsWith("/api/")) {
+    const blocked = blockedReason(req, PORT);
+    if (blocked) {
+      sendJson(res, 403, { error: blocked });
+      return;
+    }
     if (!handler) {
       sendJson(res, 404, { error: "Unknown API route." });
       return;
@@ -1233,27 +1215,22 @@ httpsServer.on("request", (req, res) => {
   });
 });
 
-httpsServer.listen(PORT, () => {
+httpsServer.listen(PORT, "127.0.0.1", () => {
   console.log(`[headless] https://localhost:${PORT}`);
   console.log(`[headless] redirect ${REDIRECT_URI}`);
   const kind = connector();
   console.log(`[headless] connector ${kind}`);
-  if (kind === "opensuitemcp" || kind === "custom") {
+  if (kind === "custom") {
     osmcpIdentity()
       .then((identity) => {
-        console.log(`[headless] ${kind} connected · ${identity.accountId} · ${identity.roleId}`);
+        console.log(`[headless] ${kind} connected · ${identity.accountId || "account not reported"} · ${identity.roleId}`);
       })
       .catch((error) => {
         console.log(`[headless] ${kind} not ready: ${error.message}`);
       });
   }
+  if (!accountId()) return;
   getDiscovery()
-    .then((document) => {
-      console.log(
-        `[headless] OIDC discovery ok for ${accountLabel()} · ${document.jwks.keys.length} signing keys${document.jwksError ? ` · ${document.jwksError}` : ""}`,
-      );
-    })
-    .catch((error) => {
-      console.log(`[headless] OIDC discovery failed: ${error.message}`);
-    });
+    .then(() => console.log(`[headless] NetSuite sign-in ready for ${accountLabel()}`))
+    .catch((error) => console.log(`[headless] NetSuite sign-in not ready: ${error.message}`));
 });

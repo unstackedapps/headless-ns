@@ -2,7 +2,10 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
+import { DataTable } from "./table";
 import { RefreshButton, refreshScope } from "./refresh";
+import { api, postJson } from "./api";
+import { PageHead } from "./head";
 
 type Entry = { id: string; kind: "folder" | "file"; name: string; path: string };
 type Page = { entries: Entry[]; hasMore: boolean; cursor: string | null };
@@ -50,11 +53,9 @@ export function FilesPage() {
   selectedRef.current = selected;
 
   async function loadFolder(path: string, cursor?: string | null) {
-    const response = await fetch(
+    const body = await api<{ entries?: Entry[]; hasMore?: boolean; cursor?: string | null }>(
       `/api/files?path=${encodeURIComponent(path)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
     );
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "The folder did not load.");
     setPages((current) => ({
       ...current,
       [path]: {
@@ -96,10 +97,8 @@ export function FilesPage() {
       return;
     }
     let stop = false;
-    fetch(`/api/files/search?q=${encodeURIComponent(needle)}`)
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "The file search did not run.");
+    api<{ entries?: Entry[] }>(`/api/files/search?q=${encodeURIComponent(needle)}`)
+      .then((body) => {
         if (!stop) setHits(body.entries || []);
       })
       .catch((reason: Error) => {
@@ -150,13 +149,7 @@ export function FilesPage() {
       for (const file of files) {
         if (file.size > 8_000_000) throw new Error(`${file.name} is too large to upload.`);
         setUploading(file.name);
-        const response = await fetch("/api/files/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ folder, name: file.name, contentBase64: await fileToBase64(file) }),
-        });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "The upload did not finish.");
+        await postJson("/api/files/upload", { folder, name: file.name, contentBase64: await fileToBase64(file) });
       }
       await loadFolder(folder);
     } catch (reason) {
@@ -171,13 +164,7 @@ export function FilesPage() {
     setPreview(null);
     setOpenError(null);
     try {
-      const response = await fetch("/api/files/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: entry.path }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "The file contents did not load.");
+      const body = await postJson<Omit<Preview, "path">>("/api/files/read", { path: entry.path });
       setPreview({ ...body, path: entry.path });
     } catch (reason) {
       setOpenError(reason instanceof Error ? reason.message : "The file contents did not load.");
@@ -190,13 +177,7 @@ export function FilesPage() {
     setOpenError(null);
     const payload = jumpPath.trim() ? { path: jumpPath.trim(), kind: jumpKind } : { id: jumpId.trim(), kind: jumpKind };
     try {
-      const response = await fetch("/api/files/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "That path did not resolve.");
+      const body = await postJson<{ path?: string; kind?: string; id?: string | number }>("/api/files/lookup", payload);
       if (!body.path) throw new Error("NetSuite did not return a path.");
       if (body.kind === "file") {
         const folder = body.path.split("/").slice(0, -1).join("/") || "/";
@@ -214,13 +195,7 @@ export function FilesPage() {
     if (!preview?.path) return;
     setOpenError(null);
     try {
-      const response = await fetch("/api/files/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: preview.path }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "NetSuite did not return a link for that file.");
+      const body = await postJson<{ url: string }>("/api/files/open", { path: preview.path });
       window.open(body.url, "_blank", "noopener");
     } catch (reason) {
       setOpenError(reason instanceof Error ? reason.message : "NetSuite did not return a link for that file.");
@@ -228,17 +203,14 @@ export function FilesPage() {
   }
 
   const page = pages[selected];
-  const rows = needle ? hits || [] : page?.entries || [];
+  // null until the folder or the search answers, so the table shows its skeleton.
+  const rows = needle ? hits : page?.entries ?? null;
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">File Cabinet</div>
-          <h1>Files</h1>
-        </div>
+      <PageHead title="Files">
         <RefreshButton label="files" onClick={() => refreshScope("files")} />
-      </header>
+      </PageHead>
       <p className="status">Pick a folder on the left. Drop files onto a folder to upload them. Click a file to read it.</p>
       {uploading && <p className="status">Uploading {uploading}</p>}
       {error && <p className="error">{error}</p>}
@@ -297,8 +269,8 @@ export function FilesPage() {
               <input value={jumpPath} aria-label="Path" placeholder="/SuiteScripts" onChange={(event) => setJumpPath(event.target.value)} />
             </label>
             <label>
-              Internal id
-              <input value={jumpId} aria-label="Internal id" inputMode="numeric" onChange={(event) => setJumpId(event.target.value)} />
+              Internal ID
+              <input value={jumpId} aria-label="Internal ID" inputMode="numeric" onChange={(event) => setJumpId(event.target.value)} />
             </label>
             <label>
               Kind
@@ -317,41 +289,33 @@ export function FilesPage() {
             </button>
           </div>
           {openError && <p className="error">{openError}</p>}
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>{needle ? "Path" : "Kind"}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={`${entry.kind}:${entry.path}`}>
-                  <td>
-                    {entry.kind === "folder" && !needle ? (
-                      <button className="linkish" type="button" onClick={() => choose(entry.path)}>
-                        <Glyph icon={glyph.folder} size={14} />
-                        {entry.name || entry.path}
-                      </button>
-                    ) : (
-                      <button className="linkish" type="button" onClick={() => readFile(entry)}>
-                        <Glyph icon={glyph.file} size={14} />
-                        {entry.name || entry.path}
-                      </button>
-                    )}
-                  </td>
-                  <td>{needle ? entry.path : entry.kind === "folder" ? "Folder" : "File"}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td className="empty" colSpan={2}>
-                    {needle ? "No files matched that name." : page ? "This folder is empty." : "Loading this folder."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <DataTable
+            label={needle ? "Search results" : folderLabel(selected)}
+            rows={rows}
+            loading
+            skeletonRows={6}
+            rowKey={(entry) => `${entry.kind}:${entry.path}`}
+            empty={needle ? "No files matched that name." : "This folder is empty."}
+            columns={[
+              {
+                key: "name",
+                label: "Name",
+                cell: (entry) =>
+                  entry.kind === "folder" && !needle ? (
+                    <button className="linkish" type="button" onClick={() => choose(entry.path)}>
+                      <Glyph icon={glyph.folder} size={14} />
+                      {entry.name || entry.path}
+                    </button>
+                  ) : (
+                    <button className="linkish" type="button" onClick={() => readFile(entry)}>
+                      <Glyph icon={glyph.file} size={14} />
+                      {entry.name || entry.path}
+                    </button>
+                  ),
+              },
+              { key: "kind", label: needle ? "Path" : "Kind", cell: (entry) => (needle ? entry.path : entry.kind === "folder" ? "Folder" : "File") },
+            ]}
+          />
           {!needle && page?.hasMore && (
             <button className="quiet" type="button" onClick={() => loadFolder(selected, page.cursor).catch((reason: Error) => setError(reason.message))}>
               More

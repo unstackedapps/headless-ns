@@ -1,14 +1,26 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { Glyph, glyph } from "./icons";
 import { Markdown } from "./formatted";
-import { Lookup, SkeletonTable } from "./load";
-import { ConnectionPanel } from "./connect";
+import { Button, Lookup, SkeletonTable } from "./load";
+import { ConfirmCheck } from "./records";
+import { ConnectionSettings } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
+import { FilterRail } from "./rail";
+import { DataTable } from "./table";
+import { orBlank } from "./format";
 import { ShapeSelect, ThemeSelect } from "./theme";
+import { api, postJson } from "./api";
+import { PageHead } from "./head";
+import { stepText, toolTitle } from "./steps";
 
 type Step = { name: string; ok: boolean; error?: string };
-type PendingCall = { id: string; name: string; arguments: Record<string, unknown> };
+type PendingCall = {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  summary?: { title: string; details: string[] };
+};
 type ChatMessage = {
   role: "user" | "assistant" | "tool";
   content?: string;
@@ -19,6 +31,7 @@ type AskResult = {
   answer: string;
   steps: Step[];
   pending: PendingCall[] | null;
+  pendingId?: string;
   transcript: ChatMessage[];
 };
 type ToolInfo = {
@@ -69,7 +82,7 @@ type ModelConnection = {
   keyMask: string;
 };
 type ProviderChoice = { id: string; label: string; defaultModel: string; needsBaseUrl: boolean };
-type ModelsPayload = { activeId: string | null; connections: ModelConnection[]; providers: ProviderChoice[] };
+export type ModelsPayload = { activeId: string | null; connections: ModelConnection[]; providers: ProviderChoice[] };
 type Policy = { allowWrites: boolean; disabled: string[] };
 type Config = {
   accountId: string;
@@ -90,16 +103,6 @@ const kindLabel: Record<ToolInfo["kind"], string> = {
   app: "Chat",
   internal: "File",
 };
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
-  return body as T;
-}
 
 function today() {
   const date = new Date();
@@ -130,6 +133,7 @@ export function AskPage({
   const [transcript, setTranscript] = useState<ChatMessage[]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [pending, setPending] = useState<PendingCall[] | null>(null);
+  const [pendingId, setPendingId] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,6 +147,7 @@ export function AskPage({
     setTranscript([]);
     setSteps([]);
     setPending(null);
+    setPendingId("");
     setText("");
     setError(null);
     setBusy(false);
@@ -184,6 +189,7 @@ export function AskPage({
     setTranscript(result.transcript);
     setSteps(result.steps);
     setPending(result.pending);
+    setPendingId(result.pendingId || "");
   }
 
   async function send(question: string) {
@@ -213,7 +219,7 @@ export function AskPage({
     try {
       const result = await api<AskResult>("/api/ask/confirm", {
         method: "POST",
-        body: JSON.stringify({ transcript, approved }),
+        body: JSON.stringify({ id: pendingId, approved }),
       });
       if (turn.current !== id) return;
       apply(result);
@@ -260,7 +266,7 @@ export function AskPage({
           label="Model"
           value={llm?.id || models.activeId || ""}
           onChange={(id) => {
-            api<ModelsPayload>("/api/models/active", { method: "POST", body: JSON.stringify({ id }) })
+            postJson<ModelsPayload>("/api/models/active", { id })
               .then((next) => {
                 setModels(next);
                 const active = next.connections.find((row) => row.id === next.activeId);
@@ -285,26 +291,32 @@ export function AskPage({
         />
       ) : llm?.configured ? (
         `Using ${llm.model}.`
-      ) : llm ? (
-        "No model key yet. Add one under Settings."
-      ) : (
+      ) : llm ? null : (
         "Looking up the model."
       )}
     </div>
   );
 
+  if (llm && !llm.configured) {
+    return (
+      <section className="panel ask-connect">
+        <h2>Connect an AI model</h2>
+        <p>Ask needs a model to answer questions. The NetSuite screens work without one.</p>
+        <a className="primary" href="#/setup/ai">
+          Connect an AI model
+        </a>
+      </section>
+    );
+  }
+
   const conversation = (
     <>
       {!docked && (
-        <header className="page-head">
-          <div>
-            <div className="kicker">Assistant</div>
-            <h1>Ask</h1>
-          </div>
+        <PageHead title="Ask" kicker="Tools">
           <button className="quiet" type="button" disabled={!dirty} onClick={clear}>
             Clear
           </button>
-        </header>
+        </PageHead>
       )}
       <div className="thread">
         {thread.map((message, index) => (
@@ -314,8 +326,7 @@ export function AskPage({
               <ul className="steps">
                 {steps.map((step, stepIndex) => (
                   <li key={`${step.name}-${stepIndex}`}>
-                    {step.ok ? "Ran" : "Failed"} {step.name}
-                    {step.error ? ` — ${step.error}` : ""}
+                    {stepText(step)}
                   </li>
                 ))}
               </ul>
@@ -331,18 +342,28 @@ export function AskPage({
           {pending.map((call) => (
             <div key={call.id}>
               <p>
-                <code>{call.name}</code>
+                <strong>{call.summary?.title || call.name}</strong>
               </p>
-              <pre className="result">{JSON.stringify(call.arguments, null, 2)}</pre>
+              {call.summary && call.summary.details.length > 0 && (
+                <ul className="steps">
+                  {call.summary.details.map((detail, index) => (
+                    <li key={index}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+              <details>
+                <summary>Show the exact request</summary>
+                <pre className="result">{JSON.stringify(call.arguments, null, 2)}</pre>
+              </details>
             </div>
           ))}
           <div className="actions">
-            <button className="primary" type="button" disabled={busy} onClick={() => decide(true)}>
+            <Button className="primary" busy={busy} onClick={() => decide(true)}>
               Run on NetSuite
-            </button>
-            <button className="quiet" type="button" disabled={busy} onClick={() => decide(false)}>
+            </Button>
+            <Button className="quiet" disabled={busy} onClick={() => decide(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </section>
       )}
@@ -371,7 +392,6 @@ function fieldType(spec: { type?: string | string[] }) {
 
 export function WorkbenchPage() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
-  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [raw, setRaw] = useState("");
@@ -424,7 +444,6 @@ export function WorkbenchPage() {
     }));
   }, [tool]);
 
-  const shown = tools.filter((item) => item.name.toLowerCase().includes(query.trim().toLowerCase()));
   const needsConfirm = tool ? tool.kind !== "read" : false;
 
   function argumentsFor() {
@@ -461,12 +480,7 @@ export function WorkbenchPage() {
   if (!ready && !loadError) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Tools</div>
-            <h1>Workbench</h1>
-          </div>
-        </header>
+        <PageHead title="Workbench" />
         <SkeletonTable rows={8} cols={2} />
       </>
     );
@@ -474,41 +488,26 @@ export function WorkbenchPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">Tools</div>
-          <h1>Workbench</h1>
-        </div>
+      <PageHead title="Workbench">
         <RefreshButton label="tools" scope="workbench" />
-      </header>
+      </PageHead>
       {loadError && <p className="error">{loadError}</p>}
       {ready && <div className="split">
-        <div className="split-rail">
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input className="search" value={query} placeholder="Filter tools" aria-label="Filter tools" onChange={(event) => setQuery(event.target.value)} />
-          </label>
-          <div className="tool-list">
-            {shown.map((item) => (
-              <button
-                key={item.name}
-                type="button"
-                className={item.name === selected ? "tool on" : "tool"}
-                onClick={() => {
-                  setSelected(item.name);
-                  setValues({});
-                  setRaw("");
-                  setConfirm(false);
-                  setResult("");
-                  setError(null);
-                }}
-              >
-                <span>{item.name}</span>
-                <em>{kindLabel[item.kind]}</em>
-              </button>
-            ))}
-          </div>
-        </div>
+        <FilterRail
+          label="Filter tools"
+          placeholder="Filter tools"
+          items={tools.map((item) => ({ key: item.name, title: item.name, note: kindLabel[item.kind] }))}
+          selected={selected}
+          onPick={(name) => {
+            setSelected(name);
+            setValues({});
+            setRaw("");
+            setConfirm(false);
+            setResult("");
+            setError(null);
+          }}
+          limit={500}
+        />
         {tool && (
           <div className="split-main">
             <h2>{tool.name}</h2>
@@ -549,16 +548,13 @@ export function WorkbenchPage() {
               </div>
             )}
             {needsConfirm && (
-              <label className="check">
-                <input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} />
-                I mean to run this. It can change NetSuite.
-              </label>
+              <ConfirmCheck checked={confirm} onChange={setConfirm} />
             )}
             <div className="actions">
-              <button className="primary" type="button" disabled={busy} onClick={run}>
-                <Glyph icon={glyph.run} />
-                {busy ? "Running" : "Run"}
-              </button>
+              <Button className="primary" busy={busy} onClick={run}>
+                {!busy && <Glyph icon={glyph.run} />}
+                Run
+              </Button>
             </div>
             {error && <p className="error">{error}</p>}
             {result && <pre className="result">{result}</pre>}
@@ -652,12 +648,7 @@ export function ReportsPage() {
   if (!ready && !error) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Saved reports</div>
-            <h1>Reports</h1>
-          </div>
-        </header>
+        <PageHead title="Reports" />
         <SkeletonTable rows={8} cols={3} />
       </>
     );
@@ -665,13 +656,9 @@ export function ReportsPage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Saved reports</div>
-          <h1>Reports</h1>
-        </div>
+      <PageHead title="Reports">
         <RefreshButton label="reports" scope="reports" />
-      </header>
+      </PageHead>
       <p className="status">{reports.length} reports for this role.</p>
       {ready && <div className="filters">
         <label>
@@ -748,10 +735,10 @@ export function ReportsPage() {
           To
           <DatePick label="To" value={dateTo} onChange={setDateTo} />
         </label>
-        <button className="primary" type="button" disabled={busy || reportId === ""} onClick={execute}>
-          <Glyph icon={glyph.run} />
-          {busy ? "Running" : "Run report"}
-        </button>
+        <Button className="primary" busy={busy} disabled={reportId === ""} onClick={execute}>
+          {!busy && <Glyph icon={glyph.run} />}
+          Run report
+        </Button>
       </div>}
       {busy && (
         <section className="list-view">
@@ -778,26 +765,14 @@ export function ReportsPage() {
           <p className="status">
             {run.total} detail lines{run.truncated ? ", showing the first 200" : ""}.
           </p>
-          <div className="table-wrap loose">
-            <table>
-              <thead>
-                <tr>
-                  {run.columns.map((column) => (
-                    <th key={column}>{column}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {run.rows.map((row, index) => (
-                  <tr key={index}>
-                    {run.columns.map((column) => (
-                      <td key={column}>{row[column] === "" || row[column] == null ? "—" : String(row[column])}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            label={run.title}
+            wrap="loose"
+            rows={run.rows}
+            rowKey={(_, index) => index}
+            empty="The report returned no rows."
+            columns={run.columns.map((column) => ({ key: column, label: column, cell: (row: Record<string, unknown>) => orBlank(row[column]) }))}
+          />
         </section>
       )}
     </>
@@ -841,12 +816,7 @@ export function TracePage() {
   if (!ready) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Audit</div>
-            <h1>Trace</h1>
-          </div>
-        </header>
+        <PageHead title="Trace" />
         <SkeletonTable rows={8} cols={4} />
       </>
     );
@@ -854,48 +824,31 @@ export function TracePage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Audit</div>
-          <h1>Trace</h1>
-        </div>
+      <PageHead title="Trace">
         <RefreshButton label="trace" scope="trace" />
-      </header>
+      </PageHead>
       <p className="status">Recent calls. This list updates on its own.</p>
       {error && <p className="error">{error}</p>}
-      <div className="table-wrap loose">
-        <table>
-          <thead>
-            <tr>
-              <th className="when">When</th>
-              <th>Source</th>
-              <th>Tool</th>
-              <th className="num">ms</th>
-              <th>Result</th>
-              <th>Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td className="when">{new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}</td>
-                <td>{entry.source}</td>
-                <td>{entry.name}</td>
-                <td className="num">{entry.ms}</td>
-                <td>{entry.ok ? "Ok" : "Failed"}</td>
-                <td>{entry.detail || "—"}</td>
-              </tr>
-            ))}
-            {entries.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty">
-                  No calls yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label="Recent calls"
+        wrap="loose"
+        rows={entries}
+        rowKey={(entry) => entry.id}
+        empty="No calls yet."
+        columns={[
+          {
+            key: "when",
+            label: "When",
+            className: "when",
+            cell: (entry) => new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }),
+          },
+          { key: "source", label: "Source", cell: (entry) => entry.source },
+          { key: "tool", label: "Tool", cell: (entry) => entry.name },
+          { key: "ms", label: "ms", num: true, cell: (entry) => entry.ms },
+          { key: "result", label: "Result", cell: (entry) => (entry.ok ? "Ok" : "Failed") },
+          { key: "detail", label: "Detail", cell: (entry) => orBlank(entry.detail) },
+        ]}
+      />
     </>
   );
 }
@@ -904,7 +857,6 @@ export function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [models, setModels] = useState<ModelsPayload | null>(null);
-  const [draft, setDraft] = useState({ id: "", label: "", provider: "openai", model: "gpt-5.2", baseUrl: "", apiKey: "" });
   const [allowWrites, setAllowWrites] = useState(false);
   const [disabled, setDisabled] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -943,21 +895,6 @@ export function SettingsPage() {
     };
   }, []);
 
-  function chooseConnection(id: string) {
-    const row = models?.connections.find((item) => item.id === id);
-    const provider = models?.providers.find((item) => item.id === (row?.provider || "openai"));
-    setDraft({
-      id: row?.id || "",
-      label: row?.label || "",
-      provider: row?.provider || "openai",
-      model: row?.model || provider?.defaultModel || "",
-      baseUrl: row?.baseUrl || "",
-      apiKey: "",
-    });
-    setMessage(null);
-    setError(null);
-  }
-
   function llmFrom(payload: ModelsPayload): LlmConfig | null {
     const active = payload.connections.find((row) => row.id === payload.activeId);
     if (!active) return null;
@@ -973,27 +910,14 @@ export function SettingsPage() {
     };
   }
 
-  async function saveModel(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
+  async function rename(row: ModelConnection, label: string) {
+    if (!label.trim() || label === row.label) return;
     setError(null);
-    setMessage(null);
     try {
-      const next = await api<ModelsPayload>("/api/models", { method: "POST", body: JSON.stringify(draft) });
-      setModels(next);
-      setDraft((current) => ({ ...current, apiKey: "" }));
-      const llm = llmFrom(next);
-      if (llm) {
-        setConfig((current) => (current ? { ...current, llm, models: next } : current));
-        window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: llm }));
-      }
-      const saved = next.connections.find((row) => row.model === draft.model && row.provider === draft.provider);
-      if (saved) setDraft((current) => ({ ...current, id: saved.id, apiKey: "" }));
-      setMessage(saved?.keyMask ? `Saved. Key ${saved.keyMask}.` : "Saved.");
+      setModels(await postJson<ModelsPayload>("/api/models", { id: row.id, label, provider: row.provider, model: row.model, baseUrl: row.baseUrl }));
+      setMessage("Renamed.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save the model.");
-    } finally {
-      setBusy(false);
+      setError(reason instanceof Error ? reason.message : "Could not rename the model.");
     }
   }
 
@@ -1001,7 +925,7 @@ export function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      const next = await api<ModelsPayload>("/api/models/active", { method: "POST", body: JSON.stringify({ id }) });
+      const next = await postJson<ModelsPayload>("/api/models/active", { id });
       setModels(next);
       const llm = llmFrom(next);
       if (llm) {
@@ -1020,31 +944,13 @@ export function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      const next = await api<ModelsPayload>("/api/models/remove", { method: "POST", body: JSON.stringify({ id }) });
+      const next = await postJson<ModelsPayload>("/api/models/remove", { id });
       setModels(next);
-      if (draft.id === id) chooseConnection("");
       const llm = llmFrom(next);
       if (llm) window.dispatchEvent(new CustomEvent<LlmConfig>("hn-llm", { detail: llm }));
       setMessage("Removed.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not remove the model.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function testModel() {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const body = await api<{ reply: string }>("/api/models/test", {
-        method: "POST",
-        body: JSON.stringify({ id: draft.id || models?.activeId }),
-      });
-      setMessage(`The model replied: ${body.reply}`);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The model test failed.");
     } finally {
       setBusy(false);
     }
@@ -1059,9 +965,9 @@ export function SettingsPage() {
         method: "POST",
         body: JSON.stringify({ allowWrites, disabled }),
       });
-      setMessage(policy.allowWrites ? "Changes are allowed. Ask still waits for you to confirm." : "Ask can only read.");
+      setMessage(policy.allowWrites ? "Ask may change NetSuite. It still waits for you to confirm." : "Ask can only read.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save the tool policy.");
+      setError(reason instanceof Error ? reason.message : "Could not save Ask's tools.");
     } finally {
       setBusy(false);
     }
@@ -1071,19 +977,14 @@ export function SettingsPage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Setup</div>
-          <h1>Settings</h1>
-        </div>
+      <PageHead title="Settings">
         <RefreshButton label="settings" scope="settings" />
-      </header>
+      </PageHead>
       {error && <p className="error">{error}</p>}
       {message && <p className="status">{message}</p>}
       <section className="section">
         <h2>Connection</h2>
-        <p className="status">The token is not stored in the browser.</p>
-        <ConnectionPanel />
+        <ConnectionSettings />
       </section>
       <section className="section">
         <h2>Appearance</h2>
@@ -1116,7 +1017,7 @@ export function SettingsPage() {
               <div key={level} className="panel">
                 <h3>{level}</h3>
                 {ids.length === 0 ? (
-                  <p className="status">None granted.</p>
+                  <p className="status">None.</p>
                 ) : (
                   <ul className="perm-list">
                     {ids.map((id) => (
@@ -1140,7 +1041,6 @@ export function SettingsPage() {
       )}
       <section className="section">
         <h2>Models</h2>
-        <p className="status">The key is not stored in the browser. Leave the field blank to keep the saved key.</p>
         {models && models.connections.length > 0 && (
           <ul className="model-list">
             {models.connections.map((row) => (
@@ -1148,10 +1048,15 @@ export function SettingsPage() {
                 <button className={row.id === models.activeId ? "quiet on" : "quiet"} type="button" onClick={() => activate(row.id)}>
                   {row.id === models.activeId ? "In use" : "Use"}
                 </button>
-                <button className="linkish" type="button" onClick={() => chooseConnection(row.id)}>
-                  {row.label} · {row.providerLabel} · {row.model}
-                </button>
-                <span className="note">{row.keyMask}</span>
+                <input
+                  className="model-name"
+                  aria-label={`Name for ${row.model}`}
+                  defaultValue={row.label}
+                  onBlur={(event) => rename(row, event.target.value)}
+                />
+                <span className="note">
+                  {row.providerLabel} · {row.model} · {row.keyMask}
+                </span>
                 <button className="quiet" type="button" onClick={() => removeModel(row.id)}>
                   Remove
                 </button>
@@ -1159,60 +1064,12 @@ export function SettingsPage() {
             ))}
           </ul>
         )}
-        <form className="form" onSubmit={saveModel}>
-          <label>
-            Name
-            <input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
-          </label>
-          <label>
-            Provider
-            <Pick
-              label="Provider"
-              value={draft.provider}
-              onChange={(next) => {
-                const spec = models?.providers.find((item) => item.id === next);
-                setDraft({ ...draft, provider: next, model: draft.id ? draft.model : spec?.defaultModel || "" });
-              }}
-              options={(models?.providers || []).map((item) => ({ value: item.id, label: item.label }))}
-            />
-          </label>
-          <label>
-            Model
-            <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
-          </label>
-          {models?.providers.find((item) => item.id === draft.provider)?.needsBaseUrl && (
-            <label>
-              Base URL
-              <input value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} />
-            </label>
-          )}
-          <label>
-            API key
-            <input
-              type="password"
-              value={draft.apiKey}
-              autoComplete="off"
-              placeholder={models?.connections.find((row) => row.id === draft.id)?.keyMask || "API key"}
-              onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-            />
-          </label>
-          <div className="actions">
-            <button className="primary" type="submit" disabled={busy}>
-              {draft.id ? "Save model" : "Add model"}
-            </button>
-            <button className="quiet" type="button" disabled={busy || !(draft.id || models?.activeId)} onClick={testModel}>
-              Test model
-            </button>
-            {draft.id && (
-              <button className="quiet" type="button" onClick={() => chooseConnection("")}>
-                New model
-              </button>
-            )}
-          </div>
-        </form>
+        <a className="quiet" href="#/setup/ai">
+          Add or change a model
+        </a>
       </section>
       <section className="section">
-        <h2>Assistant</h2>
+        <h2>Ask</h2>
         <label className="check">
           <input type="checkbox" checked={allowWrites} onChange={(event) => setAllowWrites(event.target.checked)} />
           Allow changes. Ask still waits for you to confirm.
@@ -1232,14 +1089,14 @@ export function SettingsPage() {
                     );
                   }}
                 />
-                {tool.name}
+                {toolTitle(tool.name)}
                 <em>{kindLabel[tool.kind]}</em>
               </label>
             );
           })}
         </div>
         <button className="primary" type="button" disabled={busy} onClick={savePolicy}>
-          Save tool policy
+          Save Ask's tools
         </button>
       </section>
     </>

@@ -1,0 +1,197 @@
+import { expect, test, type Page } from "@playwright/test";
+import { signIn } from "./session";
+import { approve, landed, pick, runStep, submit as submitWith } from "./live";
+
+// Writes to NetSuite (td3138390), memo "headless-ns phase4 test". Screenshots go to e2e/shots/gaps-*.png.
+// 1. A lot item PO, received 3 of 5 into two new lots, billed for the 3 received.
+// 2. That bill paid in part, together with part of another open bill of the same vendor.
+// 3. A sales order for a lot item, fulfilled from two lots.
+const MEMO = "headless-ns phase4 test";
+const RUN = Date.now().toString(36).toUpperCase();
+const submit = (page: Page, button: string, kicker: string) => submitWith(page, MEMO, button, kicker);
+
+// A Core4Solutions purchase order at San Francisco, made through the new-order screen.
+async function newPurchaseOrder(page: Page, search: string, item: RegExp, quantity: string, rate: string) {
+  await page.goto("/#/transaction?type=purchaseorder&new=1");
+  await pick(page, "Vendor", "core4", "Core4Solutions");
+  await pick(page, "Location", "san", "San Francisco");
+  await page.getByLabel("Memo").fill(MEMO);
+  await pick(page, "Item", search, item);
+  await page.getByRole("spinbutton", { name: "Quantity" }).fill(quantity);
+  await page.getByRole("spinbutton", { name: "Rate" }).fill(rate);
+  await page.getByLabel(/I mean to run this/).check();
+  await page.getByRole("button", { name: "Create purchase order" }).click();
+  await landed(page, "Purchase order");
+}
+
+test("lot receipt, bill for the received quantity and a partial payment", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+
+  await newPurchaseOrder(page, "gar002l", /GAR002L/, "5", "2");
+  await approve(page, "Pending Receipt");
+
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "Quantity", exact: true }).fill("3");
+  await page.getByRole("textbox", { name: "Lot 1 for line 1" }).fill(`HNS-${RUN}-A`);
+  await page.getByRole("spinbutton", { name: "Lot 1 quantity for line 1" }).fill("2");
+  await page.getByRole("button", { name: "Add another lot" }).click();
+  await page.getByRole("textbox", { name: "Lot 2 for line 1" }).fill(`HNS-${RUN}-B`);
+  await expect(page.getByText("Lots: 3 of 3 entered")).toBeVisible();
+  await shot("1-receive-lots");
+  await submit(page, "Create receipt", "Receipt");
+  await shot("2-receipt");
+
+  await page.getByRole("link", { name: /^PO\d+/ }).click();
+  await landed(page, "Purchase order");
+  await page.getByRole("button", { name: "Bill", exact: true }).click();
+  await expect(page.getByText(/Line 1: .*GAR002L.* \(3 received, 0 billed\)/)).toBeVisible();
+  await expect(page.getByRole("spinbutton", { name: "Quantity" })).toHaveValue("3");
+  await shot("3-bill-form");
+  await submit(page, "Create bill", "Bill");
+  await approve(page, "Open");
+  await expect(page.getByText("6.00 US Dollar").first()).toBeVisible();
+  const billUrl = page.url();
+  await shot("4-bill");
+
+  await page.getByRole("button", { name: "Pay bill" }).click();
+  const own = page.getByRole("spinbutton", { name: /^Amount for Bill \d+$/ }).first();
+  await expect(own).toHaveValue("6");
+  await own.fill("4");
+  const other = page.locator(".ship-line").nth(1);
+  await other.getByRole("checkbox").check();
+  await other.getByRole("spinbutton").fill("1");
+  await expect(page.getByText("Pays 5.00 US Dollar.")).toBeVisible();
+  await pick(page, "Account", "checking", /US Checking/);
+  await shot("5-pay-form");
+  await submit(page, "Create bill payment", "Bill payment");
+  await shot("6-bill-payment");
+
+  // The payment covers two bills; go back to the one this test made.
+  await page.goto(billUrl);
+  await landed(page, "Bill");
+  await expect(page.locator("dt", { hasText: "Open amount" }).locator("xpath=..").locator("dd")).toHaveText("2.00 US Dollar");
+  await shot("7-bill-part-paid");
+});
+
+test("a lot item ships from two lots", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+
+  await page.goto("/#/transaction?type=salesorder&new=1");
+  await pick(page, "Customer", "quinu", "124 Quinu LLP");
+  await pick(page, "Location", "san", "San Francisco");
+  await page.getByLabel("Memo").fill(MEMO);
+  await pick(page, "Item", "stumptown", /Stumptown/);
+  await page.getByRole("spinbutton", { name: "Quantity", exact: true }).fill("3");
+  await page.getByRole("spinbutton", { name: "Rate" }).fill("10");
+  await page.getByLabel(/I mean to run this/).check();
+  await page.getByRole("button", { name: "Create sales order" }).click();
+  await landed(page, "Sales order");
+
+  await page.getByRole("button", { name: "Fulfill", exact: true }).click();
+  await page.getByRole("combobox", { name: "Lot 1 for line 1" }).click();
+  await page.getByRole("option", { name: /LOT-DEMO-A/ }).click();
+  await page.getByRole("spinbutton", { name: "Lot 1 quantity for line 1" }).fill("2");
+  await page.getByRole("button", { name: "Add another lot" }).click();
+  await page.getByRole("combobox", { name: "Lot 2 for line 1" }).click();
+  await page.getByRole("option", { name: /LOT-DEMO-B/ }).click();
+  await expect(page.getByText("Lots: 3 of 3 picked")).toBeVisible();
+  await shot("8-fulfill-lots");
+  await submit(page, "Create fulfillment", "Fulfillment");
+  await shot("9-fulfillment");
+});
+
+test("a sales order waiting for approval is approved from its page", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+  // The new-order screen has no status field, so the test creates the order at A Pending Approval through the same route.
+  const created = await page.request.post("/api/records", {
+    headers: { "content-type": "application/json", origin: "https://localhost:5173" },
+    data: {
+      recordType: "salesorder",
+      data: { entity: { id: "341" }, location: { id: "2" }, orderStatus: { id: "A" }, memo: MEMO },
+      sublists: { item: [{ item: { id: "248" }, quantity: 1, rate: 10 }] },
+      externalId: `hns-wf-salesorder-approve-${RUN}`,
+      confirm: true,
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const { id } = await created.json();
+  await page.goto(`/#/transaction?type=salesorder&id=${id}`);
+  await landed(page, "Sales order");
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Approval" })).toBeVisible();
+  await runStep(page, "Approve", "Pending Fulfillment");
+  await shot("11-approved");
+});
+
+test("serial receipt, then a payment that leaves out the bill it started from", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/gaps-${name}.png`, fullPage: true });
+
+  await newPurchaseOrder(page, "oral-b", /Oral-B/, "2", "5");
+  await approve(page, "Pending Receipt");
+
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(page.getByText("Serial numbers: enter 2")).toBeVisible();
+  await page.getByRole("textbox", { name: "Serial 1 for line 1" }).fill(`HNS-${RUN}-S1`);
+  await page.getByRole("textbox", { name: "Serial 2 for line 1" }).fill(`HNS-${RUN}-S2`);
+  await shot("12-receive-serials");
+  await submit(page, "Create receipt", "Receipt");
+  await shot("13-serial-receipt");
+
+  await page.getByRole("link", { name: /^PO\d+/ }).click();
+  await landed(page, "Purchase order");
+  await page.getByRole("button", { name: "Bill", exact: true }).click();
+  await submit(page, "Create bill", "Bill");
+  await approve(page, "Open");
+  await expect(page.locator("dd", { hasText: "10.00 US Dollar" }).first()).toBeVisible();
+  const billUrl = page.url();
+
+  await page.getByRole("button", { name: "Pay bill" }).click();
+  await page.locator(".ship-line").first().getByRole("checkbox").uncheck();
+  const other = page.locator(".ship-line").nth(1);
+  await other.getByRole("checkbox").check();
+  await other.getByRole("spinbutton").fill("0.5");
+  await expect(page.getByText("Pays 0.50 US Dollar.")).toBeVisible();
+  await pick(page, "Account", "checking", /US Checking/);
+  await shot("14-pay-other-bill");
+  await submit(page, "Create bill payment", "Bill payment");
+  await shot("15-payment-other-bill");
+  await expect(page.getByRole("row", { name: /Made from .* Bill / })).toHaveCount(1);
+
+  await page.goto(billUrl);
+  await landed(page, "Bill");
+  await expect(page.locator("dt", { hasText: "Open amount" }).locator("xpath=..").locator("dd")).toHaveText("10.00 US Dollar");
+  await shot("16-bill-still-open");
+});
+
+test("a purchase order and its bill wait for approval; Approve and Reject move them on", async ({ page, context }) => {
+  await signIn(context);
+  const shot = (name: string) => page.screenshot({ path: `e2e/shots/approval-${name}.png`, fullPage: true });
+
+  await newPurchaseOrder(page, "kap001", /KAP001/, "1", "2.1");
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Supervisor Approval" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Receive", exact: true })).toHaveCount(0);
+  await shot("1-po-pending");
+  await approve(page, "Pending Receipt");
+  await shot("2-po-approved");
+
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await submit(page, "Create receipt", "Receipt");
+  await page.getByRole("link", { name: /^PO\d+/ }).click();
+  await landed(page, "Purchase order");
+  await page.getByRole("button", { name: "Bill", exact: true }).click();
+  await submit(page, "Create bill", "Bill");
+  await expect(page.locator(".page-tools .pill", { hasText: "Pending Approval" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pay bill" })).toHaveCount(0);
+  await shot("3-bill-pending");
+  await approve(page, "Open");
+  await expect(page.getByRole("button", { name: "Pay bill" })).toBeVisible();
+  await shot("4-bill-approved");
+
+  await newPurchaseOrder(page, "kap001", /KAP001/, "1", "2.1");
+  await runStep(page, "Reject", "Rejected by Supervisor");
+  await expect(page.getByText(/Nothing to do here/)).toBeVisible();
+  await shot("5-po-rejected");
+});

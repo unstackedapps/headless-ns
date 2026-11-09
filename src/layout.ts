@@ -1,3 +1,4 @@
+import { BLANK } from "./format";
 import { useEffect, useState } from "react";
 
 export type Span = 4 | 6 | 12;
@@ -30,7 +31,7 @@ export const portletCatalog = [
   { id: "invoices", label: "Open invoices", href: "#/invoices", kind: "metric", metric: "invoices" },
   { id: "bills", label: "Open bills", href: "#/bills", kind: "metric", metric: "bills" },
   { id: "items", label: "Inventory items", href: "#/items", kind: "metric", metric: "items" },
-  { id: "people", label: "Employees", href: "#/people", kind: "metric", metric: "people" },
+  { id: "people", label: "People", href: "#/people", kind: "metric", metric: "people" },
   { id: "activity", label: "Transactions this year", href: "", kind: "activity", metric: "" },
 ] as const;
 
@@ -77,7 +78,7 @@ export function portletLabel(id: string) {
 }
 
 export function traceFigure(entries: { name: string; ms: number; ok: boolean }[], metric: TraceMetric) {
-  if (!entries.length) return { figure: "—", note: "No calls yet." };
+  if (!entries.length) return { figure: BLANK, note: "No calls yet." };
   if (metric === "count") return { figure: String(entries.length), note: "Calls kept in this session." };
   if (metric === "fail") return { figure: String(entries.filter((entry) => !entry.ok).length), note: "Calls that failed." };
   if (metric === "slow") {
@@ -85,7 +86,7 @@ export function traceFigure(entries: { name: string; ms: number; ok: boolean }[]
     return { figure: `${top.ms} ms`, note: top.name };
   }
   const avg = Math.round(entries.reduce((sum, entry) => sum + entry.ms, 0) / entries.length);
-  return { figure: `${avg} ms`, note: "Average time of the calls kept here." };
+  return { figure: `${avg} ms`, note: "Average time of the recent calls in Trace." };
 }
 
 export function readLayout(): PortletPref[] {

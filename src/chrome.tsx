@@ -4,12 +4,38 @@ import { menuDefaults } from "./menu";
 import { Glyph, glyph } from "./icons";
 import { AskPage } from "./studio";
 import { themes, useTheme } from "./theme";
+import { api, postJson } from "./api";
+import { Markdown } from "./formatted";
+import { stepText } from "./steps";
 
 const screens = menuDefaults.map((item) => item.id);
 
-type Line = { id: number; tone: "in" | "out" | "err"; text: string };
+type Line = { id: number; tone: "in" | "out" | "err" | "md"; text: string };
 
-const commands = new Set(["help", "clear", "themes", "theme", "open", "sql", "ask", "who", "layout"]);
+type Running = { label: string; started: number; cancel?: () => void };
+
+const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
+function seconds(started: number) {
+  return Math.max(0, Math.round((Date.now() - started) / 1000));
+}
+
+// The live line while a command runs: a braille spinner, a label and the seconds so far.
+function Working({ label, started }: Running) {
+  const [tick, setTick] = useState(0);
+  const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), still ? 1000 : 80);
+    return () => clearInterval(timer);
+  }, [still]);
+  return (
+    <pre className="cli-work" role="status">
+      <span className="cli-mark">{still ? "…" : frames[tick % frames.length]}</span> {label} {seconds(started)}s
+    </pre>
+  );
+}
+
+const commands = new Set(["help", "clear", "themes", "theme", "open", "sql", "ask", "confirm", "cancel", "who", "layout"]);
 
 function CommandText({ text }: { text: string }) {
   const space = text.search(/\s/);
@@ -29,7 +55,10 @@ const help = [
   "theme <name>     Switch theme. Light: ledger, paper, day. Dark: ink, graphite, night",
   "themes           List themes",
   "sql <select>     Run one SELECT",
+  "sql @<name>      Run a query saved on the Query page",
   "ask <question>   Ask about this account",
+  "confirm          Run the change Ask proposed",
+  "cancel           Drop the change Ask proposed",
   "who              Show the account and role",
   "layout           Show the home cards",
   "layout reset     Restore the home cards",
@@ -37,15 +66,18 @@ const help = [
   "help             Show this list",
 ].join("\n");
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status}).`);
-  return payload as T;
+type AskReply = {
+  answer: string;
+  steps: { name: string; ok: boolean; error?: string }[];
+  pending: { name: string; arguments: Record<string, unknown>; summary?: { title: string; details: string[] } }[] | null;
+  pendingId?: string;
+  transcript?: unknown[];
+};
+
+class Cancelled extends Error {
+  constructor(readonly seconds: number) {
+    super(`Cancelled after ${seconds}s.`);
+  }
 }
 
 function clip(value: string, width: number) {
@@ -103,7 +135,11 @@ export function CommandLine({
   const [dragging, setDragging] = useState(false);
   const [lines, setLines] = useState<Line[]>([{ id: 1, tone: "out", text: "headless-ns command line. Type help." }]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState<Running | null>(null);
+  const busy = running !== null;
+  const pendingId = useRef("");
+  // The conversation so far, so a follow-up answer reaches Ask with its question.
+  const transcript = useRef<unknown[]>([]);
   const history = useRef<string[]>([]);
   const cursor = useRef(0);
   const draft = useRef("");
@@ -127,6 +163,23 @@ export function CommandLine({
   function push(tone: Line["tone"], text: string) {
     const id = nextId.current++;
     setLines((current) => [...current, { id, tone, text }].slice(-200));
+  }
+
+  function showAsk(result: AskReply) {
+    const parts = [];
+    if (result.answer) parts.push(result.answer);
+    const steps = (result.steps || []).map((step) => `- ${stepText(step)}`);
+    if (steps.length) parts.push(steps.join("\n"));
+    pendingId.current = result.pendingId || "";
+    transcript.current = result.transcript || transcript.current;
+    if (result.pending?.length) {
+      for (const call of result.pending) {
+        if (call.summary) parts.push([`**${call.summary.title}**`, ...call.summary.details.map((detail) => `- ${detail}`)].join("\n"));
+        else parts.push(`${call.name}\n\`\`\`\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\``);
+      }
+      parts.push("Type **confirm** to run this on NetSuite, or **cancel** to drop it.");
+    }
+    push("md", parts.join("\n\n") || "No answer came back.");
   }
 
   function startResize(event: ReactPointerEvent) {
@@ -166,6 +219,8 @@ export function CommandLine({
       }
       if (name === "clear") {
         setLines([]);
+        transcript.current = [];
+        pendingId.current = "";
         return;
       }
       if (name === "themes") {
@@ -213,22 +268,22 @@ export function CommandLine({
         return;
       }
       if (name === "who") {
-        const response = await fetch("/api/me");
-        const me = await response.json();
-        if (!response.ok) throw new Error(me.error || "Could not read the signed-in user.");
+        const me = await api<{ name?: string; email?: string; accountId?: string; roleId?: string }>("/api/me");
         const lines = [me.name, me.email, me.accountId ? `Account ${me.accountId}` : "", me.roleId ? `Role ${me.roleId}` : ""].filter(Boolean);
         push("out", lines.join("\n") || "Signed in");
         return;
       }
       if (name === "sql") {
         if (!rest) {
-          push("err", "Add a SELECT after sql.");
+          push("err", "Add a SELECT or @name after sql.");
           return;
         }
-        setBusy(true);
-        const result = await postJson<{ columns: string[]; rows: Record<string, unknown>[]; hasMore: boolean }>(
-          "/api/query",
-          { sql: rest },
+        const result = await track("Running query", (signal) =>
+          postJson<{ columns: string[]; rows: Record<string, unknown>[]; hasMore: boolean }>(
+            "/api/query",
+            rest.startsWith("@") ? { name: rest.slice(1).trim() } : { sql: rest },
+            { signal },
+          ),
         );
         if (!result.rows.length) {
           push("out", "The query returned no rows.");
@@ -243,30 +298,52 @@ export function CommandLine({
           push("err", "Add a question after ask.");
           return;
         }
-        setBusy(true);
-        const result = await postJson<{
-          answer: string;
-          steps: { name: string; ok: boolean; error?: string }[];
-          pending: { name: string }[] | null;
-        }>("/api/ask", { text: rest, transcript: [] });
-        const parts = [];
-        if (result.answer) parts.push(result.answer);
-        for (const step of result.steps || []) {
-          parts.push(`${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
+        showAsk(await track("Thinking", (signal) => postJson<AskReply>("/api/ask", { text: rest, transcript: transcript.current }, { signal })));
+        return;
+      }
+      if (name === "confirm" || name === "cancel") {
+        if (!pendingId.current) {
+          push("err", "No change is waiting.");
+          return;
         }
-        if (result.pending?.length) parts.push("Nothing was posted. Confirm the change from Ask.");
-        push("out", parts.join("\n") || "No answer came back.");
+        const id = pendingId.current;
+        pendingId.current = "";
+        // A change that started on NetSuite cannot be called back, so this one has no cancel.
+        showAsk(await track(name === "confirm" ? "Running the change" : "Dropping the change", () =>
+          postJson<AskReply>("/api/ask/confirm", { id, approved: name === "confirm" }), false));
         return;
       }
       push("err", "No command by that name. Type help.");
     } catch (reason) {
-      push("err", reason instanceof Error ? reason.message : "The command failed.");
+      if (reason instanceof Cancelled) push("out", `Cancelled after ${reason.seconds}s.`);
+      else push("err", reason instanceof Error ? reason.message : "The command failed.");
+    }
+  }
+
+  // Shows the live line while task runs, then "Done in Ns". Escape or Ctrl+C cancels a task that allows it.
+  async function track<T>(label: string, task: (signal: AbortSignal) => Promise<T>, cancellable = true): Promise<T> {
+    const controller = new AbortController();
+    const started = Date.now();
+    setRunning({ label, started, cancel: cancellable ? () => controller.abort() : undefined });
+    try {
+      const result = await task(controller.signal);
+      push("out", `Done in ${seconds(started)}s`);
+      return result;
+    } catch (reason) {
+      if (controller.signal.aborted) throw new Cancelled(seconds(started));
+      throw reason;
     } finally {
-      setBusy(false);
+      setRunning(null);
     }
   }
 
   function onKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (running && (event.key === "Escape" || (event.ctrlKey && event.key.toLowerCase() === "c"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      running.cancel?.();
+      return;
+    }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       if (!history.current.length) return;
@@ -290,30 +367,39 @@ export function CommandLine({
       {open && !minimized && <div className="cli-grip" onPointerDown={startResize} role="separator" aria-orientation="horizontal" aria-label="Resize command line" />}
       <header className="drawer-bar">
         <strong>Command line</strong>
-        <span className="status">{busy ? "Running" : "headless-ns"}</span>
+        <span className="status">{running?.cancel ? "Esc or Ctrl+C cancels" : running ? "Running" : "headless-ns"}</span>
         <div className="portlet-tools">
           <button className="quiet" type="button" onClick={() => setMinimized((value) => !value)}>
+            <Glyph icon={minimized ? glyph.up : glyph.down} size={14} />
             {minimized ? "Restore" : "Minimize"}
           </button>
           <button className="quiet" type="button" onClick={onClose}>
+            <Glyph icon={glyph.close} size={14} />
             Close
           </button>
         </div>
       </header>
       {!minimized && (
         <div className="cli-log" ref={logRef} onClick={() => inputRef.current?.focus()}>
-          {lines.map((line) => (
-            <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
-              {line.tone === "in" ? (
-                <>
-                  <span className="cli-mark">hns&gt; </span>
-                  <CommandText text={line.text} />
-                </>
-              ) : (
-                line.text
-              )}
-            </pre>
-          ))}
+          {lines.map((line) =>
+            line.tone === "md" ? (
+              <div key={line.id} className="cli-out">
+                <Markdown text={line.text} compact />
+              </div>
+            ) : (
+              <pre key={line.id} className={line.tone === "err" ? "cli-err" : line.tone === "in" ? "cli-in" : "cli-out"}>
+                {line.tone === "in" ? (
+                  <>
+                    <span className="cli-mark">hns&gt; </span>
+                    <CommandText text={line.text} />
+                  </>
+                ) : (
+                  line.text
+                )}
+              </pre>
+            ),
+          )}
+          {running && <Working {...running} />}
           <form
             className="cli-prompt"
             onSubmit={(event) => {
@@ -332,7 +418,8 @@ export function CommandLine({
                 aria-label="Command"
                 spellCheck={false}
                 autoCapitalize="off"
-                disabled={!open || busy}
+                disabled={!open}
+                readOnly={busy}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={onKey}
               />

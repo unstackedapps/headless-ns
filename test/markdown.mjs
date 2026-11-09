@@ -22,3 +22,11 @@ test("a code fence stays literal and links stay on https", () => {
   assert.equal(spans.find((span) => span.kind === "link")?.href, "https://example.com/a");
   assert.equal(spans.some((span) => span.text.includes("javascript:")), true);
 });
+
+test("Ask's steps use plain words instead of tool names", async () => {
+  const { stepText, toolTitle } = await import("../src/steps.ts");
+  assert.equal(stepText({ name: "ns_runCustomSuiteQL", ok: true }), "Ran a SuiteQL query");
+  assert.equal(stepText({ name: "ns_createRecord", ok: false, error: "Writes are off in Settings." }), "Could not create a record. Writes are off in Settings.");
+  assert.equal(stepText({ name: "ns_getFooBar", ok: true }), "Called get foo bar");
+  assert.equal(toolTitle("ns_runReport"), "Run a report");
+});

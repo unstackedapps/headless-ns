@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { connector, customMcpToken, customMcpUrl, netsuiteMcpUrl, osmcpToken, osmcpUrl } from "./env.mjs";
+import { connector, customMcpToken, customMcpUrl, netsuiteMcpUrl, rememberAccount } from "./env.mjs";
 import { recordTrace } from "./trace.mjs";
 
 const authStore = new AsyncLocalStorage();
@@ -32,6 +32,38 @@ function plainSuiteqlError(message) {
   return `This role cannot see ${name}. Add View for ${permission} on that role, then reload.`;
 }
 
+// The test read needs the NetSuite tools. A server can answer and still offer none of them.
+export function missingNetSuiteTools(names) {
+  if (names.some((name) => name.startsWith("ns_"))) return "";
+  return `The server answered with ${names.length} tools, but none are NetSuite tools (ns_...). Connect a NetSuite account on that server, or turn on its NetSuite tools, then test again.`;
+}
+
+// Setup's test read shows this in place of the raw MCP or HTTP error.
+export function plainConnectionError(error) {
+  const message = String(error?.message || error || "");
+  if (/method not found|unknown tool|tool not found/i.test(message)) {
+    return "The server answered, but it does not offer the NetSuite tools this app needs. Connect a NetSuite account on that server, or turn on its NetSuite tools.";
+  }
+  if (error?.status === 401 || /invalid[_ ]token|invalid_login|unauthori[sz]ed|expired/i.test(message)) {
+    return "NetSuite did not accept the sign-in. Sign in again.";
+  }
+  if (error?.status === 403 || /forbidden|insufficient permission|not allowed|MCP Server Connection/i.test(message)) {
+    return "The role you signed in with is missing a permission. Add MCP Server Connection, Log in using OAuth 2.0 Access Tokens, and REST Web Services to that role, then sign in again.";
+  }
+  if (error?.status === 404) return "The connection URL did not answer. Check the URL, and on NetSuite check that the MCP Standard Tools SuiteApp is installed.";
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|timed? ?out/i.test(message)) return "The app could not reach the server. Check the URL and your network.";
+  return message ? `NetSuite said: ${message}` : "The test read failed.";
+}
+
+// NetSuite MCP write tools answer {success:false, error:"HTTP 400: {...}"} without isError.
+export function toolFailure(payload) {
+  if (payload?.success !== false) return "";
+  const raw = String(payload.error || payload.message || "The tool failed.");
+  const details = [...raw.matchAll(/"detail"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1].replace(/\\"/g, '"'));
+  const text = details.length ? details.join(" ") : raw;
+  return text.replace(/^Error while accessing a resource\.\s*/i, "").replace(/^API call failed:\s*/i, "").trim();
+}
+
 function payloadOf(result) {
   if (result?.structuredContent && typeof result.structuredContent === "object") {
     return result.structuredContent;
@@ -57,10 +89,7 @@ function activeAuth() {
   if (stored?.token) return stored;
   const kind = connector();
   if (kind === "custom") {
-    return { url: customMcpUrl(), token: customMcpToken(), label: "MCP server", protocol: "2025-06-18", handshake: false };
-  }
-  if (kind === "opensuitemcp") {
-    return { url: osmcpUrl(), token: osmcpToken(), label: "OpenSuiteMCP", protocol: PROTOCOL, handshake: false };
+    return { url: customMcpUrl(), token: customMcpToken(), label: "MCP server", protocol: PROTOCOL, handshake: false };
   }
   return { url: netsuiteMcpUrl(), token: "", label: "NetSuite", protocol: "2025-06-18", handshake: true };
 }
@@ -86,7 +115,7 @@ async function readMcpBody(response) {
 
 async function postRpc(auth, method, params, name, sessionId) {
   if (!auth.url) {
-    const error = new Error("Add the MCP server URL in Settings.");
+    const error = new Error(auth.label === "NetSuite" ? "Add the NetSuite account ID in Settings." : "Add the MCP server URL in Settings.");
     error.status = 400;
     throw error;
   }
@@ -101,7 +130,8 @@ async function postRpc(auth, method, params, name, sessionId) {
     Accept: "application/json, text/event-stream",
     "MCP-Protocol-Version": auth.protocol,
   };
-  if (auth.label === "OpenSuiteMCP") {
+  // Custom servers such as OpenSuiteMCP route on these. NetSuite's own endpoint does not take them.
+  if (!auth.handshake) {
     headers["Mcp-Method"] = method;
     if (name) headers["Mcp-Name"] = name;
   }
@@ -113,8 +143,10 @@ async function postRpc(auth, method, params, name, sessionId) {
   });
   const body = await readMcpBody(response).catch(() => ({}));
   if (!response.ok || body.error) {
-    const error = new Error(body?.error?.message || `${auth.label} rejected the call (${response.status}).`);
-    error.status = response.status === 401 ? 401 : response.status || 502;
+    const busy = response.status === 429;
+    const fallback = busy ? `${auth.label} is busy and asked the app to slow down. Try again in a few seconds.` : `${auth.label} rejected the call (${response.status}).`;
+    const error = new Error(body?.error?.message || fallback);
+    error.status = response.status === 401 ? 401 : busy ? 429 : response.status || 502;
     throw error;
   }
   const nextSession = response.headers.get("mcp-session-id");
@@ -159,21 +191,59 @@ async function mcp(method, params, name) {
 
 export function clearMcpCache() {
   toolsCache = null;
+  serverNames = {};
   toolsAt = 0;
   identityCache = null;
   identityAt = 0;
   mcpSessions.clear();
 }
 
+// NetSuite answers 429 when too many calls run at once. Every tool call waits for one of a few slots.
+const MAX_CALLS = 3;
+let running = 0;
+const waiting = [];
+
+export async function inSlot(task) {
+  if (running >= MAX_CALLS) await new Promise((resolve) => waiting.push(resolve));
+  running += 1;
+  try {
+    return await task();
+  } finally {
+    running -= 1;
+    waiting.shift()?.();
+  }
+}
+
+// Reads are safe to repeat after a 429. Writes are never repeated.
+export function isReadTool(name) {
+  return /^ns_(get|run|list|search)/i.test(String(name));
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function withRetry(name, task, waits = [1000, 2500, 5000]) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await inSlot(task);
+    } catch (error) {
+      if (error.status !== 429 || !isReadTool(name) || attempt >= waits.length) throw error;
+      await sleep(waits[attempt]);
+    }
+  }
+}
+
 export async function callTool(name, args) {
   const started = Date.now();
   const source = sourceStore.getStore() || "app";
   try {
-    const result = await mcp("tools/call", { name, arguments: args || {} }, name);
+    const serverName = (await serverToolNames())[name] || name;
+    const result = await withRetry(name, () => mcp("tools/call", { name: serverName, arguments: args || {} }, serverName));
     const payload = payloadOf(result);
     if (result.isError) {
       throw new Error(plainSuiteqlError(payload?.error || payload?.text || "The tool failed."));
     }
+    const failure = toolFailure(payload);
+    if (failure) throw new Error(failure);
     recordTrace({ source, name, ms: Date.now() - started, ok: true, detail: traceDetail(name, args) });
     return payload;
   } catch (error) {
@@ -190,12 +260,32 @@ export async function callTool(name, args) {
 
 let toolsCache = null;
 let toolsAt = 0;
+let serverNames = {};
+
+// The tool list is read live from whichever server is connected. A proxy may put its own prefix in front of
+// NetSuite's tool names (Mint lists netsuite__ns_runCustomSuiteQL). The app keys on NetSuite's ns_ name, whatever
+// the prefix or separator, and sends the server its own name back.
+export function plainToolName(name) {
+  const match = /(?:^|[^A-Za-z0-9])(ns_[A-Za-z0-9_]+)$/.exec(String(name));
+  return match ? match[1] : String(name);
+}
+
+async function serverToolNames() {
+  if (!toolsCache) await listTools();
+  return serverNames;
+}
 
 export async function listTools() {
   if (toolsCache && Date.now() - toolsAt < 60_000) return toolsCache;
   const result = await mcp("tools/list", {});
-  toolsCache = (result.tools || []).map((tool) => ({
-    name: tool.name,
+  // If one ns_ tool comes under two names, the unprefixed one wins, then the first name in sort order.
+  const listed = result.tools || [];
+  const ranked = [...listed].sort((a, b) => Number(a.name !== plainToolName(a.name)) - Number(b.name !== plainToolName(b.name)) || String(a.name).localeCompare(String(b.name)));
+  const winners = new Set(ranked.filter((tool, index) => ranked.findIndex((other) => plainToolName(other.name) === plainToolName(tool.name)) === index));
+  const tools = listed.filter((tool) => winners.has(tool));
+  serverNames = Object.fromEntries(tools.map((tool) => [plainToolName(tool.name), tool.name]));
+  toolsCache = tools.map((tool) => ({
+    name: plainToolName(tool.name),
     description: String(tool.description || ""),
     schema: tool.inputSchema || { type: "object", properties: {} },
   }));
@@ -219,15 +309,16 @@ export async function osmcpIdentity() {
     permissions: payload?.permissions && typeof payload.permissions === "object" ? payload.permissions : {},
   };
   identityAt = Date.now();
+  rememberAccount(identityCache.accountId);
   return identityCache;
 }
 
-export async function suiteqlOsmcp(sql, limit = 100) {
+export async function suiteqlOsmcp(sql, limit = 100, page = 0) {
   const payload = await callTool("ns_runCustomSuiteQL", {
     sqlQuery: sql,
     description: "Headless NetSuite read",
     pageSize: limit,
-    pageIndex: 0,
+    pageIndex: page,
   });
   return {
     items: payload?.data ?? [],

@@ -1,28 +1,81 @@
-import { APICallError, dynamicTool, generateText, jsonSchema } from "ai";
+import { randomBytes } from "node:crypto";
+import { APICallError, RetryError, dynamicTool, generateText, jsonSchema } from "ai";
 import { WRITE_TOOLS, assistantCanCall } from "./kinds.mjs";
-import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
+import { callTool, listTools, osmcpIdentity, suiteqlOsmcp, withSource } from "./osmcp.mjs";
 import { modelStore } from "./models.mjs";
 import { readPolicy } from "./policy.mjs";
 import { languageModel, scrub } from "./providers.mjs";
+import { newExternalId } from "./records.mjs";
+import { describeWrites } from "./summary.mjs";
+import { fulfillmentCheck } from "./workflows.mjs";
 
 const ROLES = new Set(["user", "assistant", "tool"]);
 
-function systemPrompt(identity) {
+// One request may read, then propose a write. A quote, order and fulfillment take three
+// requests (one per confirm), each with a few reads, so 12 model turns per request is plenty.
+export const MAX_TURNS = 12;
+export const MAX_MS = 4 * 60_000;
+
+// Writes the model proposed, held here until the person confirms them by id.
+// The client never sends the tool calls back, so it cannot change what runs.
+export const PENDING_TTL_MS = 10 * 60_000;
+const pendingWrites = new Map();
+
+function holdPending(transcript) {
+  const now = Date.now();
+  for (const [key, entry] of pendingWrites) if (entry.expires <= now) pendingWrites.delete(key);
+  const id = randomBytes(16).toString("base64url");
+  pendingWrites.set(id, { transcript, expires: now + PENDING_TTL_MS });
+  return id;
+}
+
+function takePending(id) {
+  const entry = pendingWrites.get(String(id || ""));
+  if (entry) pendingWrites.delete(String(id));
+  if (!entry || entry.expires <= Date.now()) {
+    const error = new Error("That change expired, or someone already ran or dropped it. Ask again.");
+    error.status = 400;
+    throw error;
+  }
+  return entry.transcript;
+}
+
+function refusal(name, policy) {
+  if (assistantCanCall(name, policy)) return "";
+  if (WRITE_TOOLS.has(name) && !policy.allowWrites) return "Writes are off in Settings.";
+  return "Settings turned this tool off for Ask.";
+}
+
+export function systemPrompt(identity) {
   const account = identity?.accountId || "the connected account";
   const role = identity?.roleId || "the connected role";
   return [
     `You answer questions about NetSuite account ${account} as role ${role}.`,
+    "The person is using headless-ns, a browser app that reads and writes this NetSuite account. They are not in the NetSuite UI. Never describe NetSuite menus or screens.",
+    "When asked how to do something headless-ns can do, offer to do it now and ask only for the missing details, in one short list. Or point to the headless-ns page: Quotes > New quote, Orders, Purchase orders > New purchase order, Bills, Records, Query.",
+    "When asked how to do something headless-ns cannot do, say so in one sentence.",
     "Call tools for every figure. Do not invent amounts, names, or record ids.",
     "Use ns_runCustomSuiteQL for lists and counts. Call ns_getSuiteQLMetadata before using a column you have not seen.",
+    "Customers are every row in the customer table, companies and individuals alike. Count active customers with SELECT COUNT(id) FROM customer WHERE isinactive = 'F'. Do not filter on isperson or companyname unless the person asks for companies or individuals.",
     "Use ns_listAllReports, ns_getSubsidiaries, and ns_runReport for saved reports. Dates are YYYY-MM-DD.",
-    "A write tool posts a record. Call it only when the person asked to change NetSuite. The server pauses for confirmation before it runs.",
-    "Keep the reply short. Name the figure and the tool that produced it.",
+    "A write tool posts a record. Call it when the person asked to change NetSuite, or agreed to your offer to do it. The server pauses for confirmation before it runs. Propose one write at a time and continue after it runs.",
+    "Write payloads: `data` is a JSON string. References are {\"id\":\"341\"}. Lines go in {\"item\":{\"items\":[{\"item\":{\"id\":\"248\"},\"quantity\":2,\"rate\":10}]}}. Always send a rate. Put the location the person names in the body as \"location\":{\"id\":\"2\"}; an order without one cannot ship.",
+    "The server sets externalId on every ns_createRecord and ns_transformRecord. The tool call you see afterwards shows it.",
+    "ns_transformRecord takes sourceRecordType, sourceRecordId, targetRecordType and optional `data` that overrides the copied values. Quote to order: estimate to salesorder.",
+    "Sales order to itemfulfillment: data {\"generateIntegratedShipperLabel\":false,\"shipMethod\":null,\"shipStatus\":{\"id\":\"C\"}}. To ship only some lines add item.items with {\"orderLine\":1,\"itemReceive\":true,\"quantity\":2}.",
+    "Before you fulfill, check stock at the order's location: SELECT SUM(quantityavailable) FROM inventorybalance WHERE item = <item id> AND location = <location id>. If it is less than the quantity, do not fulfill. Say how many are available there and which locations have enough.",
+    "Serial and lot items (item.isserialitem or item.islotitem = 'T') need their numbers on each fulfillment line. Find numbers in stock with SELECT n.id, n.inventorynumber FROM inventorynumber n JOIN inventorynumberlocation inl ON inl.inventorynumber = n.id WHERE n.item = <item id> AND inl.location = <location id> AND inl.quantityavailable > 0. Then send {\"orderLine\":1,\"itemReceive\":true,\"quantity\":1,\"inventoryDetail\":{\"inventoryAssignment\":{\"items\":[{\"issueInventoryNumber\":{\"id\":\"<n.id>\"},\"quantity\":1}]}}}. A serial item takes one number per unit.",
+    "Success returns {\"success\":true,\"recordId\":\"...\"}. On failure read the error and fix the payload.",
+    "If a create or transform times out it may still have saved. Never retry it. Look it up with SELECT id, tranid FROM transaction WHERE externalid = '<the externalId>'.",
+    "Keep the reply short. Name the figure and where it came from: a saved search, a report or a SuiteQL query. Never show tool names to the person.",
   ].join(" ");
 }
 
 function sanitize(transcript) {
   if (!Array.isArray(transcript)) return [];
-  return transcript.slice(-30).flatMap((message) => {
+  const recent = transcript.slice(-30);
+  while (recent.length && recent[0]?.role === "tool") recent.shift();
+  return recent.flatMap((message) => {
     if (!message || !ROLES.has(message.role)) return [];
     const next = { role: message.role };
     if (message.role === "tool") {
@@ -105,6 +158,28 @@ function toModelMessages(messages) {
   return out;
 }
 
+// A fresh external id on each create and transform, so a timed-out write can be found and never repeats an old id.
+export function withExternalId(name, input) {
+  if (name !== "ns_createRecord" && name !== "ns_transformRecord") return input;
+  const type = name === "ns_createRecord" ? input?.recordType : input?.targetRecordType;
+  let data = input?.data ?? {};
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data || "{}");
+    } catch {
+      return input;
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return input;
+  const next = { ...data, externalId: newExternalId(`ask-${String(type || "record").replace(/[^a-z]/gi, "")}`) };
+  return { ...input, data: JSON.stringify(next) };
+}
+
+// Repeat detection ignores the external id, which is new on every proposal.
+function callKey(call) {
+  return `${call.toolName} ${JSON.stringify(call.input ?? {}).replace(/\\?"externalId\\?":\\?"[^"\\]*\\?"/g, "")}`;
+}
+
 function clientCall(call) {
   return {
     id: call.toolCallId,
@@ -130,7 +205,7 @@ function sdkTools(catalog) {
   return tools;
 }
 
-async function step(model, messages, tools, secret) {
+async function step(model, messages, tools, secret, timeoutMs = 90_000, signal) {
   const instructions = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
   const prompt = messages.filter((message) => message.role !== "system");
   try {
@@ -140,9 +215,11 @@ async function step(model, messages, tools, secret) {
       messages: prompt,
       tools: Object.keys(tools).length ? tools : undefined,
       temperature: 0.1,
-      abortSignal: AbortSignal.timeout(90_000),
+      abortSignal: signal ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1000, timeoutMs))]) : AbortSignal.timeout(Math.max(1000, timeoutMs)),
     });
-  } catch (error) {
+  } catch (failure) {
+    // After its retries the SDK says "Failed after 3 attempts. Last error: ...". Show only the provider's reason.
+    const error = RetryError.isInstance(failure) && failure.lastError ? failure.lastError : failure;
     const message = scrub(error instanceof Error ? error.message : "The model request failed.", secret);
     const wrapped = new Error(message || "The model request failed.");
     wrapped.status = APICallError.isInstance(error) && error.statusCode === 401 ? 400 : 502;
@@ -150,38 +227,73 @@ async function step(model, messages, tools, secret) {
   }
 }
 
-async function loop(clientMessages, { model, secret, policy, runTool, catalog }) {
+function stopped(answer, steps, clientMessages) {
+  return { answer, steps, pending: null, transcript: clientMessages.filter((item) => item.role !== "system") };
+}
+
+async function loop(clientMessages, { model, secret, policy, runTool, catalog, query, signal }) {
   const tools = sdkTools(catalog);
   const messages = toModelMessages(clientMessages);
   const steps = [];
-  for (let turn = 0; turn < 4; turn += 1) {
-    const result = await step(model, messages, tools, secret);
-    const calls = result.toolCalls || [];
+  const failed = new Set();
+  const deadline = Date.now() + MAX_MS;
+  for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+    if (signal?.aborted) return stopped("You cancelled this request.", steps, clientMessages);
+    const left = deadline - Date.now();
+    if (left <= 0) return stopped("I ran out of time on this request. Ask me to continue.", steps, clientMessages);
+    let result;
+    try {
+      result = await step(model, messages, tools, secret, Math.min(90_000, left), signal);
+    } catch (error) {
+      if (signal?.aborted) return stopped("You cancelled this request.", steps, clientMessages);
+      throw error;
+    }
+    const calls = (result.toolCalls || []).map((call) => ({ ...call, input: withExternalId(call.toolName, call.input ?? {}) }));
     const assistant = {
       role: "assistant",
       content: result.text || "",
       ...(calls.length ? { tool_calls: calls.map(clientCall) } : {}),
     };
     clientMessages.push(assistant);
-    if (!calls.length) {
-      return { answer: result.text || "", steps, pending: null, transcript: clientMessages.filter((item) => item.role !== "system") };
+    if (!calls.length) return stopped(result.text || "", steps, clientMessages);
+    const writes = calls.filter((call) => WRITE_TOOLS.has(call.toolName) && !refusal(call.toolName, policy));
+    // A fulfillment without stock fails in NetSuite. Answer the model with the reason instead of asking the person.
+    const problems = await Promise.all(writes.map((call) => fulfillmentCheck(call.toolName, call.input, query).catch(() => "")));
+    if (problems.some(Boolean)) {
+      for (const call of calls) {
+        const key = callKey(call);
+        if (failed.has(key)) return stopped("I stopped because the same step failed twice. Ask me again with more detail.", steps, clientMessages);
+        failed.add(key);
+        const error = problems[writes.indexOf(call)] || "I held this change back because another change in the same step failed its check.";
+        clientMessages.push({ role: "tool", tool_call_id: call.toolCallId, name: call.toolName, content: JSON.stringify({ error }) });
+        steps.push({ name: call.toolName, ok: false, error });
+      }
+      messages.length = 0;
+      messages.push(...toModelMessages(clientMessages));
+      continue;
     }
-    const writes = calls.filter((call) => WRITE_TOOLS.has(call.toolName));
-    if (writes.length && policy.allowWrites) {
+    if (writes.length) {
+      const transcript = clientMessages.filter((item) => item.role !== "system");
+      const pending = calls.map((call) => ({ id: call.toolCallId, name: call.toolName, arguments: call.input ?? {} }));
       return {
         answer: result.text || "",
         steps,
-        pending: calls.map((call) => ({ id: call.toolCallId, name: call.toolName, arguments: call.input ?? {} })),
-        transcript: clientMessages.filter((item) => item.role !== "system"),
+        pending: await describeWrites(pending, query),
+        pendingId: holdPending(transcript),
+        transcript,
       };
     }
     for (const call of calls) {
-      const blocked = WRITE_TOOLS.has(call.toolName) && !policy.allowWrites;
+      const key = callKey(call);
+      if (failed.has(key)) {
+        return stopped("I stopped because the same step failed twice. Ask me again with more detail.", steps, clientMessages);
+      }
+      const blocked = refusal(call.toolName, policy);
       let payload;
       let ok = true;
       let error = "";
       if (blocked) {
-        payload = { error: "Writes are off in Settings." };
+        payload = { error: blocked };
         ok = false;
         error = payload.error;
       } else {
@@ -193,6 +305,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog })
           error = payload.error;
         }
       }
+      if (!ok) failed.add(key);
       const content = JSON.stringify(payload).slice(0, 14000);
       clientMessages.push({ role: "tool", tool_call_id: call.toolCallId, name: call.toolName, content });
       steps.push({ name: call.toolName, ok, ...(error ? { error } : {}) });
@@ -200,12 +313,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog })
     messages.length = 0;
     messages.push(...toModelMessages(clientMessages));
   }
-  return {
-    answer: "I stopped after several tool calls. Ask a narrower question.",
-    steps,
-    pending: null,
-    transcript: clientMessages.filter((item) => item.role !== "system"),
-  };
+  return stopped(`I stopped after ${MAX_TURNS} steps. Ask me to continue, or ask a narrower question.`, steps, clientMessages);
 }
 
 async function context(options) {
@@ -215,10 +323,11 @@ async function context(options) {
   const identity = options.identity === undefined ? await osmcpIdentity().catch(() => null) : options.identity;
   const model = options.model || languageModel(connection);
   const runTool = options.runTool || ((name, args) => withSource("ask", () => callTool(name, args)));
-  return { connection, policy, catalog, identity, model, runTool };
+  const query = options.query || (async (sql) => (await withSource("ask", () => suiteqlOsmcp(sql, 100))).items);
+  return { connection, policy, catalog, identity, model, runTool, query };
 }
 
-export async function ask({ text, transcript, ...options }) {
+export async function ask({ text, transcript, signal, ...options }) {
   const question = String(text || "").trim();
   if (!question) {
     const error = new Error("Ask a question first.");
@@ -234,52 +343,31 @@ export async function ask({ text, transcript, ...options }) {
     policy: ready.policy,
     runTool: ready.runTool,
     catalog: ready.catalog,
+    query: ready.query,
+    signal,
   });
 }
 
-export async function confirmAsk({ transcript, approved, ...options }) {
-  const messages = sanitize(transcript);
+export async function confirmAsk({ id, approved, ...options }) {
+  const messages = takePending(id);
   const assistant = messages[messages.length - 1];
-  if (!assistant || assistant.role !== "assistant" || !assistant.tool_calls?.length) {
-    const error = new Error("There is no tool call waiting.");
-    error.status = 400;
-    throw error;
-  }
   const ready = await context(options);
   for (const call of assistant.tool_calls) {
-    const blocked = WRITE_TOOLS.has(call.function.name) && !ready.policy.allowWrites;
-    if (approved && !blocked) {
-      try {
-        const result = await ready.runTool(call.function.name, parseArgs(call));
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          name: call.function.name,
-          content: JSON.stringify(result).slice(0, 14000),
-        });
-      } catch (error) {
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          name: call.function.name,
-          content: JSON.stringify({ error: error.message }),
-        });
-      }
+    const name = call.function.name;
+    const blocked = refusal(name, ready.policy);
+    let payload;
+    if (!approved) {
+      payload = { cancelled: true, error: "The user did not confirm this change." };
     } else if (blocked) {
-      messages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        name: call.function.name,
-        content: JSON.stringify({ error: "Writes are off in Settings." }),
-      });
+      payload = { error: blocked };
     } else {
-      messages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        name: call.function.name,
-        content: JSON.stringify({ cancelled: true, error: "The user did not confirm this change." }),
-      });
+      try {
+        payload = await ready.runTool(name, parseArgs(call));
+      } catch (error) {
+        payload = { error: error.message };
+      }
     }
+    messages.push({ role: "tool", tool_call_id: call.id, name, content: JSON.stringify(payload).slice(0, 14000) });
   }
   return loop([{ role: "system", content: systemPrompt(ready.identity) }, ...messages], {
     model: ready.model,
@@ -287,11 +375,13 @@ export async function confirmAsk({ transcript, approved, ...options }) {
     policy: ready.policy,
     runTool: ready.runTool,
     catalog: ready.catalog,
+    query: ready.query,
   });
 }
 
-export async function pingModel(modelId) {
-  const connection = modelStore.require(modelId);
+// Tests a saved model by id, or an unsaved one from the setup form.
+export async function pingModel(input) {
+  const connection = input && typeof input === "object" ? modelStore.draft(input) : modelStore.require(input);
   const result = await step(
     languageModel(connection),
     [{ role: "user", content: "Reply with the single word ready." }],

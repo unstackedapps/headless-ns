@@ -2,6 +2,7 @@ import * as Menu from "@radix-ui/react-dropdown-menu";
 import { Check, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { themes, useShape, useTheme, type ShapeId, type ThemeId } from "./theme";
+import { api } from "./api";
 
 type Me = {
   name: string;
@@ -62,12 +63,7 @@ export function UserMenu({
 
   useEffect(() => {
     let gone = false;
-    fetch("/api/me")
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Could not read the signed-in user.");
-        return body as Me;
-      })
+    api<Me>("/api/me")
       .then((body) => {
         if (!gone) setMe(body);
       })

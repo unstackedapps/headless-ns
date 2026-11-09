@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { generateText } from "ai";
-import { languageModel } from "../server/providers.mjs";
+import { languageModel, listModels } from "../server/providers.mjs";
 
 function chatReply() {
   return {
@@ -33,12 +33,29 @@ async function say(provider, extra, reply = chatReply()) {
   return { text: result.text, call: seen.calls[0] };
 }
 
-test("OpenAI, Groq, Mistral, and a compatible host use chat completions", async () => {
-  const openai = await say("openai", { model: "gpt-5.2" });
-  assert.equal(openai.call.url, "https://api.openai.com/v1/chat/completions");
-  assert.equal(openai.call.body.model, "gpt-5.2");
-  assert.equal(openai.text, "ready");
+function responsesReply(output) {
+  return {
+    id: "resp_test",
+    object: "response",
+    created_at: 1794228000,
+    model: "gpt-5.5",
+    output,
+    status: "completed",
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+  };
+}
 
+const ready = [{ id: "msg_test", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "ready", annotations: [] }] }];
+
+// Live, gpt-5.3-codex on chat completions answered "This model is not supported in the v1/chat/completions endpoint. Use the v1/responses endpoint instead."
+test("OpenAI uses the Responses API, which every OpenAI chat model accepts", async () => {
+  const openai = await say("openai", { model: "gpt-5.3-codex" }, responsesReply(ready));
+  assert.equal(openai.call.url, "https://api.openai.com/v1/responses");
+  assert.equal(openai.call.body.model, "gpt-5.3-codex");
+  assert.equal(openai.text, "ready");
+});
+
+test("Groq, Mistral, and a compatible host use chat completions", async () => {
   const groq = await say("groq", { model: "llama-3.1-8b-instant" });
   assert.match(groq.call.url, /^https:\/\/api\.groq\.com\/openai\/v1\/chat\/completions/);
   assert.equal(groq.call.body.model, "llama-3.1-8b-instant");
@@ -85,4 +102,58 @@ test("Grok uses the responses API", async () => {
   assert.match(result.call.url, /^https:\/\/api\.x\.ai\/v1\/responses/);
   assert.equal(result.call.body.model, "grok-4.7");
   assert.equal(result.text, "ready");
+});
+
+test("the model list comes from each provider's own endpoint", async () => {
+  const seen = [];
+  const reply = (body, status = 200) => async (url, init) => {
+    seen.push({ url: String(url), headers: init.headers });
+    return new Response(JSON.stringify(body), { status });
+  };
+  const compatible = await listModels({ provider: "compatible", baseUrl: "https://gemma.example/v1", apiKey: "sk-test" }, reply({ data: [{ id: "gemma-4-27b" }, { id: "gemma-4-9b" }, { id: "gemma-4-27b" }] }));
+  assert.deepEqual(compatible, ["gemma-4-27b", "gemma-4-9b"]);
+  assert.equal(seen[0].url, "https://gemma.example/v1/models");
+  assert.equal(seen[0].headers.Authorization, "Bearer sk-test");
+
+  await listModels({ provider: "anthropic", apiKey: "sk-ant" }, reply({ data: [{ id: "claude-sonnet-5-5" }] }));
+  assert.match(seen[1].url, /^https:\/\/api\.anthropic\.com\/v1\/models/);
+  assert.equal(seen[1].headers["x-api-key"], "sk-ant");
+
+  const gemini = await listModels(
+    { provider: "google", apiKey: "g-key" },
+    reply({ models: [{ name: "models/gemini-4-argon", supportedGenerationMethods: ["generateContent"] }, { name: "models/embedding-9", supportedGenerationMethods: ["embedContent"] }] }),
+  );
+  assert.deepEqual(gemini, ["gemini-4-argon"]);
+});
+
+// Ids from the live OpenAI and Gemini lists on 2026-11-09. Each dropped one failed Ask's test message:
+// tts and transcribe models do not answer in text, deep-research and antigravity need the Interactions API,
+// computer-use needs its own tool, and OpenAI's tts and image models are not chat models.
+test("the model list leaves out models Ask cannot chat with", async () => {
+  const list = (body) => async () => new Response(JSON.stringify(body), { status: 200 });
+  const openai = await listModels(
+    { provider: "openai", apiKey: "sk" },
+    list({ object: "list", data: ["chatgpt-image-latest", "gpt-4o-mini-transcribe", "gpt-4o-mini-tts", "gpt-4o-transcribe-diarize", "gpt-5.3-codex", "gpt-5.4-nano", "gpt-5.5", "gpt-5.5-pro", "text-embedding-3-small", "whisper-1", "dall-e-3", "omni-moderation-latest", "gpt-realtime", "gpt-audio", "sora-2"].map((id) => ({ id, object: "model" })) }),
+  );
+  assert.deepEqual(openai, ["gpt-5.3-codex", "gpt-5.4-nano", "gpt-5.5", "gpt-5.5-pro"]);
+
+  const ids = ["antigravity-preview-latest", "deep-research-preview-04-2026", "gemini-2.5-computer-use-preview-10-2025", "gemini-2.5-flash-preview-tts", "gemini-3.1-flash-image", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.5-transcribe", "gemma-4-31b-it", "lyria-3.5"];
+  const gemini = await listModels(
+    { provider: "google", apiKey: "g" },
+    list({ models: ids.map((id) => ({ name: `models/${id}`, supportedGenerationMethods: ["generateContent"] })) }),
+  );
+  assert.deepEqual(gemini, ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemma-4-31b-it"]);
+});
+
+test("a rejected key or a wrong URL comes back in plain words, without the key", async () => {
+  const denied = async () => new Response("{}", { status: 401 });
+  await assert.rejects(listModels({ provider: "openai", apiKey: "sk-bad" }, denied), { message: "The provider did not accept this API key.", status: 400 });
+  const html = async () => new Response("<html>sk-secret-key</html>", { status: 200 });
+  await assert.rejects(listModels({ provider: "compatible", baseUrl: "https://x.example", apiKey: "sk-secret-key" }, html), /did not send a model list/);
+  const broken = async () => new Response("bad key sk-secret-key", { status: 500 });
+  await assert.rejects(listModels({ provider: "compatible", baseUrl: "https://x.example", apiKey: "sk-secret-key" }, broken), (error) => !error.message.includes("sk-secret-key"));
+  const offline = async () => {
+    throw new TypeError("fetch failed");
+  };
+  await assert.rejects(listModels({ provider: "compatible", baseUrl: "https://x.example/v1", apiKey: "k" }, offline), /could not reach x\.example/);
 });
