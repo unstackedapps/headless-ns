@@ -14,7 +14,7 @@ import { api, postJson } from "./api";
 import { PageHead } from "./head";
 import { stepText, toolTitle } from "./steps";
 
-type Step = { name: string; ok: boolean; error?: string };
+type Step = { name: string; ok: boolean; error?: string; detail?: string };
 type PendingCall = {
   id: string;
   name: string;

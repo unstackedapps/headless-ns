@@ -17,6 +17,9 @@ export const APP_TOOLS = new Set([
   "ns_selector_app",
 ]);
 
+// Tools the app runs itself, not the MCP server. skill_read only reads imported skill files.
+export const SKILL_TOOLS = new Set(["skill_read"]);
+
 export const INTERNAL_TOOLS = new Set(["ns_getFile", "ns_uploadFile"]);
 
 export function toolKind(name) {
@@ -31,5 +34,5 @@ export function assistantCanCall(name, policy) {
   if (kind === "internal" || kind === "app") return false;
   if (policy.disabled?.includes(name)) return false;
   if (kind === "write") return Boolean(policy.allowWrites);
-  return name.startsWith("ns_") || name === "osmcp_search_netsuite_docs";
+  return name.startsWith("ns_") || SKILL_TOOLS.has(name) || name === "osmcp_search_netsuite_docs";
 }
