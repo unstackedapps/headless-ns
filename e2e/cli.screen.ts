@@ -3,7 +3,8 @@ import { emptyList, mockApi, session } from "./mock";
 
 // A reply recorded from the live Gemma model for "how do I create a quote?", after the Phase 6b prompt change.
 const quoteHowTo = {
-  answer: "",
+  answer:
+    "You can create a new quote using the **Quotes > New quote** page in headless-ns.\n\nIf you would like me to create one for you now, please provide:\n* The customer\n* The items (including quantity and rate)\n* The date",
   steps: [],
   pending: null,
   transcript: [] as unknown[],
@@ -18,8 +19,8 @@ test("the command line keeps the conversation, so a follow-up reaches Ask with i
     "POST /api/ask": (request: { postDataJSON: () => { text: string; transcript: unknown[] } }) => {
       const body = request.postDataJSON();
       bodies.push(body);
-      const transcript = [...body.transcript, { role: "user", content: body.text }, { role: "assistant", content: `Reply ${bodies.length}` }];
-      return { ...quoteHowTo, answer: `Reply ${bodies.length}`, transcript };
+      const transcript = [...body.transcript, { role: "user", content: body.text }, { role: "assistant", content: bodies.length === 1 ? quoteHowTo.answer : `Reply ${bodies.length}` }];
+      return { ...quoteHowTo, answer: bodies.length === 1 ? quoteHowTo.answer : `Reply ${bodies.length}`, transcript };
     },
   });
   await page.goto("/#/payments");
@@ -27,11 +28,15 @@ test("the command line keeps the conversation, so a follow-up reaches Ask with i
   const command = page.getByLabel("Command", { exact: true });
   await command.fill("ask how do I create a quote?");
   await command.press("Enter");
-  await expect(page.locator(".cli-log").getByText("Reply 1")).toBeVisible();
+  const log = page.locator(".cli-log");
+  await expect(log.locator("strong", { hasText: "Quotes > New quote" })).toBeVisible();
+  await expect(log.locator("li")).toHaveCount(3);
+  await expect(log).not.toContainText("Transactions >");
+  await expect(log).not.toContainText("ns_");
   await command.fill("ask Acme, 2 SPC002 at 10");
   await command.press("Enter");
   await expect(page.locator(".cli-log").getByText("Reply 2")).toBeVisible();
-  expect((bodies[1] as { transcript: { content: string }[] }).transcript.map((m) => m.content)).toEqual(["how do I create a quote?", "Reply 1"]);
+  expect((bodies[1] as { transcript: { content: string }[] }).transcript.map((m) => m.content)).toEqual(["how do I create a quote?", quoteHowTo.answer]);
   await command.fill("clear");
   await command.press("Enter");
   await command.fill("ask again");
