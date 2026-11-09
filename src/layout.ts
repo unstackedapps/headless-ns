@@ -31,7 +31,7 @@ export const portletCatalog = [
   { id: "invoices", label: "Open invoices", href: "#/invoices", kind: "metric", metric: "invoices" },
   { id: "bills", label: "Open bills", href: "#/bills", kind: "metric", metric: "bills" },
   { id: "items", label: "Inventory items", href: "#/items", kind: "metric", metric: "items" },
-  { id: "people", label: "Employees", href: "#/people", kind: "metric", metric: "people" },
+  { id: "people", label: "People", href: "#/people", kind: "metric", metric: "people" },
   { id: "activity", label: "Transactions this year", href: "", kind: "activity", metric: "" },
 ] as const;
 

@@ -35,10 +35,10 @@ const typeLabels: Record<string, string> = {
   CashSale: "Cash sale",
   CustCred: "Credit memo",
   CustPymt: "Customer payment",
-  VendBill: "Vendor bill",
-  VendPymt: "Vendor payment",
+  VendBill: "Bill",
+  VendPymt: "Bill payment",
   VendCred: "Vendor credit",
-  ItemShip: "Item fulfillment",
+  ItemShip: "Fulfillment",
   ItemRcpt: "Item receipt",
   Journal: "Journal",
   CustRfnd: "Customer refund",
@@ -46,12 +46,12 @@ const typeLabels: Record<string, string> = {
   DepAppl: "Deposit application",
   PurchOrd: "Purchase order",
   TrnfrOrd: "Transfer order",
-  RtnAuth: "Return authorization",
+  RtnAuth: "Return",
   InvAdjst: "Inventory adjustment",
   InvTrnfr: "Inventory transfer",
   ExpRept: "Expense report",
   Check: "Check",
-  Estimate: "Estimate",
+  Estimate: "Quote",
 };
 
 const rangeLabel: Record<RangeId, string> = {
@@ -339,7 +339,7 @@ export function OverviewPage() {
             ))}
         </div>
       )}
-      {editing && <p className="status">Drag a card to reorder it. Built-in cards can be hidden. Ones you add can also be removed. This browser keeps the layout.</p>}
+      {editing && <p className="status">Drag a card to move it. You can hide any card and remove the ones you added. This browser keeps the layout.</p>}
       {overview.error && <p className="error">{overview.error}</p>}
       {firstLoad ? (
         <SkeletonPortlets />

@@ -420,9 +420,12 @@ export function studioRoutes({ sendJson, authorized }) {
         return;
       }
       if (NEEDS_CONFIRM.has(kind) && !body.confirm) {
-        sendJson(res, 400, {
-          error: "This tool can change NetSuite, or it is only for a chat app. Turn on confirm before it runs.",
-        });
+        const why = {
+          write: "This tool changes NetSuite.",
+          app: "This tool draws a screen for chat apps, so it returns little here.",
+          internal: "This tool works on the file cabinet.",
+        }[kind];
+        sendJson(res, 400, { error: `${why} Tick Confirm, then run it.` });
         return;
       }
       const started = Date.now();

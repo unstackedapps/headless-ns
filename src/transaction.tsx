@@ -712,8 +712,8 @@ function StepForm({
           ))}
           {picks.length === 0 && <p className="status">No open lines.</p>}
           {isShip && <p className="status">Unchecked lines stay open on the order.</p>}
-          {billing && <p className="status">Each line starts at what was received and not billed yet. An unchecked line goes on the bill at 0.</p>}
-          {step.kind === "close" && <p className="status">A closed line stays on the order but is not fulfilled or billed.</p>}
+          {billing && <p className="status">Each line starts at the quantity received but not billed. Untick a line to bill none of it.</p>}
+          {step.kind === "close" && <p className="status">NetSuite keeps a closed line on the order and stops fulfilling and billing it.</p>}
         </div>
       )}
       {payingBills && (
@@ -826,7 +826,7 @@ function NewTransaction({ type }: { type: string }) {
       });
       location.hash = flowLink(type, created.id);
     } catch (reason) {
-      setError(errorText(reason, "The record was not created."));
+      setError(errorText(reason, "NetSuite did not create the record."));
     } finally {
       setBusy(false);
     }

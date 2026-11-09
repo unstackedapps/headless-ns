@@ -269,8 +269,8 @@ export function FilesPage() {
               <input value={jumpPath} aria-label="Path" placeholder="/SuiteScripts" onChange={(event) => setJumpPath(event.target.value)} />
             </label>
             <label>
-              Internal id
-              <input value={jumpId} aria-label="Internal id" inputMode="numeric" onChange={(event) => setJumpId(event.target.value)} />
+              Internal ID
+              <input value={jumpId} aria-label="Internal ID" inputMode="numeric" onChange={(event) => setJumpId(event.target.value)} />
             </label>
             <label>
               Kind

@@ -228,7 +228,8 @@ test("the same failing call twice stops the request", async () => {
     },
   });
   assert.equal(ran, 1);
-  assert.match(result.answer, /failed twice with the same input/);
+  assert.match(result.answer, /the same step failed twice/);
+  assert.doesNotMatch(result.answer, /ns_/);
 });
 
 test("a pending write carries a readable summary with looked-up names", async () => {

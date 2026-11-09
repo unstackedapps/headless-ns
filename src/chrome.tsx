@@ -6,6 +6,7 @@ import { AskPage } from "./studio";
 import { themes, useTheme } from "./theme";
 import { api, postJson } from "./api";
 import { Markdown } from "./formatted";
+import { stepText } from "./steps";
 
 const screens = menuDefaults.map((item) => item.id);
 
@@ -167,7 +168,7 @@ export function CommandLine({
   function showAsk(result: AskReply) {
     const parts = [];
     if (result.answer) parts.push(result.answer);
-    const steps = (result.steps || []).map((step) => `- ${step.ok ? "Ran" : "Failed"} ${step.name}${step.error ? `: ${step.error}` : ""}`);
+    const steps = (result.steps || []).map((step) => `- ${stepText(step)}`);
     if (steps.length) parts.push(steps.join("\n"));
     pendingId.current = result.pendingId || "";
     transcript.current = result.transcript || transcript.current;

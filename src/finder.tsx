@@ -142,7 +142,7 @@ export function RecordFinder({ onOpen }: { onOpen: (type: string, id: string) =>
 
 type Latest = { id: string; label: string; detail: string };
 
-// The newest 50 records of a type, to pick one instead of typing its internal id.
+// The newest 50 records of a type, to pick one instead of typing its internal ID.
 export function LatestRecords({ type, onOpen }: { type: string; onOpen: (id: string) => void }) {
   const [rows, setRows] = useState<Latest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +169,7 @@ export function LatestRecords({ type, onOpen }: { type: string; onOpen: (id: str
         skeletonRows={6}
         error={error}
         rowKey={(row) => row.id}
-        empty="SuiteQL lists none of this type. Type an internal id above."
+        empty="SuiteQL lists none of this type. Type an internal ID above."
         columns={[
           {
             key: "label",
@@ -181,7 +181,7 @@ export function LatestRecords({ type, onOpen }: { type: string; onOpen: (id: str
             ),
           },
           { key: "detail", label: "Detail", cell: (row) => orBlank(row.detail) },
-          { key: "id", label: "Internal id", num: true, cell: (row) => row.id },
+          { key: "id", label: "Internal ID", num: true, cell: (row) => row.id },
         ]}
       />
     </section>

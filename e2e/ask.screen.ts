@@ -33,7 +33,7 @@ test("Ask shows a pending write as a summary, with the payload folded away", asy
   await expect(drawer.getByText("2 × SPC002 at 10.00 US Dollar")).toBeVisible();
   const raw = drawer.getByText('"recordType": "estimate"');
   await expect(raw).toBeHidden();
-  await drawer.getByText("Payload for").click();
+  await drawer.getByText("Show the exact request").click();
   await expect(raw).toBeVisible();
   await drawer.getByRole("button", { name: "Run on NetSuite" }).click();
   await expect(drawer.getByText("Created QUO120.")).toBeVisible();

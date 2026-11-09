@@ -12,6 +12,7 @@ import { orBlank } from "./format";
 import { ShapeSelect, ThemeSelect } from "./theme";
 import { api, postJson } from "./api";
 import { PageHead } from "./head";
+import { stepText, toolTitle } from "./steps";
 
 type Step = { name: string; ok: boolean; error?: string };
 type PendingCall = {
@@ -325,8 +326,7 @@ export function AskPage({
               <ul className="steps">
                 {steps.map((step, stepIndex) => (
                   <li key={`${step.name}-${stepIndex}`}>
-                    {step.ok ? "Ran" : "Failed"} {step.name}
-                    {step.error ? ` — ${step.error}` : ""}
+                    {stepText(step)}
                   </li>
                 ))}
               </ul>
@@ -352,9 +352,7 @@ export function AskPage({
                 </ul>
               )}
               <details>
-                <summary>
-                  Payload for <code>{call.name}</code>
-                </summary>
+                <summary>Show the exact request</summary>
                 <pre className="result">{JSON.stringify(call.arguments, null, 2)}</pre>
               </details>
             </div>
@@ -1019,7 +1017,7 @@ export function SettingsPage() {
               <div key={level} className="panel">
                 <h3>{level}</h3>
                 {ids.length === 0 ? (
-                  <p className="status">None granted.</p>
+                  <p className="status">None.</p>
                 ) : (
                   <ul className="perm-list">
                     {ids.map((id) => (
@@ -1071,7 +1069,7 @@ export function SettingsPage() {
         </a>
       </section>
       <section className="section">
-        <h2>Assistant</h2>
+        <h2>Ask</h2>
         <label className="check">
           <input type="checkbox" checked={allowWrites} onChange={(event) => setAllowWrites(event.target.checked)} />
           Allow changes. Ask still waits for you to confirm.
@@ -1091,14 +1089,14 @@ export function SettingsPage() {
                     );
                   }}
                 />
-                {tool.name}
+                {toolTitle(tool.name)}
                 <em>{kindLabel[tool.kind]}</em>
               </label>
             );
           })}
         </div>
         <button className="primary" type="button" disabled={busy} onClick={savePolicy}>
-          Save tool policy
+          Save Ask's tools
         </button>
       </section>
     </>

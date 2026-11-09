@@ -129,7 +129,7 @@ export function RelatedHost() {
   return (
     <Drawer kicker="Related" title={request.title} narrow onClose={() => setRequest(null)} error={error}>
       <div className="record-body">
-        <p className="status">Deeper shows that record's links. Open goes to NetSuite.</p>
+        <p className="status">Click Deeper to see that record's links, or Open to see it in NetSuite.</p>
         {!tree && !error && <p className="status">Looking up the links.</p>}
         {tree && tree.children.length === 0 && <p className="status">Nothing else is linked to this record.</p>}
         {tree && tree.children.length > 0 && (

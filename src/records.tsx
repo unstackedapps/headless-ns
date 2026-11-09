@@ -139,8 +139,8 @@ export function FieldInput({ field, cell, onChange, scope }: { field: Field; cel
       <input
         value={cell.value}
         inputMode="numeric"
-        aria-label={`${field.title} internal id`}
-        placeholder="Internal id"
+        aria-label={`${field.title} internal ID`}
+        placeholder="Internal ID"
         onChange={(event) => onChange({ value: event.target.value.replace(/[^\d-]/g, "") })}
       />
     );
@@ -493,11 +493,11 @@ export function RecordsPage() {
       setConfirm(false);
       if (creating) goTo(result, `Created ${type} ${result.id}.`);
       else {
-        setNotice("The record was saved.");
+        setNotice("NetSuite saved the record.");
         await openRecord(openId);
       }
     } catch (reason) {
-      setError(errorText(reason, "The record was not saved."));
+      setError(errorText(reason, "NetSuite did not save the record."));
     } finally {
       setBusy(false);
     }
@@ -542,7 +542,7 @@ export function RecordsPage() {
       setConfirm(false);
       goTo(result, `Created ${result.type} ${result.id} from ${type} ${openId}.`);
     } catch (reason) {
-      setError(errorText(reason, "The record was not created."));
+      setError(errorText(reason, "NetSuite did not create the record."));
     } finally {
       setBusy(false);
     }
@@ -554,10 +554,10 @@ export function RecordsPage() {
     setError(null);
     try {
       await postJson("/api/records/file", { path: filePath.trim(), recordType: type, recordId: openId, detach, confirm: true });
-      setNotice(detach ? "The file was detached." : "The file was attached.");
+      setNotice(detach ? "NetSuite detached the file." : "NetSuite attached the file.");
       setConfirm(false);
     } catch (reason) {
-      setError(errorText(reason, "The file was not changed."));
+      setError(errorText(reason, "NetSuite did not change the file link."));
     } finally {
       setBusy(false);
     }
@@ -578,7 +578,7 @@ export function RecordsPage() {
       <PageHead title="Records">
         <RefreshButton label="records" onClick={() => refreshScope("records")} />
       </PageHead>
-      <p className="status">Find a record by number, name or email. Or pick a type on the left, then pick a record or type its internal id.</p>
+      <p className="status">Find a record by number, name or email. Or pick a type on the left, then pick a record or type its internal ID.</p>
       <RecordFinder
         onOpen={(nextType, id) => {
           const link = recordLink(nextType, id);
@@ -612,8 +612,8 @@ export function RecordsPage() {
                 </strong>
                 <div className="filters">
                   <label>
-                    Internal id
-                    <input value={recordId} inputMode="numeric" aria-label="Internal id" onChange={(event) => setRecordId(event.target.value)} />
+                    Internal ID
+                    <input value={recordId} inputMode="numeric" aria-label="Internal ID" onChange={(event) => setRecordId(event.target.value)} />
                   </label>
                   <Button className="primary" busy={busy} disabled={!recordId.trim()} onClick={() => openRecord()}>
                     Open
@@ -776,7 +776,6 @@ export function RecordsPage() {
                       Detach
                     </Button>
                   </div>
-                  <p className="status">The file stays in the cabinet either way.</p>
                 </section>
               )}
             </>

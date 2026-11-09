@@ -726,7 +726,7 @@ const routes = {
           available: asNumber(field(row, "available")),
         });
       }
-      if (stock.hasMore) note = "Availability is summed from the first 1,000 inventory balances.";
+      if (stock.hasMore) note = "Available counts add up only the first 1,000 inventory balances.";
     } catch (error) {
       note = error.message;
     }

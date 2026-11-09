@@ -253,9 +253,9 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
     if (problems.some(Boolean)) {
       for (const call of calls) {
         const key = callKey(call);
-        if (failed.has(key)) return stopped(`I stopped because ${call.toolName} failed twice with the same input.`, steps, clientMessages);
+        if (failed.has(key)) return stopped("I stopped because the same step failed twice. Ask me again with more detail.", steps, clientMessages);
         failed.add(key);
-        const error = problems[writes.indexOf(call)] || "Not run: another change in this step was stopped.";
+        const error = problems[writes.indexOf(call)] || "I held this change back because another change in the same step failed its check.";
         clientMessages.push({ role: "tool", tool_call_id: call.toolCallId, name: call.toolName, content: JSON.stringify({ error }) });
         steps.push({ name: call.toolName, ok: false, error });
       }
@@ -277,7 +277,7 @@ async function loop(clientMessages, { model, secret, policy, runTool, catalog, q
     for (const call of calls) {
       const key = callKey(call);
       if (failed.has(key)) {
-        return stopped(`I stopped because ${call.toolName} failed twice with the same input.`, steps, clientMessages);
+        return stopped("I stopped because the same step failed twice. Ask me again with more detail.", steps, clientMessages);
       }
       const blocked = refusal(call.toolName, policy);
       let payload;
