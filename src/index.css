@@ -858,6 +858,10 @@ textarea.code {
 .md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--soft); padding: 0 4px; }
 .md pre { margin: 0 0 8px; padding: 8px 10px; background: var(--bg); overflow: auto; white-space: pre-wrap; }
 .md a { color: var(--accent); }
+.md-table { margin: 0 0 8px; overflow-x: auto; }
+.md-table table { border-collapse: collapse; font-size: 12px; }
+.md-table th, .md-table td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.md-table th { font-weight: 500; color: var(--muted); }
 .steps { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .workbench { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 12px; }
 .tool-list { max-height: 70vh; overflow: auto; margin-top: 8px; border: 1px solid var(--line); background: var(--panel); }
