@@ -53,6 +53,13 @@ export function groupOf(id: string) {
   return group === "Top" || group === "Bottom" || !group ? "" : group;
 }
 
+// The kicker above a page title: its menu group, Home for Overview, Setup for Settings.
+export function kickerOf(id: string) {
+  if (id === "overview") return "Home";
+  if (id === "settings") return "Setup";
+  return groupOf(id);
+}
+
 // Reads the saved menu. The group always comes from menuDefaults, never from storage.
 // The old format (a bare array, from before the groups) keeps only what was hidden.
 export function readMenu(stored: unknown): MenuItem[] {

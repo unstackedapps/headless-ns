@@ -11,6 +11,7 @@ import { DataTable } from "./table";
 import { orBlank } from "./format";
 import { ShapeSelect, ThemeSelect } from "./theme";
 import { api, postJson } from "./api";
+import { PageHead } from "./head";
 
 type Step = { name: string; ok: boolean; error?: string };
 type PendingCall = {
@@ -310,15 +311,11 @@ export function AskPage({
   const conversation = (
     <>
       {!docked && (
-        <header className="page-head">
-          <div>
-            <div className="kicker">Assistant</div>
-            <h1>Ask</h1>
-          </div>
+        <PageHead title="Ask" kicker="Tools">
           <button className="quiet" type="button" disabled={!dirty} onClick={clear}>
             Clear
           </button>
-        </header>
+        </PageHead>
       )}
       <div className="thread">
         {thread.map((message, index) => (
@@ -485,12 +482,7 @@ export function WorkbenchPage() {
   if (!ready && !loadError) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Tools</div>
-            <h1>Workbench</h1>
-          </div>
-        </header>
+        <PageHead title="Workbench" />
         <SkeletonTable rows={8} cols={2} />
       </>
     );
@@ -498,13 +490,9 @@ export function WorkbenchPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">Tools</div>
-          <h1>Workbench</h1>
-        </div>
+      <PageHead title="Workbench">
         <RefreshButton label="tools" scope="workbench" />
-      </header>
+      </PageHead>
       {loadError && <p className="error">{loadError}</p>}
       {ready && <div className="split">
         <FilterRail
@@ -662,12 +650,7 @@ export function ReportsPage() {
   if (!ready && !error) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Saved reports</div>
-            <h1>Reports</h1>
-          </div>
-        </header>
+        <PageHead title="Reports" />
         <SkeletonTable rows={8} cols={3} />
       </>
     );
@@ -675,13 +658,9 @@ export function ReportsPage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Saved reports</div>
-          <h1>Reports</h1>
-        </div>
+      <PageHead title="Reports">
         <RefreshButton label="reports" scope="reports" />
-      </header>
+      </PageHead>
       <p className="status">{reports.length} reports for this role.</p>
       {ready && <div className="filters">
         <label>
@@ -839,12 +818,7 @@ export function TracePage() {
   if (!ready) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Audit</div>
-            <h1>Trace</h1>
-          </div>
-        </header>
+        <PageHead title="Trace" />
         <SkeletonTable rows={8} cols={4} />
       </>
     );
@@ -852,13 +826,9 @@ export function TracePage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Audit</div>
-          <h1>Trace</h1>
-        </div>
+      <PageHead title="Trace">
         <RefreshButton label="trace" scope="trace" />
-      </header>
+      </PageHead>
       <p className="status">Recent calls. This list updates on its own.</p>
       {error && <p className="error">{error}</p>}
       <DataTable
@@ -1009,13 +979,9 @@ export function SettingsPage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Setup</div>
-          <h1>Settings</h1>
-        </div>
+      <PageHead title="Settings">
         <RefreshButton label="settings" scope="settings" />
-      </header>
+      </PageHead>
       {error && <p className="error">{error}</p>}
       {message && <p className="status">{message}</p>}
       <section className="section">

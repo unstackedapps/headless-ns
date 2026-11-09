@@ -9,6 +9,7 @@ import { addColumn, commonTables, isMissingLabel, sampleQueries, toCsv } from ".
 import { DataTable } from "./table";
 import { orBlank } from "./format";
 import { api, postJson } from "./api";
+import { PageHead } from "./head";
 
 type TableInfo = { name: string; title: string };
 type Field = { id: string; title: string; type: string };
@@ -49,7 +50,7 @@ export function QueryPage() {
     load();
     api<{ queries: Saved[] }>("/api/queries")
       .then((body) => {
-        if (!stop) setSaved(body.queries);
+        if (!stop) setSaved(body.queries || []);
       })
       .catch(() => undefined);
     const onRefresh = (event: Event) => {
@@ -138,13 +139,9 @@ export function QueryPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">Data</div>
-          <h1>Query</h1>
-        </div>
+      <PageHead title="Query">
         <RefreshButton label="tables" onClick={() => refreshScope("query")} />
-      </header>
+      </PageHead>
       <p className="status">Write a SELECT and run it, or start from a sample. Pick a table on the left, then click a column to add it.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">

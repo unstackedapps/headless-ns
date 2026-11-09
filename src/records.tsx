@@ -9,6 +9,7 @@ import { BLANK } from "./format";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 import { flowLink } from "./transaction";
+import { PageHead } from "./head";
 
 export type Field = {
   id: string;
@@ -574,13 +575,9 @@ export function RecordsPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">Record types</div>
-          <h1>Records</h1>
-        </div>
+      <PageHead title="Records">
         <RefreshButton label="records" onClick={() => refreshScope("records")} />
-      </header>
+      </PageHead>
       <p className="status">Find a record by number, name or email. Or pick a type on the left, then pick a record or type its internal id.</p>
       <RecordFinder
         onOpen={(nextType, id) => {

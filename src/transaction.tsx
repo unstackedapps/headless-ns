@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { amount, BLANK, dateLabel, orBlank } from "./format";
 import { DataTable } from "./table";
+import { PageHead } from "./head";
 import { explain, StatusPill, useLive } from "./lists";
 import { Button, Lookup, SkeletonRecord } from "./load";
 import { editRow, numbersProblem, pickedTotal, pickSerial, serialFull, serialRows, type Picked } from "./serials";
@@ -148,11 +149,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
   }
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">{FLOW_LABELS[type]}</div>
-          <h1>{flowTitle(type, id, flow?.number)}</h1>
-        </div>
+      <PageHead kicker={FLOW_LABELS[type]} title={flowTitle(type, id, flow?.number)}>
         <div className="page-tools">
           {flow?.status && <StatusPill value={flow.status.name} />}
           <a className="quiet" href={recordLink(type, id)}>
@@ -160,7 +157,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
           </a>
           <RefreshButton label={FLOW_LABELS[type]} scope={path} busy={live.loading && Boolean(flow)} />
         </div>
-      </header>
+      </PageHead>
       {live.error && <p className="error">{explain(live.error)}</p>}
       {notice && <p className="status">{notice}</p>}
       {flow && (
@@ -837,12 +834,7 @@ function NewTransaction({ type }: { type: string }) {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">New</div>
-          <h1>New {FLOW_LABELS[type].toLowerCase()}</h1>
-        </div>
-      </header>
+      <PageHead kicker={FLOW_LABELS[type]} title={`New ${FLOW_LABELS[type].toLowerCase()}`} />
       {!sublist && !error && <Lookup label="Reading the form from NetSuite." />}
       {sublist && (
         <>

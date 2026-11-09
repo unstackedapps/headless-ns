@@ -6,6 +6,7 @@ import { FilterRail } from "./rail";
 import { DataTable } from "./table";
 import { orBlank } from "./format";
 import { api, postJson } from "./api";
+import { PageHead } from "./head";
 
 type SearchRow = { id: string; title: string; recordType: string; shared: boolean };
 type SearchRun = { columns: string[]; rows: Record<string, string | number>[]; total: number };
@@ -90,12 +91,7 @@ export function SearchesPage() {
   if (!rows && !error) {
     return (
       <>
-        <header className="page-head">
-          <div>
-            <div className="kicker">Saved searches</div>
-            <h1>Searches</h1>
-          </div>
-        </header>
+        <PageHead title="Searches" />
         <SkeletonTable rows={8} cols={2} />
       </>
     );
@@ -103,13 +99,9 @@ export function SearchesPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">Saved searches</div>
-          <h1>Searches</h1>
-        </div>
+      <PageHead title="Searches">
         <RefreshButton label="searches" onClick={() => refreshScope("searches")} />
-      </header>
+      </PageHead>
       <p className="status">Opening one shows the first 50 rows.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">

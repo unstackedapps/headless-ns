@@ -21,6 +21,7 @@ test("the vendor drawer traps focus, closes on Escape and on a click outside, an
   await expect(drawer).toBeVisible();
   await expect(drawer.getByRole("table", { name: "Open purchase orders" })).toBeVisible();
   await expect(drawer.getByText("No open bills.")).toBeVisible();
+  await expect(drawer.getByText("Pending receipt", { exact: true })).toBeVisible();
   for (let i = 0; i < 12; i += 1) await page.keyboard.press("Tab");
   expect(await drawer.evaluate((el) => el.contains(document.activeElement))).toBe(true);
   await drawer.screenshot({ path: "e2e/shots/6b-drawer.png" });

@@ -6,6 +6,7 @@ import { Glyph, glyph } from "./icons";
 import { SkeletonTable } from "./load";
 import { markBusy, RefreshButton } from "./refresh";
 import { api } from "./api";
+import { PageHead } from "./head";
 
 export type ListPayload<T> = {
   fetchedAt: string;
@@ -112,17 +113,13 @@ export function ListFrame({
 }) {
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">List view</div>
-          <h1>{title}</h1>
-        </div>
+      <PageHead title={title}>
         <div className="page-tools">
           <p className="status">{status}</p>
           {tools}
           <RefreshButton label={title} scope={scope} busy={loading && ready} />
         </div>
-      </header>
+      </PageHead>
       {error && <p className="error">{explain(error)}</p>}
       <section className={loading && ready ? "list-view is-loading" : "list-view"}>
         <div className="list-bar">
@@ -146,8 +143,9 @@ export function ListFrame({
   );
 }
 
+// NetSuite's status words, in sentence case like the rest of the app: "Pending receipt".
 export function StatusPill({ value }: { value: string }) {
-  const text = value || BLANK;
+  const text = value ? value.charAt(0).toUpperCase() + value.slice(1).toLowerCase() : BLANK;
   const tone = /closed|expired|cancel|void|no/i.test(text) ? "warn" : /billed|paid|open|yes|active|pending/i.test(text) ? "ok" : "";
   return <span className={tone ? `pill ${tone}` : "pill"}>{text}</span>;
 }

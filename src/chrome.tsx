@@ -369,9 +369,11 @@ export function CommandLine({
         <span className="status">{running?.cancel ? "Esc or Ctrl+C cancels" : running ? "Running" : "headless-ns"}</span>
         <div className="portlet-tools">
           <button className="quiet" type="button" onClick={() => setMinimized((value) => !value)}>
+            <Glyph icon={minimized ? glyph.up : glyph.down} size={14} />
             {minimized ? "Restore" : "Minimize"}
           </button>
           <button className="quiet" type="button" onClick={onClose}>
+            <Glyph icon={glyph.close} size={14} />
             Close
           </button>
         </div>

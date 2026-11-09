@@ -9,6 +9,7 @@ import { markBusy, refreshMs, refreshScope, RefreshButton, RefreshIntervalSelect
 import { api } from "./api";
 import { explain } from "./lists";
 import { DataTable } from "./table";
+import { PageHead } from "./head";
 
 type MoneyRow = {
   currency: string;
@@ -311,11 +312,7 @@ export function OverviewPage() {
 
   return (
     <>
-      <header className="page-head">
-        <div>
-          <div className="kicker">Home</div>
-          <h1>Overview</h1>
-        </div>
+      <PageHead title="Overview">
         <div className="page-tools">
           <RefreshIntervalSelect />
           <button className={editing ? "quiet on" : "quiet"} type="button" aria-pressed={editing} onClick={() => setEditing((value) => !value)}>
@@ -327,7 +324,7 @@ export function OverviewPage() {
             Add
           </button>
         </div>
-      </header>
+      </PageHead>
       {adding && (
         <div className="add-menu">
           {traceCards.filter((card) => !layout.some((item) => item.id === card.id)).length === 0 && (

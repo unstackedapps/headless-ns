@@ -27,6 +27,15 @@ test("the rail pins Overview and Settings, folds its groups, and fits a 900 px w
   await expect(nav.getByRole("link", { name: "Payments", exact: true })).toBeHidden();
 });
 
+test("each page's kicker is its menu group", async ({ page }) => {
+  await page.goto("/#/payments");
+  await expect(page.locator(".page-head .kicker")).toHaveText("Sales");
+  await page.goto("/#/query");
+  await expect(page.locator(".page-head .kicker")).toHaveText("Data");
+  await page.goto("/#/searches");
+  await expect(page.locator(".page-head .kicker")).toHaveText("Data");
+});
+
 test("opening a page in a folded group opens that group", async ({ page }) => {
   await page.goto("/#/payments");
   const nav = page.getByRole("navigation", { name: "Sections" });

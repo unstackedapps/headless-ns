@@ -5,6 +5,7 @@ import { Pick } from "./pick";
 import { DataTable } from "./table";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
+import { PageHead } from "./head";
 
 type Entry = { id: string; kind: "folder" | "file"; name: string; path: string };
 type Page = { entries: Entry[]; hasMore: boolean; cursor: string | null };
@@ -207,13 +208,9 @@ export function FilesPage() {
 
   return (
     <div className="split-page">
-      <header className="page-head">
-        <div>
-          <div className="kicker">File Cabinet</div>
-          <h1>Files</h1>
-        </div>
+      <PageHead title="Files">
         <RefreshButton label="files" onClick={() => refreshScope("files")} />
-      </header>
+      </PageHead>
       <p className="status">Pick a folder on the left. Drop files onto a folder to upload them. Click a file to read it.</p>
       {uploading && <p className="status">Uploading {uploading}</p>}
       {error && <p className="error">{error}</p>}
