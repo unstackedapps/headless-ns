@@ -908,7 +908,7 @@ details.panel summary { cursor: pointer; font-weight: 300; }
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
-.top-tools, .page-tools, .portlet-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.top-tools, .page-tools, .portlet-tools, .bar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .page-tools { justify-content: flex-end; }
 .theme-pick { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 .theme-pick .pick { width: 148px; }
