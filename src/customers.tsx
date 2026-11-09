@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { amount, dateLabel } from "./format";
+import { useEffect, useState } from "react";
+import { amount, dateLabel, orBlank } from "./format";
+import { DataTable, type Column } from "./table";
 import { RelatedLink } from "./related";
 import { Glyph, glyph } from "./icons";
 import { Lookup, SkeletonRecord } from "./load";
@@ -60,45 +61,32 @@ export function CustomersPage() {
       placeholder="Name or email"
       scope={q ? `/api/customers?q=${encodeURIComponent(q)}` : "/api/customers"}
     >
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Company</th>
-              <th>Subsidiary</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>NetSuite</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.data?.rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <button className="linkish" type="button" onClick={() => setSelected(row.id)}>
-                    {row.name}
-                  </button>
-                </td>
-                <td>{row.company || "—"}</td>
-                <td>{row.subsidiary || "—"}</td>
-                <td>{row.email || "—"}</td>
-                <td>{row.phone || "—"}</td>
-                <td>
-                  <RecordActions kind="customer" id={row.id} title={row.name} href={row.href} recordType="customer" />
-                </td>
-              </tr>
-            ))}
-            {live.data && live.data.rows.length === 0 && (
-              <tr>
-                <td className="empty" colSpan={6}>
-                  No customers matched.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label="Customers"
+        rows={live.data?.rows}
+        rowKey={(row) => row.id}
+        empty="No customers matched."
+        columns={[
+          {
+            key: "name",
+            label: "Name",
+            cell: (row) => (
+              <button className="linkish" type="button" onClick={() => setSelected(row.id)}>
+                {row.name}
+              </button>
+            ),
+          },
+          { key: "company", label: "Company", cell: (row) => orBlank(row.company) },
+          { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
+          { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
+          { key: "phone", label: "Phone", cell: (row) => orBlank(row.phone) },
+          {
+            key: "netsuite",
+            label: "NetSuite",
+            cell: (row) => <RecordActions kind="customer" id={row.id} title={row.name} href={row.href} recordType="customer" />,
+          },
+        ]}
+      />
       {selected && <CustomerFilePanel file={file} scope={`/api/customers/${selected}`} onClose={() => setSelected(null)} />}
     </ListFrame>
   );
@@ -158,19 +146,19 @@ function CustomerFilePanel({
               <div className="highlights">
                 <div>
                   <span>Company</span>
-                  <strong>{customer.company || "—"}</strong>
+                  <strong>{orBlank(customer.company)}</strong>
                 </div>
                 <div>
                   <span>Subsidiary</span>
-                  <strong>{customer.subsidiary || "—"}</strong>
+                  <strong>{orBlank(customer.subsidiary)}</strong>
                 </div>
                 <div>
                   <span>Email</span>
-                  <strong>{customer.email || "—"}</strong>
+                  <strong>{orBlank(customer.email)}</strong>
                 </div>
                 <div>
                   <span>Phone</span>
-                  <strong>{customer.phone || "—"}</strong>
+                  <strong>{orBlank(customer.phone)}</strong>
                 </div>
                 <div>
                   <span>Open balance</span>
@@ -194,40 +182,36 @@ function CustomerFilePanel({
               id="related-orders"
               title="Open orders"
               count={file.data?.orders.length ?? 0}
-              headers={["Number", "Date", "Status", "Amount", ""]}
               empty="No open orders."
               rows={file.data?.orders ?? []}
-              render={(row) => (
-                <>
-                  <td>{row.number}</td>
-                  <td>{dateLabel(row.date)}</td>
-                  <td>
-                    <StatusPill value={row.status} />
-                  </td>
-                  <td className="num">{amount(row.amount, row.currency)}</td>
-                  <td>
-                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="salesorder" />
-                  </td>
-                </>
-              )}
+              columns={[
+                { key: "number", label: "Number", cell: (row) => row.number },
+                { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+                { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
+                { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
+                {
+                  key: "actions",
+                  label: "",
+                  cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="salesorder" />,
+                },
+              ]}
             />
             <RelatedList
               id="related-invoices"
               title="Open invoices"
               count={file.data?.invoices.length ?? 0}
-              headers={["Number", "Due", "Open", ""]}
               empty="No open invoices."
               rows={file.data?.invoices ?? []}
-              render={(row) => (
-                <>
-                  <td>{row.number}</td>
-                  <td>{dateLabel(row.due)}</td>
-                  <td className="num">{amount(row.unpaid, row.currency)}</td>
-                  <td>
-                    <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="invoice" />
-                  </td>
-                </>
-              )}
+              columns={[
+                { key: "number", label: "Number", cell: (row) => row.number },
+                { key: "due", label: "Due", cell: (row) => dateLabel(row.due) },
+                { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
+                {
+                  key: "actions",
+                  label: "",
+                  cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType="invoice" />,
+                },
+              ]}
             />
           </div>
         )}
@@ -240,18 +224,16 @@ export function RelatedList<T extends { id: string }>({
   id,
   title,
   count: total,
-  headers,
+  columns,
   rows,
   empty,
-  render,
 }: {
   id: string;
   title: string;
   count: number;
-  headers: string[];
+  columns: Column<T>[];
   rows: T[];
   empty: string;
-  render: (row: T) => ReactNode;
 }) {
   return (
     <section className="related" id={id}>
@@ -259,26 +241,7 @@ export function RelatedList<T extends { id: string }>({
         {title}
         <span>{total}</span>
       </header>
-      {rows.length === 0 ? (
-        <p className="status">{empty}</p>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {headers.map((header) => (
-                  <th key={header || "action"}>{header}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>{render(row)}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable label={title} columns={columns} rows={rows} rowKey={(row) => row.id} empty={empty} />
     </section>
   );
 }

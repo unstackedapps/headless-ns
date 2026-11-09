@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { RelatedList } from "./customers";
-import { amount, dateLabel } from "./format";
+import { amount, dateLabel, orBlank } from "./format";
+import { DataTable } from "./table";
 import { Glyph, glyph } from "./icons";
-import { recordLink } from "./records";
-import { ListFrame, type ListPayload, Pager, StatusPill, explain, listStatus, useDebounced, useLive } from "./lists";
+import { ListFrame, type ListPayload, Pager, RecordActions, StatusPill, explain, listStatus, useDebounced, useLive } from "./lists";
 import { Lookup, SkeletonRecord } from "./load";
 import { RefreshButton } from "./refresh";
 import { flowLink, newLink } from "./transaction";
@@ -36,53 +36,28 @@ export function VendorsPage() {
       placeholder="Name or email"
       scope={path}
     >
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Company</th>
-              <th>Subsidiary</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>NetSuite</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.data?.rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <button className="linkish" type="button" onClick={() => setSelected(row.id)}>
-                    {row.name}
-                  </button>
-                </td>
-                <td>{row.company || "—"}</td>
-                <td>{row.subsidiary || "—"}</td>
-                <td>{row.email || "—"}</td>
-                <td>{row.phone || "—"}</td>
-                <td>
-                  <div className="row-actions">
-                    <a href={recordLink("vendor", row.id)} aria-label={`Open ${row.name} in Records`}>
-                      Records
-                    </a>
-                    <a href={row.href} target="_blank" rel="noreferrer" aria-label={`Open ${row.name} in NetSuite`}>
-                      <Glyph icon={glyph.external} size={14} />
-                      Open
-                    </a>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {live.data && live.data.rows.length === 0 && (
-              <tr>
-                <td className="empty" colSpan={6}>
-                  No vendors matched.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label="Vendors"
+        rows={live.data?.rows}
+        rowKey={(row) => row.id}
+        empty="No vendors matched."
+        columns={[
+          {
+            key: "name",
+            label: "Name",
+            cell: (row) => (
+              <button className="linkish" type="button" onClick={() => setSelected(row.id)}>
+                {row.name}
+              </button>
+            ),
+          },
+          { key: "company", label: "Company", cell: (row) => orBlank(row.company) },
+          { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
+          { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
+          { key: "phone", label: "Phone", cell: (row) => orBlank(row.phone) },
+          { key: "netsuite", label: "NetSuite", cell: (row) => <RecordActions kind="vendor" id={row.id} title={row.name} href={row.href} recordType="vendor" /> },
+        ]}
+      />
       {live.data && <Pager page={page} hasMore={live.data.hasMore} onPage={setPage} />}
       {selected && <VendorPanel file={file} scope={`/api/vendors/${selected}`} onClose={() => setSelected(null)} />}
     </ListFrame>
@@ -144,19 +119,19 @@ function VendorPanel({
             <div className="highlights">
               <div>
                 <span>Company</span>
-                <strong>{vendor.company || "—"}</strong>
+                <strong>{orBlank(vendor.company)}</strong>
               </div>
               <div>
                 <span>Subsidiary</span>
-                <strong>{vendor.subsidiary || "—"}</strong>
+                <strong>{orBlank(vendor.subsidiary)}</strong>
               </div>
               <div>
                 <span>Email</span>
-                <strong>{vendor.email || "—"}</strong>
+                <strong>{orBlank(vendor.email)}</strong>
               </div>
               <div>
                 <span>Phone</span>
-                <strong>{vendor.phone || "—"}</strong>
+                <strong>{orBlank(vendor.phone)}</strong>
               </div>
               <div>
                 <span>Open bills</span>
@@ -171,45 +146,27 @@ function VendorPanel({
               id="vendor-orders"
               title="Open purchase orders"
               count={file.data?.orders.length ?? 0}
-              headers={["Number", "Date", "Status", "Amount"]}
               empty="No open purchase orders."
               rows={file.data?.orders ?? []}
-              render={(row) => (
-                <>
-                  <td>
-                    <a href={flowLink("purchaseorder", row.id)} onClick={onClose}>
-                      {row.number}
-                    </a>
-                  </td>
-                  <td>{dateLabel(row.date)}</td>
-                  <td>
-                    <StatusPill value={row.status} />
-                  </td>
-                  <td className="num">{amount(row.amount, row.currency)}</td>
-                </>
-              )}
+              columns={[
+                { key: "number", label: "Number", cell: (row) => <a href={flowLink("purchaseorder", row.id)} onClick={onClose}>{row.number}</a> },
+                { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+                { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
+                { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
+              ]}
             />
             <RelatedList
               id="vendor-bills"
               title="Open bills"
               count={file.data?.bills.length ?? 0}
-              headers={["Number", "Due", "Status", "Open"]}
               empty="No open bills."
               rows={file.data?.bills ?? []}
-              render={(row) => (
-                <>
-                  <td>
-                    <a href={flowLink("vendorbill", row.id)} onClick={onClose}>
-                      {row.number}
-                    </a>
-                  </td>
-                  <td>{dateLabel(row.due)}</td>
-                  <td>
-                    <StatusPill value={row.status} />
-                  </td>
-                  <td className="num">{amount(row.unpaid, row.currency)}</td>
-                </>
-              )}
+              columns={[
+                { key: "number", label: "Number", cell: (row) => <a href={flowLink("vendorbill", row.id)} onClick={onClose}>{row.number}</a> },
+                { key: "due", label: "Due", cell: (row) => dateLabel(row.due) },
+                { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
+                { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
+              ]}
             />
           </div>
         )}

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { count } from "./format";
+import { BLANK, count, orBlank } from "./format";
+import { DataTable } from "./table";
 import { Pick } from "./pick";
 import { ListFrame, type ListPayload, Pager, RecordActions, explain, listStatus, useDebounced, useLive } from "./lists";
 
@@ -55,41 +56,24 @@ export function ItemsPage() {
       }
     >
       {live.data?.note && <p className="status">{explain(live.data.note)}</p>}
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Display name</th>
-              <th>Type</th>
-              <th className="num">On hand</th>
-              <th className="num">Available</th>
-              <th>NetSuite</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.data?.rows.map((row) => (
-              <tr key={row.id}>
-                <td>{row.name}</td>
-                <td>{row.displayName || "—"}</td>
-                <td>{row.type || "—"}</td>
-                <td className="num">{row.onHand == null ? "—" : count(row.onHand)}</td>
-                <td className="num">{row.available == null ? "—" : count(row.available)}</td>
-                <td>
-                  <RecordActions kind="item" id={row.id} title={row.name} href={row.href} recordType={row.recordType || undefined} />
-                </td>
-              </tr>
-            ))}
-            {live.data && live.data.rows.length === 0 && (
-              <tr>
-                <td className="empty" colSpan={6}>
-                  No items matched.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label="Items"
+        rows={live.data?.rows}
+        rowKey={(row) => row.id}
+        empty="No items matched."
+        columns={[
+          { key: "name", label: "Name", cell: (row) => row.name },
+          { key: "display", label: "Display name", cell: (row) => orBlank(row.displayName) },
+          { key: "type", label: "Type", cell: (row) => orBlank(row.type) },
+          { key: "onhand", label: "On hand", num: true, cell: (row) => (row.onHand == null ? BLANK : count(row.onHand)) },
+          { key: "available", label: "Available", num: true, cell: (row) => (row.available == null ? BLANK : count(row.available)) },
+          {
+            key: "netsuite",
+            label: "NetSuite",
+            cell: (row) => <RecordActions kind="item" id={row.id} title={row.name} href={row.href} recordType={row.recordType || undefined} />,
+          },
+        ]}
+      />
       {live.data && <Pager page={page} hasMore={live.data.hasMore} onPage={setPage} />}
     </ListFrame>
   );

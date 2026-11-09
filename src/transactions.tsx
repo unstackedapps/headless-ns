@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { amount, dateLabel } from "./format";
+import { amount, dateLabel, orBlank } from "./format";
+import { DataTable } from "./table";
 import { Pick } from "./pick";
 import { flowLink, FLOW_LABELS, newLink } from "./transaction";
 import { ListFrame, type ListPayload, Pager, RecordActions, StatusPill, listStatus, useDebounced, useLive } from "./lists";
@@ -47,7 +48,6 @@ export function TransactionList({
   const hasOpen = live.data?.hasOpen ?? true;
   // Lists without an open set (payments) treat "open" as all.
   const shown = !hasOpen && status === "open" ? "all" : status;
-  const columns = 5 + (money ? 2 : 0) + (hasStatus ? 1 : 0);
   const label = FLOW_LABELS[recordType] || title;
   return (
     <ListFrame
@@ -92,51 +92,26 @@ export function TransactionList({
         ) : undefined
       }
     >
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Number</th>
-              <th>Date</th>
-              {money && <th>Due</th>}
-              <th>{party}</th>
-              {hasStatus && <th>Status</th>}
-              <th className="num">Amount</th>
-              {money && <th className="num">Open</th>}
-              <th>NetSuite</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.data?.rows.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <a href={flowLink(recordType, row.id)}>{row.number || row.id}</a>
-                </td>
-                <td>{dateLabel(row.date)}</td>
-                {money && <td>{dateLabel(row.due)}</td>}
-                <td>{row.name || "—"}</td>
-                {hasStatus && (
-                  <td>
-                    <StatusPill value={row.status} />
-                  </td>
-                )}
-                <td className="num">{amount(row.amount, row.currency)}</td>
-                {money && <td className="num">{amount(row.unpaid, row.currency)}</td>}
-                <td>
-                  <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType={recordType} />
-                </td>
-              </tr>
-            ))}
-            {live.data && live.data.rows.length === 0 && (
-              <tr>
-                <td className="empty" colSpan={columns}>
-                  No {title.toLowerCase()} matched.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label={title}
+        rows={live.data?.rows}
+        rowKey={(row) => row.id}
+        empty={`No ${title.toLowerCase()} matched.`}
+        columns={[
+          { key: "number", label: "Number", cell: (row) => <a href={flowLink(recordType, row.id)}>{row.number || row.id}</a> },
+          { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+          ...(money ? [{ key: "due", label: "Due", cell: (row: Row) => dateLabel(row.due) }] : []),
+          { key: "party", label: party, cell: (row) => orBlank(row.name) },
+          ...(hasStatus ? [{ key: "status", label: "Status", cell: (row: Row) => <StatusPill value={row.status} /> }] : []),
+          { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
+          ...(money ? [{ key: "open", label: "Open", num: true, cell: (row: Row) => amount(row.unpaid, row.currency) }] : []),
+          {
+            key: "netsuite",
+            label: "NetSuite",
+            cell: (row) => <RecordActions kind="transaction" id={row.id} title={row.number} href={row.href} recordType={recordType} />,
+          },
+        ]}
+      />
       {live.data && <Pager page={page} hasMore={live.data.hasMore} onPage={setPage} />}
     </ListFrame>
   );

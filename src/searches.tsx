@@ -3,6 +3,8 @@ import { Glyph, glyph } from "./icons";
 import { Lookup, SkeletonTable } from "./load";
 import { refreshScope, RefreshButton } from "./refresh";
 import { FilterRail } from "./rail";
+import { DataTable } from "./table";
+import { orBlank } from "./format";
 import { api, postJson } from "./api";
 
 type SearchRow = { id: string; title: string; recordType: string; shared: boolean };
@@ -132,51 +134,39 @@ export function SearchesPage() {
                 <Glyph icon={glyph.search} size={14} />
                 <input className="search" value={needle} placeholder="Search these rows" onChange={(event) => setNeedle(event.target.value)} />
               </label>
-              <div className="table-wrap plain">
-                <table>
-                  <thead>
-                    <tr>
-                      {run.columns.map((column) => (
-                        <th key={column} aria-sort={sort?.column === column ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-                          <button className="th-sort" type="button" onClick={() => setSort((current) => (current?.column === column && current.dir === "asc" ? { column, dir: "desc" } : { column, dir: "asc" }))}>
-                            {column}
-                            {sort?.column === column ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
-                          </button>
-                        </th>
-                      ))}
-                    </tr>
-                    <tr>
-                      {run.columns.map((column) => (
-                        <th key={`${column}-filter`}>
-                          <input
-                            className="col-filter"
-                            aria-label={`Filter ${column}`}
-                            value={filters[column] || ""}
-                            placeholder="Filter"
-                            onChange={(event) => setFilters((current) => ({ ...current, [column]: event.target.value }))}
-                          />
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shown.map((row, index) => (
-                      <tr key={index}>
-                        {run.columns.map((column) => (
-                          <td key={column}>{row[column] === "" || row[column] == null ? "—" : String(row[column])}</td>
-                        ))}
-                      </tr>
+              <DataTable
+                label={chosen?.title || "Search results"}
+                wrap="plain"
+                rows={shown}
+                rowKey={(_, index) => index}
+                empty={run.rows.length === 0 ? "The search returned no rows." : "No rows match."}
+                columns={run.columns.map((column) => ({
+                  key: column,
+                  sort: sort?.column === column ? (sort.dir === "asc" ? "ascending" : "descending") : "none",
+                  label: (
+                    <button className="th-sort" type="button" onClick={() => setSort((current) => (current?.column === column && current.dir === "asc" ? { column, dir: "desc" } : { column, dir: "asc" }))}>
+                      {column}
+                      {sort?.column === column ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+                    </button>
+                  ),
+                  cell: (row: Record<string, unknown>) => orBlank(row[column]),
+                }))}
+                head={
+                  <tr>
+                    {run.columns.map((column) => (
+                      <th key={`${column}-filter`}>
+                        <input
+                          className="col-filter"
+                          aria-label={`Filter ${column}`}
+                          value={filters[column] || ""}
+                          placeholder="Filter"
+                          onChange={(event) => setFilters((current) => ({ ...current, [column]: event.target.value }))}
+                        />
+                      </th>
                     ))}
-                    {shown.length === 0 && (
-                      <tr>
-                        <td className="empty" colSpan={Math.max(1, run.columns.length)}>
-                          {run.rows.length === 0 ? "The search returned no rows." : "No rows match."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  </tr>
+                }
+              />
             </>
           )}
         </div>

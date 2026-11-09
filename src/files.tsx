@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
-import { Lookup } from "./load";
+import { DataTable } from "./table";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 
@@ -202,7 +202,8 @@ export function FilesPage() {
   }
 
   const page = pages[selected];
-  const rows = needle ? hits || [] : page?.entries || [];
+  // null until the folder or the search answers, so the table shows its skeleton.
+  const rows = needle ? hits : page?.entries ?? null;
 
   return (
     <div className="split-page">
@@ -291,41 +292,33 @@ export function FilesPage() {
             </button>
           </div>
           {openError && <p className="error">{openError}</p>}
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>{needle ? "Path" : "Kind"}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((entry) => (
-                <tr key={`${entry.kind}:${entry.path}`}>
-                  <td>
-                    {entry.kind === "folder" && !needle ? (
-                      <button className="linkish" type="button" onClick={() => choose(entry.path)}>
-                        <Glyph icon={glyph.folder} size={14} />
-                        {entry.name || entry.path}
-                      </button>
-                    ) : (
-                      <button className="linkish" type="button" onClick={() => readFile(entry)}>
-                        <Glyph icon={glyph.file} size={14} />
-                        {entry.name || entry.path}
-                      </button>
-                    )}
-                  </td>
-                  <td>{needle ? entry.path : entry.kind === "folder" ? "Folder" : "File"}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td className="empty" colSpan={2}>
-                    {needle ? "No files matched that name." : page ? "This folder is empty." : <Lookup label="Loading this folder." />}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <DataTable
+            label={needle ? "Search results" : folderLabel(selected)}
+            rows={rows}
+            loading
+            skeletonRows={6}
+            rowKey={(entry) => `${entry.kind}:${entry.path}`}
+            empty={needle ? "No files matched that name." : "This folder is empty."}
+            columns={[
+              {
+                key: "name",
+                label: "Name",
+                cell: (entry) =>
+                  entry.kind === "folder" && !needle ? (
+                    <button className="linkish" type="button" onClick={() => choose(entry.path)}>
+                      <Glyph icon={glyph.folder} size={14} />
+                      {entry.name || entry.path}
+                    </button>
+                  ) : (
+                    <button className="linkish" type="button" onClick={() => readFile(entry)}>
+                      <Glyph icon={glyph.file} size={14} />
+                      {entry.name || entry.path}
+                    </button>
+                  ),
+              },
+              { key: "kind", label: needle ? "Path" : "Kind", cell: (entry) => (needle ? entry.path : entry.kind === "folder" ? "Folder" : "File") },
+            ]}
+          />
           {!needle && page?.hasMore && (
             <button className="quiet" type="button" onClick={() => loadFolder(selected, page.cursor).catch((reason: Error) => setError(reason.message))}>
               More

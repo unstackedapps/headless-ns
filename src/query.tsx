@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SkeletonTable } from "./load";
+import { DataTable } from "./table";
 import { FilterRail } from "./rail";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api } from "./api";
@@ -80,31 +80,18 @@ export function QueryPage() {
                 <strong>{chosen.title}</strong>
                 <span className="status">{chosen.name}</span>
               </div>
-              {!fields ? <SkeletonTable rows={8} cols={3} /> : <table>
-                <thead>
-                  <tr>
-                    <th>Column</th>
-                    <th>Id</th>
-                    <th>Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fields.map((field) => (
-                    <tr key={field.id}>
-                      <td>{field.title}</td>
-                      <td>{field.id}</td>
-                      <td>{field.type}</td>
-                    </tr>
-                  ))}
-                  {fields.length === 0 && (
-                    <tr>
-                      <td className="empty" colSpan={3}>
-                        This table has no plain columns.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>}
+              <DataTable
+                label={`${chosen.title} columns`}
+                rows={fields}
+                loading
+                rowKey={(field) => field.id}
+                empty="This table has no plain columns."
+                columns={[
+                  { key: "title", label: "Column", cell: (field) => field.title },
+                  { key: "id", label: "Id", cell: (field) => field.id },
+                  { key: "type", label: "Type", cell: (field) => field.type },
+                ]}
+              />
             </>
           )}
         </div>

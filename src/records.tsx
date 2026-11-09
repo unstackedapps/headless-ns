@@ -3,6 +3,8 @@ import { Glyph, glyph } from "./icons";
 import { Combobox, Pick, type Option } from "./pick";
 import { Button, Lookup, SkeletonRecord } from "./load";
 import { FilterRail } from "./rail";
+import { DataTable } from "./table";
+import { BLANK } from "./format";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 import { flowLink } from "./transaction";
@@ -71,7 +73,7 @@ export function changes(fields: Field[], current: Values, original: Values | nul
 }
 
 function showCell(field: Field | undefined, cell: Cell | ReadCell | undefined) {
-  if (!cell || cell.value === "" || cell.value == null) return "—";
+  if (!cell || cell.value === "" || cell.value == null) return BLANK;
   if (cell.refName) return cell.refName;
   if (field?.type === "boolean" || typeof cell.value === "boolean") return String(cell.value) === "true" ? "Yes" : "No";
   return String(cell.value);
@@ -235,36 +237,34 @@ export function LineGrid({
   return (
     <section className="section">
       <h2>{sublist.title}</h2>
-      <div className="table-wrap">
-        <table className="line-grid">
-          <thead>
-            <tr>
-              <th>Line</th>
-              {(onChange ? editColumns : columns).map((field) => (
-                <th key={field.id}>{field.title}</th>
-              ))}
-              {onChange && <th>{canClose && lines.some((line) => line.original) ? "Closed" : ""}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((line, index) => (
-              <tr key={line.line ?? `row-${index}`}>
-                <td>{line.line ?? (onChange && !line.original ? "New" : "—")}</td>
-                {(onChange ? editColumns : columns).map((field) => (
-                  <td key={field.id}>
-                    {onChange && !(line.original && (line.line == null || field.id === "item")) ? (
-                      <>
-                        <FieldInput field={field} cell={line.values[field.id] ?? { value: "" }} onChange={(cell) => set(index, field.id, cell)} />
-                        {field.id === "rate" && hint(index)}
-                      </>
-                    ) : (
-                      showCell(field, line.values[field.id])
-                    )}
-                  </td>
-                ))}
-                {onChange && (
-                  <td>
-                    {!line.original ? (
+      <DataTable
+        label={sublist.title}
+        className="line-grid"
+        rows={lines}
+        rowKey={(line, index) => line.line ?? `row-${index}`}
+        empty="No lines."
+        columns={[
+          { key: "line", label: "Line", cell: (line) => line.line ?? (onChange && !line.original ? "New" : BLANK) },
+          ...(onChange ? editColumns : columns).map((field) => ({
+            key: field.id,
+            label: field.title,
+            cell: (line: Line, index: number) =>
+              onChange && !(line.original && (line.line == null || field.id === "item")) ? (
+                <>
+                  <FieldInput field={field} cell={line.values[field.id] ?? { value: "" }} onChange={(cell) => set(index, field.id, cell)} />
+                  {field.id === "rate" && hint(index)}
+                </>
+              ) : (
+                showCell(field, line.values[field.id])
+              ),
+          })),
+          ...(onChange
+            ? [
+                {
+                  key: "close",
+                  label: canClose && lines.some((line) => line.original) ? "Closed" : "",
+                  cell: (line: Line, index: number) =>
+                    !line.original ? (
                       <button className="linkish" type="button" onClick={() => onChange(lines.filter((_, at) => at !== index))}>
                         Remove
                       </button>
@@ -275,21 +275,12 @@ export function LineGrid({
                         checked={line.values.isClosed?.value === "true"}
                         onChange={(event) => set(index, "isClosed", { value: event.target.checked ? "true" : "false" })}
                       />
-                    ) : null}
-                  </td>
-                )}
-              </tr>
-            ))}
-            {lines.length === 0 && (
-              <tr>
-                <td className="empty" colSpan={columns.length + 2}>
-                  No lines.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                    ) : null,
+                },
+              ]
+            : []),
+        ]}
+      />
       {onChange && (
         <div className="grid-tools">
           <button className="quiet" type="button" onClick={() => onChange([...lines, { values: {} }])}>

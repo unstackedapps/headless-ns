@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { amount, dateLabel } from "./format";
+import { amount, BLANK, dateLabel, orBlank } from "./format";
+import { DataTable } from "./table";
 import { explain, StatusPill, useLive } from "./lists";
 import { Button, Lookup, SkeletonRecord } from "./load";
 import { editRow, numbersProblem, pickedTotal, pickSerial, serialFull, serialRows, type Picked } from "./serials";
@@ -111,7 +112,7 @@ export function flowTitle(type: string, id: string, number?: string) {
 }
 
 function show(cell?: HeaderCell) {
-  if (!cell || cell.value === "" || cell.value == null) return "—";
+  if (!cell || cell.value === "" || cell.value == null) return BLANK;
   return String(cell.refName || cell.value);
 }
 
@@ -242,80 +243,54 @@ function FlowView({ type, id }: { type: string; id: string }) {
           {(flow.lines.length > 0 || !PAYMENTS.has(type)) && (
           <section className="section">
             <h2>Lines</h2>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Line</th>
-                    <th>Item</th>
-                    <th className="num">Quantity</th>
-                    {isOrder && <th className="num">{type === "purchaseorder" ? "Received" : "Fulfilled"}</th>}
-                    {isOrder && <th className="num">Billed</th>}
-                    <th className="num">Rate</th>
-                    <th className="num">Amount</th>
-                    {isOrder && <th>Closed</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {flow.lines.map((line) => (
-                    <tr key={line.line}>
-                      <td>{line.line}</td>
-                      <td>{line.item?.name || line.description || "—"}</td>
-                      <td className="num">{line.quantity}</td>
-                      {isOrder && (
-                        <td className="num">
-                          {line.done}
-                          {line.picked ? <span className="field-hint">{line.picked} on a fulfillment not shipped yet</span> : null}
-                        </td>
-                      )}
-                      {isOrder && <td className="num">{line.billed}</td>}
-                      <td className="num">{line.rate == null ? "—" : amount(line.rate)}</td>
-                      <td className="num">{line.amount == null ? "—" : amount(line.amount)}</td>
-                      {isOrder && <td>{line.closed ? "Yes" : "No"}</td>}
-                    </tr>
-                  ))}
-                  {flow.lines.length === 0 && (
-                    <tr>
-                      <td className="empty" colSpan={8}>
-                        No item lines.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              label="Lines"
+              rows={flow.lines}
+              rowKey={(line) => line.line}
+              empty="No item lines."
+              columns={[
+                { key: "line", label: "Line", cell: (line) => line.line },
+                { key: "item", label: "Item", cell: (line) => orBlank(line.item?.name || line.description) },
+                { key: "quantity", label: "Quantity", num: true, cell: (line) => line.quantity },
+                ...(isOrder
+                  ? [
+                      {
+                        key: "done",
+                        label: type === "purchaseorder" ? "Received" : "Fulfilled",
+                        num: true,
+                        cell: (line: FlowLine) => (
+                          <>
+                            {line.done}
+                            {line.picked ? <span className="field-hint">{line.picked} on a fulfillment not shipped yet</span> : null}
+                          </>
+                        ),
+                      },
+                      { key: "billed", label: "Billed", num: true, cell: (line: FlowLine) => line.billed },
+                    ]
+                  : []),
+                { key: "rate", label: "Rate", num: true, cell: (line) => amount(line.rate) },
+                { key: "amount", label: "Amount", num: true, cell: (line) => amount(line.amount) },
+                ...(isOrder ? [{ key: "closed", label: "Closed", cell: (line: FlowLine) => (line.closed ? "Yes" : "No") }] : []),
+              ]}
+            />
           </section>
           )}
 
           {flow.linked.length > 0 && (
             <section className="section">
               <h2>Linked records</h2>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Link</th>
-                      <th>Number</th>
-                      <th>Type</th>
-                      <th>Date</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {flow.linked.map((row) => (
-                      <tr key={`${row.direction}:${row.id}`}>
-                        <td>{row.direction === "previous" ? "Made from" : "Turned into"}</td>
-                        <td>
-                          <a href={flowLink(row.type, row.id)}>{row.number}</a>
-                        </td>
-                        <td>{FLOW_LABELS[row.type] || row.type}</td>
-                        <td>{dateLabel(row.date)}</td>
-                        <td>{row.status ? <StatusPill value={row.status.replace(/^[^:]*:\s*/, "")} /> : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                label="Linked records"
+                rows={flow.linked}
+                rowKey={(row) => `${row.direction}:${row.id}`}
+                columns={[
+                  { key: "link", label: "Link", cell: (row) => (row.direction === "previous" ? "Made from" : "Turned into") },
+                  { key: "number", label: "Number", cell: (row) => <a href={flowLink(row.type, row.id)}>{row.number}</a> },
+                  { key: "type", label: "Type", cell: (row) => FLOW_LABELS[row.type] || row.type },
+                  { key: "date", label: "Date", cell: (row) => dateLabel(row.date) },
+                  { key: "status", label: "Status", cell: (row) => (row.status ? <StatusPill value={row.status.replace(/^[^:]*:\s*/, "")} /> : BLANK) },
+                ]}
+              />
             </section>
           )}
         </>

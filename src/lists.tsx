@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { recordLink } from "./records";
-import { clock, count } from "./format";
+import { BLANK, clock, count } from "./format";
 import { RelatedLink } from "./related";
 import { Glyph, glyph } from "./icons";
 import { SkeletonTable } from "./load";
@@ -147,7 +147,7 @@ export function ListFrame({
 }
 
 export function StatusPill({ value }: { value: string }) {
-  const text = value || "—";
+  const text = value || BLANK;
   const tone = /closed|expired|cancel|void|no/i.test(text) ? "warn" : /billed|paid|open|yes|active|pending/i.test(text) ? "ok" : "";
   return <span className={tone ? `pill ${tone}` : "pill"}>{text}</span>;
 }
@@ -201,7 +201,7 @@ export function RecordActions({
   href,
   recordType,
 }: {
-  kind: "customer" | "transaction" | "item" | "employee";
+  kind: "customer" | "transaction" | "item" | "employee" | "vendor";
   id: string;
   title: string;
   href: string;
@@ -209,7 +209,7 @@ export function RecordActions({
 }) {
   return (
     <div className="row-actions">
-      <RelatedLink kind={kind} id={id} title={title} />
+      {kind !== "vendor" && <RelatedLink kind={kind} id={id} title={title} />}
       {recordType && (
         <a href={recordLink(recordType, id)} aria-label={`Open ${title} in Records`}>
           Records

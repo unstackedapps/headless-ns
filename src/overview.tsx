@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { amount, count } from "./format";
+import { amount, BLANK, count } from "./format";
 import { SeriesChart } from "./chart";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
@@ -8,6 +8,7 @@ import { Lookup, SkeletonPortlets } from "./load";
 import { markBusy, refreshMs, refreshScope, RefreshButton, RefreshIntervalSelect, useRefreshInterval } from "./refresh";
 import { api } from "./api";
 import { explain } from "./lists";
+import { DataTable } from "./table";
 
 type MoneyRow = {
   currency: string;
@@ -70,7 +71,7 @@ function rowValue(row: MoneyRow, measure: MeasureId) {
 }
 
 function metricView(metric: Metric | undefined, measure: MeasureId) {
-  if (metric?.error) return { figure: "—", note: explain(metric.error), failed: true, points: [] as { label: string; value: number }[] };
+  if (metric?.error) return { figure: BLANK, note: explain(metric.error), failed: true, points: [] as { label: string; value: number }[] };
   if (metric?.rows) {
     const points = metric.rows.map((row) => ({ label: row.currency || "Amount", value: rowValue(row, measure) }));
     const total = points.reduce((sum, point) => sum + point.value, 0);
@@ -487,24 +488,16 @@ export function OverviewPage() {
                   {activityCard?.loading && !activityCard.data && <Lookup label="Looking up transactions." />}
                   {shown}
                   {visual === "number" && activityCard?.data && (
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Type</th>
-                            <th className="num">Count</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {activityCard.data.rows.map((row) => (
-                            <tr key={row.type}>
-                              <td>{typeLabels[row.type] || row.type}</td>
-                              <td className="num">{count(row.n)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      label="Transactions by type"
+                      rows={activityCard.data.rows}
+                      rowKey={(row) => row.type}
+                      empty="No transactions in this range."
+                      columns={[
+                        { key: "type", label: "Type", cell: (row) => typeLabels[row.type] || row.type },
+                        { key: "count", label: "Count", num: true, cell: (row) => count(row.n) },
+                      ]}
+                    />
                   )}
                 </div>
               ) : (

@@ -1,3 +1,4 @@
+import { BLANK } from "./format";
 import { useEffect, useState } from "react";
 
 export type Span = 4 | 6 | 12;
@@ -77,7 +78,7 @@ export function portletLabel(id: string) {
 }
 
 export function traceFigure(entries: { name: string; ms: number; ok: boolean }[], metric: TraceMetric) {
-  if (!entries.length) return { figure: "—", note: "No calls yet." };
+  if (!entries.length) return { figure: BLANK, note: "No calls yet." };
   if (metric === "count") return { figure: String(entries.length), note: "Calls kept in this session." };
   if (metric === "fail") return { figure: String(entries.filter((entry) => !entry.ok).length), note: "Calls that failed." };
   if (metric === "slow") {

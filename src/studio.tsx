@@ -7,6 +7,8 @@ import { ConnectionSettings } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
 import { FilterRail } from "./rail";
+import { DataTable } from "./table";
+import { orBlank } from "./format";
 import { ShapeSelect, ThemeSelect } from "./theme";
 import { api, postJson } from "./api";
 
@@ -786,26 +788,14 @@ export function ReportsPage() {
           <p className="status">
             {run.total} detail lines{run.truncated ? ", showing the first 200" : ""}.
           </p>
-          <div className="table-wrap loose">
-            <table>
-              <thead>
-                <tr>
-                  {run.columns.map((column) => (
-                    <th key={column}>{column}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {run.rows.map((row, index) => (
-                  <tr key={index}>
-                    {run.columns.map((column) => (
-                      <td key={column}>{row[column] === "" || row[column] == null ? "—" : String(row[column])}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            label={run.title}
+            wrap="loose"
+            rows={run.rows}
+            rowKey={(_, index) => index}
+            empty="The report returned no rows."
+            columns={run.columns.map((column) => ({ key: column, label: column, cell: (row: Record<string, unknown>) => orBlank(row[column]) }))}
+          />
         </section>
       )}
     </>
@@ -871,39 +861,26 @@ export function TracePage() {
       </header>
       <p className="status">Recent calls. This list updates on its own.</p>
       {error && <p className="error">{error}</p>}
-      <div className="table-wrap loose">
-        <table>
-          <thead>
-            <tr>
-              <th className="when">When</th>
-              <th>Source</th>
-              <th>Tool</th>
-              <th className="num">ms</th>
-              <th>Result</th>
-              <th>Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td className="when">{new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}</td>
-                <td>{entry.source}</td>
-                <td>{entry.name}</td>
-                <td className="num">{entry.ms}</td>
-                <td>{entry.ok ? "Ok" : "Failed"}</td>
-                <td>{entry.detail || "—"}</td>
-              </tr>
-            ))}
-            {entries.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty">
-                  No calls yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label="Recent calls"
+        wrap="loose"
+        rows={entries}
+        rowKey={(entry) => entry.id}
+        empty="No calls yet."
+        columns={[
+          {
+            key: "when",
+            label: "When",
+            className: "when",
+            cell: (entry) => new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }),
+          },
+          { key: "source", label: "Source", cell: (entry) => entry.source },
+          { key: "tool", label: "Tool", cell: (entry) => entry.name },
+          { key: "ms", label: "ms", num: true, cell: (entry) => entry.ms },
+          { key: "result", label: "Result", cell: (entry) => (entry.ok ? "Ok" : "Failed") },
+          { key: "detail", label: "Detail", cell: (entry) => orBlank(entry.detail) },
+        ]}
+      />
     </>
   );
 }

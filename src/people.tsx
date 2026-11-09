@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { dateLabel } from "./format";
+import { dateLabel, orBlank } from "./format";
+import { DataTable } from "./table";
 import { ListFrame, type ListPayload, RecordActions, StatusPill, listStatus, useDebounced, useLive } from "./lists";
 
 type Person = {
@@ -30,45 +31,25 @@ export function PeoplePage() {
       placeholder="Name, title, or email"
       scope={q ? `/api/employees?q=${encodeURIComponent(q)}` : "/api/employees"}
     >
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Title</th>
-              <th>Subsidiary</th>
-              <th>Email</th>
-              <th>Hired</th>
-              <th>Sales rep</th>
-              <th>NetSuite</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.data?.rows.map((row) => (
-              <tr key={row.id}>
-                <td>{row.name}</td>
-                <td>{row.title || "—"}</td>
-                <td>{row.subsidiary || "—"}</td>
-                <td>{row.email || "—"}</td>
-                <td>{dateLabel(row.hireDate)}</td>
-                <td>
-                  <StatusPill value={row.salesRep === "Yes" || row.salesRep === "T" ? "Yes" : row.salesRep || "No"} />
-                </td>
-                <td>
-                  <RecordActions kind="employee" id={row.id} title={row.name} href={row.href} />
-                </td>
-              </tr>
-            ))}
-            {live.data && live.data.rows.length === 0 && (
-              <tr>
-                <td className="empty" colSpan={7}>
-                  No employees matched.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        label="People"
+        rows={live.data?.rows}
+        rowKey={(row) => row.id}
+        empty="No employees matched."
+        columns={[
+          { key: "name", label: "Name", cell: (row) => row.name },
+          { key: "title", label: "Title", cell: (row) => orBlank(row.title) },
+          { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
+          { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
+          { key: "hired", label: "Hired", cell: (row) => dateLabel(row.hireDate) },
+          {
+            key: "rep",
+            label: "Sales rep",
+            cell: (row) => <StatusPill value={row.salesRep === "Yes" || row.salesRep === "T" ? "Yes" : row.salesRep || "No"} />,
+          },
+          { key: "netsuite", label: "NetSuite", cell: (row) => <RecordActions kind="employee" id={row.id} title={row.name} href={row.href} /> },
+        ]}
+      />
     </ListFrame>
   );
 }
