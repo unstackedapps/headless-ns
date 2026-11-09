@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, posix, sep } from "node:path";
 import { readFrontmatter } from "./frontmatter.mjs";
+import { fetchFolder, parseGitSource, resolveRef, runGit } from "./git.mjs";
 import { readZip } from "./zip.mjs";
 
 export const LIMITS = {
@@ -292,7 +293,8 @@ function cleanSource(source) {
   return { kind, url: String(source.url), ref: String(source.ref || ""), sha: String(source.sha), path: String(source.path || "") };
 }
 
-export function openSkillStore(dataDir) {
+// `git` and `schemes` are for tests, which fetch from a local repo.
+export function openSkillStore(dataDir, { git = runGit, schemes = ["https:"] } = {}) {
   const indexFile = join(dataDir, "skills.json");
   const skillsDir = join(dataDir, "skills");
   const stagingDir = join(skillsDir, ".staging");
@@ -363,6 +365,7 @@ export function openSkillStore(dataDir) {
         problems.push({ path: label, error: error.message });
       }
     }
+    skills.sort((a, b) => a.name.localeCompare(b.name));
     const preview = { id, source: cleanSource(source), skills, problems, skipped: found.skipped.slice(0, 200), skippedCount: found.skipped.length };
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, "stage.json"), JSON.stringify(preview));
@@ -411,7 +414,8 @@ export function openSkillStore(dataDir) {
         description: skill.description,
         license: skill.license,
         enabled: previous ? previous.enabled : true,
-        source: preview.source,
+        // A git skill keeps its own folder in the repo, so Update fetches only that folder.
+        source: preview.source.kind === "git" ? { ...preview.source, path: skill.root } : preview.source,
         importedAt: new Date().toISOString(),
         sha256: skill.sha256,
         files: skill.files,
@@ -422,6 +426,48 @@ export function openSkillStore(dataDir) {
     save(rows);
     rmSync(join(stagingDir, preview.id), { recursive: true, force: true });
     return { imported, kept };
+  }
+
+  // Resolves the ref to a commit, fetches that one folder, and stages it. The preview names the commit.
+  async function stageGit(input) {
+    const source = parseGitSource(input, { schemes });
+    const sha = await resolveRef(source, git);
+    mkdirSync(stagingDir, { recursive: true });
+    const work = join(stagingDir, `git-${randomBytes(8).toString("hex")}`);
+    try {
+      const fetched = await fetchFolder({ ...source, sha }, work, { git, maxFiles: LIMITS.files, maxBytes: LIMITS.total });
+      return stage(fetched.files, { kind: "git", ...source, sha }, { skipped: fetched.skipped });
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }
+
+  // Checks a git skill's ref again. Same commit: up to date. New commit: a preview of that skill with files added, changed and removed.
+  async function update(name) {
+    const row = find(name);
+    if (row.source?.kind !== "git") throw fail(`${row.name} came from a ${row.source?.kind || "folder"} import. Import it again to update it.`);
+    const sha = await resolveRef(row.source, git);
+    if (sha === row.source.sha) return { upToDate: true, sha };
+    const preview = await stageGit({ url: row.source.url, ref: row.source.ref, path: row.source.path });
+    const fresh = preview.skills.find((skill) => skill.name === row.name);
+    if (!fresh) throw fail(`${row.name} is no longer in ${row.source.path || "the repo"} at ${sha.slice(0, 7)}.`);
+    const before = new Map(row.files.map((file) => [file.path, file]));
+    const after = new Set(fresh.files.map((file) => file.path));
+    const stagedRoot = join(stagingDir, preview.id, row.name);
+    const changed = fresh.files
+      .filter((file) => before.has(file.path))
+      .filter((file) => !readFileSync(join(stagedRoot, file.path)).equals(readFileSync(join(skillsDir, row.name, file.path))))
+      .map((file) => file.path);
+    return {
+      upToDate: false,
+      sha,
+      preview: { ...preview, skills: [fresh] },
+      changes: {
+        added: fresh.files.filter((file) => !before.has(file.path)).map((file) => file.path),
+        changed,
+        removed: row.files.filter((file) => !after.has(file.path)).map((file) => file.path),
+      },
+    };
   }
 
   function toggle(name, enabled) {
@@ -469,7 +515,7 @@ export function openSkillStore(dataDir) {
     };
   }
 
-  return { dir: skillsDir, list, find, read, stage, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
+  return { dir: skillsDir, list, find, read, stage, stageGit, update, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
 }
 
 export const skillStore = openSkillStore("data");
