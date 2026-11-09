@@ -24,7 +24,7 @@ export function readJsonBody(req, limit = 1_000_000) {
       try {
         resolve(JSON.parse(text));
       } catch {
-        reject(badRequest("The body was not JSON."));
+        reject(badRequest("The request body is not JSON."));
       }
     });
     req.on("error", reject);
@@ -41,6 +41,6 @@ export function blockedReason(req, port) {
   const type = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
   if (type !== "application/json") return "Send the body as application/json.";
   const origin = req.headers.origin;
-  if (origin) return hosts.some((host) => origin === `https://${host}`) ? "" : "Cross-site requests are not allowed.";
-  return req.headers["sec-fetch-site"] === "same-origin" ? "" : "Cross-site requests are not allowed.";
+  if (origin) return hosts.some((host) => origin === `https://${host}`) ? "" : "This server refuses requests from other sites.";
+  return req.headers["sec-fetch-site"] === "same-origin" ? "" : "This server refuses requests from other sites.";
 }

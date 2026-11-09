@@ -120,7 +120,7 @@ export function QueryPage() {
       setSaved((await postJson<{ queries: Saved[] }>("/api/queries", { name, sql })).queries);
       setRunError(null);
     } catch (reason) {
-      setRunError(reason instanceof Error ? reason.message : "The query was not saved.");
+      setRunError(reason instanceof Error ? reason.message : "Could not save the query.");
     }
   }
 
@@ -129,7 +129,7 @@ export function QueryPage() {
       setSaved((await postJson<{ queries: Saved[] }>("/api/queries/delete", { name })).queries);
       setName("");
     } catch (reason) {
-      setRunError(reason instanceof Error ? reason.message : "The query is still saved.");
+      setRunError(reason instanceof Error ? reason.message : "Could not delete the query.");
     }
   }
 

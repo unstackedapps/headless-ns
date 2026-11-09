@@ -123,12 +123,12 @@ test("confirm runs the stored write once", async () => {
   assert.equal(ran[0].args.type, "customer");
   assert.match(JSON.parse(ran[0].args.data).externalId, /^hns-ask-record-[0-9a-f-]{36}$/);
   assert.equal(result.answer, "Done.");
-  await assert.rejects(confirmWith(id, { allowWrites: true, disabled: [] }, async () => ({})), /expired or was already handled/);
+  await assert.rejects(confirmWith(id, { allowWrites: true, disabled: [] }, async () => ({})), /That change expired/);
 });
 
 test("confirm refuses an unknown id", async () => {
-  await assert.rejects(confirmWith("not-a-real-id", { allowWrites: true, disabled: [] }, async () => ({})), /expired or was already handled/);
-  await assert.rejects(confirmWith(undefined, { allowWrites: true, disabled: [] }, async () => ({})), /expired or was already handled/);
+  await assert.rejects(confirmWith("not-a-real-id", { allowWrites: true, disabled: [] }, async () => ({})), /That change expired/);
+  await assert.rejects(confirmWith(undefined, { allowWrites: true, disabled: [] }, async () => ({})), /That change expired/);
 });
 
 test("confirm refuses an expired id", async (t) => {
@@ -149,7 +149,7 @@ test("confirm re-checks the policy: tool disabled", async () => {
   const id = await propose();
   const seen = [];
   await confirmWith(id, { allowWrites: true, disabled: ["ns_createRecord"] }, async () => assert.fail("must not run"), seen);
-  assert.match(JSON.stringify(seen), /turned off for Ask/);
+  assert.match(JSON.stringify(seen), /turned this tool off for Ask/);
 });
 
 const sqlTool = [{ name: "ns_runCustomSuiteQL", description: "Run SuiteQL", schema: { type: "object", properties: {} } }];

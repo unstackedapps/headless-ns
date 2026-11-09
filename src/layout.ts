@@ -86,7 +86,7 @@ export function traceFigure(entries: { name: string; ms: number; ok: boolean }[]
     return { figure: `${top.ms} ms`, note: top.name };
   }
   const avg = Math.round(entries.reduce((sum, entry) => sum + entry.ms, 0) / entries.length);
-  return { figure: `${avg} ms`, note: "Average time of the calls kept here." };
+  return { figure: `${avg} ms`, note: "Average time of the recent calls in Trace." };
 }
 
 export function readLayout(): PortletPref[] {

@@ -2,7 +2,7 @@
 
 <h1 align="center">headless-ns</h1>
 
-<p align="center">A browser app for NetSuite. It reads and writes your account through NetSuite OAuth (NetSuite's AI Connector) or a custom MCP server such as OpenSuiteMCP.</p>
+<p align="center">A browser app for NetSuite. It reads and writes your account through NetSuite's AI Connector, signed in with NetSuite OAuth, or through a custom MCP server such as OpenSuiteMCP.</p>
 
 ![The Orders list with the Ask drawer open](docs/orders-and-ask.png)
 
@@ -24,7 +24,7 @@
 - A NetSuite account with one of these:
   - An integration record with the `mcp` scope, for NetSuite OAuth.
   - A custom MCP server URL and bearer token. OpenSuiteMCP is the one tested so far.
-- An AI model key for Ask, if you want Ask. Claude, Grok, Gemini, OpenAI, Groq, Mistral and OpenAI-compatible hosts are listed. Only an OpenAI-compatible host (Gemma 4) has been tested live.
+- An AI model key for Ask, if you want Ask. Claude, Grok, Gemini, OpenAI, Groq, Mistral and OpenAI-compatible hosts are listed. Only an OpenAI-compatible host running Gemma 4 has been tested live.
 - Port 5173. The NetSuite integration's redirect URI points there.
 
 ## Quick start
@@ -49,7 +49,7 @@ flowchart LR
   S -- API key --> M[AI model]
 ```
 
-- NetSuite stays the system of record. headless-ns keeps no copy of your data, except NetSuite's metadata (record types, tables, fields), which it caches for a day in `data/metadata-<account>.json`.
+- NetSuite stays the system of record. headless-ns keeps no copy of your data, except NetSuite's record types, tables and fields, which it caches for a day in `data/metadata-<account>.json`.
 - The browser holds only an httpOnly session cookie. NetSuite tokens and model keys stay on the local server.
 - Saved models live in `data/models.json` and saved queries in `data/queries.json`. Git ignores `data/`.
 

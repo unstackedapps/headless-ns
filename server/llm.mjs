@@ -33,7 +33,7 @@ function takePending(id) {
   const entry = pendingWrites.get(String(id || ""));
   if (entry) pendingWrites.delete(String(id));
   if (!entry || entry.expires <= Date.now()) {
-    const error = new Error("That change expired or was already handled. Ask again.");
+    const error = new Error("That change expired, or someone already ran or dropped it. Ask again.");
     error.status = 400;
     throw error;
   }
@@ -43,7 +43,7 @@ function takePending(id) {
 function refusal(name, policy) {
   if (assistantCanCall(name, policy)) return "";
   if (WRITE_TOOLS.has(name) && !policy.allowWrites) return "Writes are off in Settings.";
-  return "This tool is turned off for Ask.";
+  return "Settings turned this tool off for Ask.";
 }
 
 export function systemPrompt(identity) {

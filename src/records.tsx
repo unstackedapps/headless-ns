@@ -756,7 +756,7 @@ export function RecordsPage() {
                       <Button className="primary" busy={busy} disabled={!confirm || !target} onClick={transform}>
                         Create {target}
                       </Button>
-                      <p className="status">NetSuite fills the new record from this one, then it opens here.</p>
+                      <p className="status">NetSuite fills the new record from this one, and it opens here.</p>
                     </>
                   )}
                 </section>

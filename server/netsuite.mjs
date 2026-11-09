@@ -48,7 +48,7 @@ async function tokenRequest(body, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error_description || payload.error || `Token request failed (${response.status}).`);
+    throw new Error(payload.error_description || payload.error || `NetSuite refused the sign-in token (${response.status}).`);
   }
   return payload;
 }

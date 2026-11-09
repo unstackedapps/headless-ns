@@ -965,9 +965,9 @@ export function SettingsPage() {
         method: "POST",
         body: JSON.stringify({ allowWrites, disabled }),
       });
-      setMessage(policy.allowWrites ? "Changes are allowed. Ask still waits for you to confirm." : "Ask can only read.");
+      setMessage(policy.allowWrites ? "Ask may change NetSuite. It still waits for you to confirm." : "Ask can only read.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save the tool policy.");
+      setError(reason instanceof Error ? reason.message : "Could not save Ask's tools.");
     } finally {
       setBusy(false);
     }

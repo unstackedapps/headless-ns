@@ -487,7 +487,7 @@ function recordTypeOf(value) {
 
 function recordIdOf(value) {
   const id = String(value || "").trim();
-  if (!/^[1-9]\d{0,11}$/.test(id)) fail("Enter the internal id of the record.");
+  if (!/^[1-9]\d{0,11}$/.test(id)) fail("Enter the record's internal ID.");
   return id;
 }
 

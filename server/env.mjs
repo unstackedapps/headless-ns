@@ -60,7 +60,7 @@ export function accountHost(id = accountId()) {
   if (!id) throw new Error("Add the NetSuite account ID in Settings.");
   const host = String(id).trim().toLowerCase().replace(/-/g, "_");
   if (!/^[a-z0-9_]+$/.test(host)) {
-    throw new Error("NETSUITE_ACCOUNT_ID is not a valid account id.");
+    throw new Error("NETSUITE_ACCOUNT_ID is not a valid account ID.");
   }
   return host;
 }

@@ -17,10 +17,10 @@ test("a same-origin JSON POST passes", () => {
 });
 
 test("a POST from another origin is refused", () => {
-  assert.match(blockedReason(req("POST", { "content-type": json, origin: "https://evil.example" }), 5173), /Cross-site/);
-  assert.match(blockedReason(req("POST", { "content-type": json, origin: "https://localhost:5174" }), 5173), /Cross-site/);
-  assert.match(blockedReason(req("POST", { "content-type": json, origin: "http://localhost:5173" }), 5173), /Cross-site/);
-  assert.match(blockedReason(req("POST", { "content-type": json, origin: "null" }), 5173), /Cross-site/);
+  assert.match(blockedReason(req("POST", { "content-type": json, origin: "https://evil.example" }), 5173), /requests from other sites/);
+  assert.match(blockedReason(req("POST", { "content-type": json, origin: "https://localhost:5174" }), 5173), /requests from other sites/);
+  assert.match(blockedReason(req("POST", { "content-type": json, origin: "http://localhost:5173" }), 5173), /requests from other sites/);
+  assert.match(blockedReason(req("POST", { "content-type": json, origin: "null" }), 5173), /requests from other sites/);
 });
 
 test("a POST that is not JSON is refused", () => {
@@ -32,8 +32,8 @@ test("a POST that is not JSON is refused", () => {
 
 test("a POST with no Origin needs Sec-Fetch-Site same-origin", () => {
   assert.equal(blockedReason(req("POST", { "content-type": json, "sec-fetch-site": "same-origin" }), 5173), "");
-  assert.match(blockedReason(req("POST", { "content-type": json, "sec-fetch-site": "cross-site" }), 5173), /Cross-site/);
-  assert.match(blockedReason(req("POST", { "content-type": json }), 5173), /Cross-site/);
+  assert.match(blockedReason(req("POST", { "content-type": json, "sec-fetch-site": "cross-site" }), 5173), /requests from other sites/);
+  assert.match(blockedReason(req("POST", { "content-type": json }), 5173), /requests from other sites/);
 });
 
 test("GET passes without Origin, including the OAuth callback", () => {

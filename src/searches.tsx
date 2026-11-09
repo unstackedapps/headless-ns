@@ -102,7 +102,7 @@ export function SearchesPage() {
       <PageHead title="Searches">
         <RefreshButton label="searches" onClick={() => refreshScope("searches")} />
       </PageHead>
-      <p className="status">Opening one shows the first 50 rows.</p>
+      <p className="status">A search shows its first 50 rows.</p>
       {error && <p className="error">{error}</p>}
       <div className="split">
         <FilterRail

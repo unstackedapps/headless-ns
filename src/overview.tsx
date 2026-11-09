@@ -106,7 +106,7 @@ function useRangeData<T>(path: string, ranges: string[]) {
         const body = await api<T>(`${path}?range=${range}`);
         setBundle((current) => ({ ...current, [range]: { data: body, error: null, loading: false } }));
       } catch (reason) {
-        const message = reason instanceof Error ? reason.message : "Refresh failed.";
+        const message = reason instanceof Error ? reason.message : "Could not refresh.";
         setBundle((current) => ({
           ...current,
           [range]: { data: current[range]?.data ?? null, error: message, loading: false },

@@ -97,7 +97,7 @@ Made through the Records screen on 2026-11-08, memo "headless-ns Records UI demo
 
 Each has an `hns-<type>-<uuid>` external id set by the server.
 
-## Order to cash (Phase 2)
+## Order to cash
 
 Run on 2026-11-08 through the transaction page routes (`/api/flow`, `/api/records`, `/api/records/transform`). Memo "headless-ns workflow test", external ids `hns-wf-*`.
 
@@ -133,7 +133,7 @@ Read the status letter from SuiteQL (`transaction.status`), not from the record.
 - Invoice to customer payment: transform with `{"payment":5,"tranDate":"2026-11-08","account":{"id":"122"}}`. A payment below the open amount applies that amount to the invoice and leaves it Open. No `apply` lines or `undepFunds` were needed. Without `account`, NetSuite used its default and the payment also read Deposited.
 - `NextTransactionLineLink` joined to `transaction` lists what a record was made from and turned into.
 
-## Procure to pay (Phase 2)
+## Procure to pay
 
 Run on 2026-11-08 through the same routes. Vendor 628 (Core4Solutions), item 541 (KAP001), location 2.
 
@@ -151,7 +151,7 @@ Run on 2026-11-08 through the same routes. Vendor 628 (Core4Solutions), item 541
 - Vendor bill to vendor payment: `{"tranDate":"2026-11-08","account":{"id":"122"}}` paid the full open amount. The page does not offer a partial bill payment yet; that needs the `apply` sublist.
 - Bill payments, item receipts and bill credits have status Y "Undefined" in SuiteQL, so their lists have no status filter.
 
-## Lists (Phase 2)
+## Lists
 
 - Filter status with the bare letter: `t.status IN ('B','F')` matched 46 purchase orders, `t.status = 'PurchOrd:B'` matched none. The old Orders filter `NOT IN ('SalesOrd:C','SalesOrd:G','SalesOrd:H')` excluded nothing, and the old Quotes filter `= 'Estimate:A'` matched nothing.
 - `foreigntotal` is negative for purchase orders, item receipts, bills, bill payments and returns. Lists show `ABS(foreigntotal)`.
@@ -159,7 +159,7 @@ Run on 2026-11-08 through the same routes. Vendor 628 (Core4Solutions), item 541
 - Items: `item.itemtype` codes seen are InvtPart, NonInvtPart, OthCharge, Assembly, Discount. Non-inventory, service and other charge items also have `subtype` (Sale, Resale, Purchase), which picks the record type, such as `noninventoryresaleitem` or `otherchargepurchaseitem`. Inventory items have no subtype.
 - Item receipts, bill payments and customer payments open on the transaction page with lines and links but no next steps.
 
-## Fulfillment stock, serial numbers and locations (Phase 2 fixes)
+## Fulfillment stock, serial numbers and locations
 
 Found on SO629 (customer 8 Ntags Associates, item 760 Breville Bambino Plus, location Boston), 2026-11-08.
 
@@ -172,7 +172,7 @@ Found on SO629 (customer 8 Ntags Associates, item 760 Breville Bambino Plus, loc
 - `location.subsidiary` is a text list ("2"), so `subsidiary = 2` matches nothing. Use `locationsubsidiarymap` (one row per location and subsidiary).
 - Item defaults: the base price is `itemprice.price` at `pricelevel = 1`. The sales description is `item.description` (`salesdescription` does not exist in SuiteQL). The purchase side uses `cost`, then `lastpurchaseprice`, and `purchasedescription`. Many items here, 248 and 760 among them, have no base price, so NetSuite answers "Please enter a value for Amount" unless a rate is sent.
 
-## Found by the Playwright runs (Phase 2)
+## Found by the Playwright runs
 
 - NetSuite MCP answers HTTP 429 when the app sends too many calls at once (Orders list and an order page failed together). The server now runs at most 3 tool calls at a time and retries reads after 1, 2.5 and 5 seconds. Writes are never retried.
 - A fulfillment at Picked or Packed does not count in `transactionline.quantityshiprecv`. It shows in `quantitypicked`. The order stays B Pending Fulfillment until the fulfillment ships.
@@ -186,7 +186,7 @@ UI runs on 2026-11-08, memo "headless-ns workflow test":
 | Quote to paid invoice | SO631 (16393), INV435, PYMT400 |
 | Purchase order to paid bill | PO447, IR440 (16690), bill 415 (16789), bill payment 427 (16590) |
 
-## Procure-to-pay gaps and lot numbers (Phase 4)
+## Procure-to-pay gaps and lot numbers
 
 Tested on 2026-11-08 with vendor 628 (Core4Solutions), location 2, item 693 (GAR002L, lot) and item 541 (KAP001). Payload tests have memo "headless-ns payload test p4" and external ids `hns-p4-*`.
 
@@ -250,7 +250,7 @@ Superseded: approval routing is now on and runs through a workflow. See "Purchas
 
 PO450 (17189) is left at Pending Receipt from a run that stopped on a test selector before receiving.
 
-## Approval, serial receipts and payments that skip their bill (Phase 4b)
+## Approval, serial receipts and payments that skip their bill
 
 Run on 2026-11-08 through the screens (`e2e/gaps.live.ts`), memo "headless-ns phase4 test".
 
@@ -271,7 +271,7 @@ Started Pay bill on bill 420 (17107, 10.00), unticked it and paid 0.50 of bill 4
 
 The first try failed in the browser before anything was written: the bill list loads twice in development, and the second load wiped the tick on bill 419. The list now keeps ticks and amounts when it reloads.
 
-## Ask with serial items, missing stock and other currencies (Phase 4b)
+## Ask with serial items, missing stock and other currencies
 
 Run on 2026-11-08 through the Ask drawer (`e2e/ask.live.ts`) with Gemma 4 in LM Studio, memo "headless-ns ask test".
 
@@ -298,7 +298,7 @@ Run on 2026-11-08 through the Ask drawer (`e2e/ask.live.ts`) with Gemma 4 in LM 
 
 Write summaries now name the currency from the customer or vendor (`customer.currency` or `vendor.currency`), or from `data.currency` when the payload sets one. A transform has no amount in its summary. Without a known currency the figure has no symbol.
 
-## Purchase order and bill approval workflow (Phase 4c)
+## Purchase order and bill approval workflow
 
 Set up on 2026-11-08 at the user's request, in the NetSuite UI as Administrator.
 

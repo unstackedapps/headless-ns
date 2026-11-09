@@ -472,7 +472,7 @@ export function studioRoutes({ sendJson, authorized }) {
       }
       const dateTo = String(body.dateTo || "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-        sendJson(res, 400, { error: "dateTo is required as YYYY-MM-DD." });
+        sendJson(res, 400, { error: "Enter the end date as YYYY-MM-DD." });
         return;
       }
       const args = { reportId: Number(report.id), dateTo };
