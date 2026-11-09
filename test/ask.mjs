@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { MAX_MS, MAX_TURNS, PENDING_TTL_MS, ask, confirmAsk } from "../server/llm.mjs";
+import { languageModel } from "../server/providers.mjs";
 
 const usage = {
   inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
@@ -345,4 +346,54 @@ test("a cancelled request stops before the next model turn and runs no more tool
   assert.equal(turns, 1);
   assert.equal(ran, 0);
   assert.equal(result.answer, "You cancelled this request.");
+});
+
+function openai(replies) {
+  const bodies = [];
+  const fetchImpl = async (url, init) => {
+    bodies.push(JSON.parse(String(init.body)));
+    const [status, body] = replies[Math.min(bodies.length - 1, replies.length - 1)];
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "retry-after-ms": "0" } });
+  };
+  return { bodies, model: languageModel({ provider: "openai", model: "gpt-5.5", apiKey: "sk-test-secret" }, fetchImpl) };
+}
+
+
+test("OpenAI's Responses API gets the tool call and its result back on the next turn", async () => {
+  const done = { id: "resp_2", object: "response", created_at: 1, model: "gpt-5.5", status: "completed", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
+  const sales = openai([
+    [200, { ...done, id: "resp_1", output: [{ type: "function_call", id: "fc_1", call_id: "call_1", name: "ns_runCustomSuiteQL", arguments: '{"sqlQuery":"SELECT COUNT(*) n FROM transaction"}', status: "completed" }] }],
+    [200, { ...done, output: [{ id: "msg_1", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "212 open sales orders.", annotations: [] }] }] }],
+  ]);
+  const result = await ask({
+    text: "How many open sales orders?",
+    model: sales.model,
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: true, disabled: [] },
+    catalog: sqlTool,
+    runTool: async () => ({ items: [{ n: 212 }] }),
+  });
+  assert.equal(result.answer, "212 open sales orders.");
+  const input = sales.bodies[1].input;
+  const call = input.find((item) => item.type === "function_call");
+  const output = input.find((item) => item.type === "function_call_output");
+  assert.equal(call.call_id, "call_1");
+  assert.equal(call.name, "ns_runCustomSuiteQL");
+  assert.equal(output.call_id, "call_1");
+  assert.match(String(output.output), /212/);
+});
+
+// Recorded from OpenAI on 2026-11-09, when the account had no credits. The SDK retried it 3 times.
+test("a provider error shows the provider's own reason, not the SDK's retry wrapper", async () => {
+  const broke = openai([[429, { error: { message: "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.", type: "insufficient_quota", param: null, code: "insufficient_quota" } }]]);
+  await assert.rejects(
+    ask({ text: "hi", model: broke.model, connection, identity, query, policy: { allowWrites: false, disabled: [] }, catalog: [], runTool: async () => ({}) }),
+    (error) => {
+      assert.equal(error.message, "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.");
+      assert.equal(error.status, 502);
+      return true;
+    },
+  );
 });

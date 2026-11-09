@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { APICallError, dynamicTool, generateText, jsonSchema } from "ai";
+import { APICallError, RetryError, dynamicTool, generateText, jsonSchema } from "ai";
 import { WRITE_TOOLS, assistantCanCall } from "./kinds.mjs";
 import { callTool, listTools, osmcpIdentity, suiteqlOsmcp, withSource } from "./osmcp.mjs";
 import { modelStore } from "./models.mjs";
@@ -217,7 +217,9 @@ async function step(model, messages, tools, secret, timeoutMs = 90_000, signal) 
       temperature: 0.1,
       abortSignal: signal ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1000, timeoutMs))]) : AbortSignal.timeout(Math.max(1000, timeoutMs)),
     });
-  } catch (error) {
+  } catch (failure) {
+    // After its retries the SDK says "Failed after 3 attempts. Last error: ...". Show only the provider's reason.
+    const error = RetryError.isInstance(failure) && failure.lastError ? failure.lastError : failure;
     const message = scrub(error instanceof Error ? error.message : "The model request failed.", secret);
     const wrapped = new Error(message || "The model request failed.");
     wrapped.status = APICallError.isInstance(error) && error.statusCode === 401 ? 400 : 502;

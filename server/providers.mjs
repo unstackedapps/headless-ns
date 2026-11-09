@@ -28,7 +28,8 @@ export function languageModel(connection, fetchImpl) {
     case "compatible":
       return createOpenAI({ ...settings, baseURL: connection.baseUrl, name: "compatible" }).chat(connection.model);
     default:
-      return createOpenAI(settings).chat(connection.model);
+      // The Responses API, because OpenAI's codex and pro models refuse chat completions.
+      return createOpenAI(settings).responses(connection.model);
   }
 }
 

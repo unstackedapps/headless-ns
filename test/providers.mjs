@@ -33,12 +33,29 @@ async function say(provider, extra, reply = chatReply()) {
   return { text: result.text, call: seen.calls[0] };
 }
 
-test("OpenAI, Groq, Mistral, and a compatible host use chat completions", async () => {
-  const openai = await say("openai", { model: "gpt-5.2" });
-  assert.equal(openai.call.url, "https://api.openai.com/v1/chat/completions");
-  assert.equal(openai.call.body.model, "gpt-5.2");
-  assert.equal(openai.text, "ready");
+function responsesReply(output) {
+  return {
+    id: "resp_test",
+    object: "response",
+    created_at: 1794228000,
+    model: "gpt-5.5",
+    output,
+    status: "completed",
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+  };
+}
 
+const ready = [{ id: "msg_test", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "ready", annotations: [] }] }];
+
+// Live, gpt-5.3-codex on chat completions answered "This model is not supported in the v1/chat/completions endpoint. Use the v1/responses endpoint instead."
+test("OpenAI uses the Responses API, which every OpenAI chat model accepts", async () => {
+  const openai = await say("openai", { model: "gpt-5.3-codex" }, responsesReply(ready));
+  assert.equal(openai.call.url, "https://api.openai.com/v1/responses");
+  assert.equal(openai.call.body.model, "gpt-5.3-codex");
+  assert.equal(openai.text, "ready");
+});
+
+test("Groq, Mistral, and a compatible host use chat completions", async () => {
   const groq = await say("groq", { model: "llama-3.1-8b-instant" });
   assert.match(groq.call.url, /^https:\/\/api\.groq\.com\/openai\/v1\/chat\/completions/);
   assert.equal(groq.call.body.model, "llama-3.1-8b-instant");
