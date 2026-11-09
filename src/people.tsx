@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { dateLabel, orBlank } from "./format";
-import { DataTable } from "./table";
+import { DataTable, EmailText } from "./table";
 import { ListFrame, type ListPayload, RecordActions, StatusPill, listStatus, useDebounced, useLive } from "./lists";
 
 type Person = {
@@ -40,7 +40,7 @@ export function PeoplePage() {
           { key: "name", label: "Name", cell: (row) => row.name },
           { key: "title", label: "Title", cell: (row) => orBlank(row.title) },
           { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
-          { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
+          { key: "email", label: "Email", cell: (row) => <EmailText value={row.email} /> },
           { key: "hired", label: "Hired", nowrap: true, cell: (row) => dateLabel(row.hireDate) },
           {
             key: "rep",

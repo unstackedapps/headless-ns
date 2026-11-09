@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { amount, dateLabel, orBlank } from "./format";
-import { DataTable, type Column } from "./table";
+import { DataTable, EmailText, type Column } from "./table";
 import { RelatedLink } from "./related";
 import { Glyph, glyph } from "./icons";
 import { RefreshButton } from "./refresh";
@@ -78,8 +78,8 @@ export function CustomersPage() {
           },
           { key: "company", label: "Company", cell: (row) => orBlank(row.company) },
           { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
-          { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
-          { key: "phone", label: "Phone", cell: (row) => orBlank(row.phone) },
+          { key: "email", label: "Email", cell: (row) => <EmailText value={row.email} /> },
+          { key: "phone", label: "Phone", nowrap: true, cell: (row) => orBlank(row.phone) },
           {
             key: "netsuite",
             label: "NetSuite",

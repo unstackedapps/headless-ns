@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SkeletonTable } from "./load";
+import { orBlank } from "./format";
 
 export type Column<T> = {
   key: string;
@@ -79,6 +80,19 @@ export function DataTable<T>({
           </table>
         </div>
       )}
+    </>
+  );
+}
+
+// An email that wraps after its @ when the column is narrow, instead of mid-word.
+export function EmailText({ value }: { value: string }) {
+  const at = value.indexOf("@");
+  if (at < 0) return <>{orBlank(value)}</>;
+  return (
+    <>
+      {value.slice(0, at + 1)}
+      <wbr />
+      {value.slice(at + 1)}
     </>
   );
 }

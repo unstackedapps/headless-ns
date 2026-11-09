@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { RelatedList } from "./customers";
 import { amount, dateLabel, orBlank } from "./format";
-import { DataTable } from "./table";
+import { DataTable, EmailText } from "./table";
 import { Glyph, glyph } from "./icons";
 import { ListFrame, type ListPayload, Pager, RecordActions, StatusPill, explain, listStatus, useDebounced, useLive } from "./lists";
 import { RefreshButton } from "./refresh";
@@ -53,8 +53,8 @@ export function VendorsPage() {
           },
           { key: "company", label: "Company", cell: (row) => orBlank(row.company) },
           { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
-          { key: "email", label: "Email", cell: (row) => orBlank(row.email) },
-          { key: "phone", label: "Phone", cell: (row) => orBlank(row.phone) },
+          { key: "email", label: "Email", cell: (row) => <EmailText value={row.email} /> },
+          { key: "phone", label: "Phone", nowrap: true, cell: (row) => orBlank(row.phone) },
           { key: "netsuite", label: "NetSuite", cell: (row) => <RecordActions kind="vendor" id={row.id} title={row.name} href={row.href} recordType="vendor" /> },
         ]}
       />
