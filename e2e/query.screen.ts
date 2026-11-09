@@ -89,3 +89,16 @@ test("Query keeps the unlabeled-tables box inside the rail, shows samples as sma
   }
   expect(Math.round((await page.locator(".saved-row label").first().boundingBox())!.width)).toBe(280);
 });
+
+test("a list's scrollbar shows only while the pointer is over it", async ({ page }) => {
+  const many = Array.from({ length: 80 }, (_, i) => ({ name: `t${i}`, title: `Table ${i}` }));
+  await mockApi(page, { "/api/session": session, "/api/suiteql": { tables: many }, "/api/queries": { queries: [] } });
+  await page.goto("/#/query");
+  const list = page.locator(".split-rail .tool-list");
+  await expect(list.getByText("Table 1", { exact: true })).toBeVisible();
+  const color = () => list.evaluate((el) => getComputedStyle(el).scrollbarColor);
+  await page.mouse.move(5, 5);
+  expect(await color()).toBe("rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)");
+  await list.hover();
+  expect(await color()).not.toBe("rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)");
+});
