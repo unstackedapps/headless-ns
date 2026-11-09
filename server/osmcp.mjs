@@ -32,9 +32,18 @@ function plainSuiteqlError(message) {
   return `This role cannot see ${name}. Add View for ${permission} on that role, then reload.`;
 }
 
+// The test read needs the NetSuite tools. A server can answer and still offer none of them.
+export function missingNetSuiteTools(names) {
+  if (names.some((name) => name.startsWith("ns_"))) return "";
+  return `The server answered with ${names.length} tools, but none are NetSuite tools (ns_...). Connect a NetSuite account on that server, or turn on its NetSuite tools, then test again.`;
+}
+
 // Setup's test read shows this in place of the raw MCP or HTTP error.
 export function plainConnectionError(error) {
   const message = String(error?.message || error || "");
+  if (/method not found|unknown tool|tool not found/i.test(message)) {
+    return "The server answered, but it does not offer the NetSuite tools this app needs. Connect a NetSuite account on that server, or turn on its NetSuite tools.";
+  }
   if (error?.status === 401 || /invalid[_ ]token|invalid_login|unauthori[sz]ed|expired/i.test(message)) {
     return "NetSuite did not accept the sign-in. Sign in again.";
   }

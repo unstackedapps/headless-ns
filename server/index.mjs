@@ -22,7 +22,7 @@ import {
   sessionSecretIsEphemeral,
   validAccountId,
 } from "./env.mjs";
-import { clearMcpCache, osmcpIdentity, plainConnectionError, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
+import { clearMcpCache, listTools, missingNetSuiteTools, osmcpIdentity, plainConnectionError, suiteqlOsmcp, withAuth, withSource } from "./osmcp.mjs";
 import { modelStore } from "./models.mjs";
 import { blockedReason, readJsonBody } from "./http.mjs";
 import { walkRelated } from "./related.mjs";
@@ -1169,6 +1169,11 @@ async function testConnection(req, res) {
   if (!session) return;
   clearMcpCache();
   try {
+    const missing = missingNetSuiteTools((await listTools()).map((tool) => tool.name));
+    if (missing) {
+      sendJson(res, 400, { error: missing });
+      return;
+    }
     const identity = await withSource("setup", () => osmcpIdentity());
     const { n } = await countOf(session, `SELECT COUNT(id) AS n FROM customer WHERE isinactive = 'F'`);
     sendJson(res, 200, { accountId: identity.accountId || accountLabel(), roleId: identity.roleId, customers: n });

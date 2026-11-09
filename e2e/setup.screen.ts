@@ -193,3 +193,15 @@ test("a custom MCP server, such as self-hosted OpenSuiteMCP, takes a URL and a t
     customToken: "osmcp-token",
   });
 });
+
+test("a saved custom server is tested on load, so its failure shows after a reload", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": { ...session, signedIn: false, via: "custom", ai: true },
+    "/api/connector": { ...connector, kind: "custom", customUrl: "https://app.opensuitemcp.com/api/mcp", customHint: "…oken" },
+    "POST /api/setup/test": failWith(400, "The server answered with 34 tools, but none are NetSuite tools (ns_...)."),
+  });
+  await page.goto("/#/setup/netsuite");
+  await expect(page.getByText("none are NetSuite tools")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Test again" })).toBeVisible();
+});

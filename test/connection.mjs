@@ -33,3 +33,10 @@ test("an old OpenSuiteMCP .env still connects, as a custom MCP server", async ()
     }
   }
 });
+
+test("a server with no NetSuite tools fails the test read with the reason", async () => {
+  const { missingNetSuiteTools } = await import("../server/osmcp.mjs");
+  assert.match(missingNetSuiteTools(["osmcp_whoami", "osmcp_recall"]), /answered with 2 tools, but none are NetSuite tools/);
+  assert.equal(missingNetSuiteTools(["osmcp_whoami", "ns_getSessionInfo"]), "");
+  assert.match(plainConnectionError(new Error("Method not found: tools/call ns_getSessionInfo")), /does not offer the NetSuite tools/);
+});

@@ -112,7 +112,8 @@ export function ConnectStep({
     setClientType(saved.mcpConfidential ? "confidential" : "public");
   }, [saved]);
 
-  const connected = saved != null && signedInVia === kind && saved.kind === kind;
+  // A custom server has no sign-in, so a saved URL and token is enough to test it.
+  const connected = saved != null && saved.kind === kind && (signedInVia === kind || (kind === "custom" && Boolean(saved.customUrl && saved.customHint)));
 
   const test = useCallback(async () => {
     setTesting(true);
