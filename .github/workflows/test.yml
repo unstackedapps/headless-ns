@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      # The screen tests fake every NetSuite call but need the dev server. It makes its own certificate and runs without .env or data/.
+      - name: Start the dev server
+        run: |
+          npm run dev > server.log 2>&1 &
+          timeout 60 bash -c 'until curl -sk -o /dev/null https://localhost:5173; do sleep 1; done'
+      # Only the screens project. Live tests (*.live.ts) need NetSuite and never run here.
+      - run: npm run e2e
+      - name: Server log
+        if: failure()
+        run: cat server.log
