@@ -165,7 +165,9 @@ export function openModelStore(file, { seed = true } = {}) {
       const row = validate(store, input);
       const existing = find(store, row.id);
       if (!existing && store.connections.length >= 12) fail(400, "Twelve models are saved. Remove one before adding another.");
-      const connections = existing ? store.connections.map((item) => (item.id === row.id ? row : item)) : [...store.connections, row];
+      // One key per provider and URL, as setup shows it, so a new key reaches every model saved with the old one.
+      const rekeyed = store.connections.map((item) => (item.provider === row.provider && item.baseUrl === row.baseUrl ? { ...item, apiKey: row.apiKey } : item));
+      const connections = existing ? rekeyed.map((item) => (item.id === row.id ? row : item)) : [...rekeyed, row];
       const keep = !activate && store.activeId && connections.some((item) => item.id === store.activeId);
       return view(persist({ activeId: keep ? store.activeId : row.id, connections }));
     },

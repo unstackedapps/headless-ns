@@ -33,6 +33,20 @@ test("the store saves several models and never returns the key", () => {
   assert.equal(active.activeId, second.connections[1].id);
 });
 
+// Live on 2026-11-09: the user revoked a Claude key and saved claude-haiku-5-5 with a new one.
+// claude-sonnet-5-5, saved earlier, kept the revoked key and Anthropic answered "invalid x-api-key".
+test("a new key for a provider replaces the old key on every model saved for it", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "hn-models-")), "models.json");
+  const store = openModelStore(file, { seed: false });
+  const sonnet = store.save({ provider: "anthropic", model: "claude-sonnet-5-5", apiKey: "sk-ant-revoked-1111" }).connections[0].id;
+  store.save({ provider: "compatible", baseUrl: "https://gemma.example/v1", model: "gemma-4", apiKey: "sk-gemma-2222" });
+  const haiku = store.save({ provider: "anthropic", model: "claude-haiku-5-5", apiKey: "sk-ant-fresh-3333" }).connections[2].id;
+  assert.equal(store.require(sonnet).apiKey, "sk-ant-fresh-3333");
+  assert.equal(store.require(haiku).apiKey, "sk-ant-fresh-3333");
+  const gemma = store.read().connections.find((row) => row.provider === "compatible");
+  assert.equal(gemma.apiKey, "sk-gemma-2222");
+});
+
 test("setup tests a draft without saving it, and reuses the saved key for the same provider URL", () => {
   const file = join(mkdtempSync(join(tmpdir(), "hn-models-")), "models.json");
   const store = openModelStore(file, { seed: false });
