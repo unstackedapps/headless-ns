@@ -182,12 +182,12 @@ export function QueryPage() {
           </FilterRail>
         )}
         <div className="split-main">
-          <div className="filters">
+          <div className="quick samples">
             <span className="status">Samples</span>
             {sampleQueries.map((sample) => (
               <button
                 key={sample.name}
-                className="quiet"
+                className="chip"
                 type="button"
                 onClick={() => {
                   setSql(sample.sql);
@@ -222,7 +222,7 @@ export function QueryPage() {
             </Button>
             <span className="status">Ctrl+Enter runs the query. The CSV holds up to 5,000 rows.</span>
           </div>
-          <div className="filters">
+          <div className="filters saved-row">
             <label>
               Saved
               <Pick

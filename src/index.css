@@ -498,7 +498,9 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .pane-title .search-field { width: min(280px, 100%); }
 .split-rail .tool span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 8px 8px; font-size: 12px; }
-.rail-head.check { flex-direction: row; align-items: center; }
+.rail-head.check { flex-direction: row; align-items: center; margin: 0 8px 8px; }
+.samples { flex-wrap: wrap; align-items: center; margin: 0 0 4px; }
+.filters.saved-row label:first-child { flex: none; width: 280px; min-width: 0; }
 .sql-editor { min-height: 140px; margin: 8px 0; }
 .finder { margin: 0 0 12px; }
 .finder > .search-field { max-width: 520px; margin-bottom: 8px; }
