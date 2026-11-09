@@ -436,7 +436,13 @@ export function studioRoutes({ sendJson, authorized }) {
     "POST /api/ask": async (req, res) => {
       if (!(await authorized(req, res))) return;
       const body = await readJsonBody(req);
-      sendJson(res, 200, await ask({ text: body.text, transcript: body.transcript }));
+      // A closed tab or a cancel in the command line stops the model loop at its next turn.
+      const controller = new AbortController();
+      res.on("close", () => {
+        if (!res.writableEnded) controller.abort();
+      });
+      const result = await ask({ text: body.text, transcript: body.transcript, signal: controller.signal });
+      if (!controller.signal.aborted) sendJson(res, 200, result);
     },
 
     "POST /api/ask/confirm": async (req, res) => {

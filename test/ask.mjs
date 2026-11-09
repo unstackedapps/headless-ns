@@ -315,3 +315,34 @@ test("the prompt counts every active customer, not only companies", async () => 
   const { systemPrompt } = await import("../server/llm.mjs");
   assert.match(systemPrompt(identity), /SELECT COUNT\(id\) FROM customer WHERE isinactive = 'F'/);
 });
+
+test("a cancelled request stops before the next model turn and runs no more tools", async () => {
+  const controller = new AbortController();
+  let turns = 0;
+  let ran = 0;
+  const result = await ask({
+    text: "How many open orders are there?",
+    signal: controller.signal,
+    model: model(async () => {
+      turns += 1;
+      controller.abort();
+      return {
+        content: [{ type: "tool-call", toolCallId: `call-c${turns}`, toolName: "ns_runCustomSuiteQL", input: { sqlQuery: "select 1" } }],
+        finishReason: "tool-calls",
+        usage,
+      };
+    }),
+    connection,
+    identity,
+    query,
+    policy: { allowWrites: false, disabled: [] },
+    catalog: [{ name: "ns_runCustomSuiteQL", description: "Run SuiteQL", schema: { type: "object", properties: {} } }],
+    runTool: async () => {
+      ran += 1;
+      return { rows: [] };
+    },
+  });
+  assert.equal(turns, 1);
+  assert.equal(ran, 0);
+  assert.equal(result.answer, "You cancelled this request.");
+});

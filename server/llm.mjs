@@ -205,7 +205,7 @@ function sdkTools(catalog) {
   return tools;
 }
 
-async function step(model, messages, tools, secret, timeoutMs = 90_000) {
+async function step(model, messages, tools, secret, timeoutMs = 90_000, signal) {
   const instructions = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
   const prompt = messages.filter((message) => message.role !== "system");
   try {
@@ -215,7 +215,7 @@ async function step(model, messages, tools, secret, timeoutMs = 90_000) {
       messages: prompt,
       tools: Object.keys(tools).length ? tools : undefined,
       temperature: 0.1,
-      abortSignal: AbortSignal.timeout(Math.max(1000, timeoutMs)),
+      abortSignal: signal ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1000, timeoutMs))]) : AbortSignal.timeout(Math.max(1000, timeoutMs)),
     });
   } catch (error) {
     const message = scrub(error instanceof Error ? error.message : "The model request failed.", secret);
@@ -229,16 +229,23 @@ function stopped(answer, steps, clientMessages) {
   return { answer, steps, pending: null, transcript: clientMessages.filter((item) => item.role !== "system") };
 }
 
-async function loop(clientMessages, { model, secret, policy, runTool, catalog, query }) {
+async function loop(clientMessages, { model, secret, policy, runTool, catalog, query, signal }) {
   const tools = sdkTools(catalog);
   const messages = toModelMessages(clientMessages);
   const steps = [];
   const failed = new Set();
   const deadline = Date.now() + MAX_MS;
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+    if (signal?.aborted) return stopped("You cancelled this request.", steps, clientMessages);
     const left = deadline - Date.now();
     if (left <= 0) return stopped("I ran out of time on this request. Ask me to continue.", steps, clientMessages);
-    const result = await step(model, messages, tools, secret, Math.min(90_000, left));
+    let result;
+    try {
+      result = await step(model, messages, tools, secret, Math.min(90_000, left), signal);
+    } catch (error) {
+      if (signal?.aborted) return stopped("You cancelled this request.", steps, clientMessages);
+      throw error;
+    }
     const calls = (result.toolCalls || []).map((call) => ({ ...call, input: withExternalId(call.toolName, call.input ?? {}) }));
     const assistant = {
       role: "assistant",
@@ -318,7 +325,7 @@ async function context(options) {
   return { connection, policy, catalog, identity, model, runTool, query };
 }
 
-export async function ask({ text, transcript, ...options }) {
+export async function ask({ text, transcript, signal, ...options }) {
   const question = String(text || "").trim();
   if (!question) {
     const error = new Error("Ask a question first.");
@@ -335,6 +342,7 @@ export async function ask({ text, transcript, ...options }) {
     runTool: ready.runTool,
     catalog: ready.catalog,
     query: ready.query,
+    signal,
   });
 }
 
