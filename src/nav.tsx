@@ -1,5 +1,5 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { isViewId, moveMenu, readMenu, setHidden, type MenuItem, type PageId } from "./menu";
+import { groupOf, isViewId, menuGroups, moveMenu, readGroups, readMenu, saveMenu, setHidden, type MenuItem, type PageId } from "./menu";
 import { Glyph, glyph, navIcons } from "./icons";
 import { Tip } from "./pick";
 
@@ -23,16 +23,32 @@ function useMenu() {
     }
   });
   const [editing, setEditing] = useState(false);
+  const [groups, setGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      return readGroups(JSON.parse(localStorage.getItem("hn-menu-groups") || "null"));
+    } catch {
+      return readGroups(null);
+    }
+  });
 
   function update(next: MenuItem[]) {
     setItems(next);
-    localStorage.setItem("hn-menu", JSON.stringify(next.map(({ id, hidden }) => ({ id, hidden }))));
+    localStorage.setItem("hn-menu", JSON.stringify(saveMenu(next)));
+  }
+
+  function setGroup(id: string, open: boolean) {
+    if (groups[id] === open) return;
+    const next = { ...groups, [id]: open };
+    localStorage.setItem("hn-menu-groups", JSON.stringify(next));
+    setGroups(next);
   }
 
   return {
     items,
     editing,
     setEditing,
+    groups,
+    setGroup,
     move: (id: string, direction: -1 | 1) => update(moveMenu(items, id, direction)),
     hide: (id: string, hidden: boolean) => update(setHidden(items, id, hidden)),
   };
@@ -47,6 +63,14 @@ export function SideNav({ view }: { view: PageId }) {
   const [dragging, setDragging] = useState(false);
   const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 860px)").matches);
   const menu = useMenu();
+  const flat = !open || narrow;
+
+  // The group holding the current page opens, so the page's entry is always in view.
+  const currentGroup = groupOf(view);
+  useEffect(() => {
+    if (currentGroup) menu.setGroup(currentGroup, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentGroup]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 860px)");
@@ -83,67 +107,98 @@ export function SideNav({ view }: { view: PageId }) {
     window.addEventListener("pointerup", stop);
   }
 
+  function rowsOf(group: string) {
+    return menu.items.filter((item) => item.group === group && (menu.editing || !item.hidden));
+  }
+
+  function row(item: MenuItem) {
+    if (menu.editing && open) {
+      return (
+        <div key={item.id} className={item.hidden ? "nav-row is-hidden" : "nav-row"}>
+          <button className="quiet nav-mini" type="button" aria-label={`Move ${item.label} up`} onClick={() => menu.move(item.id, -1)}>
+            <Glyph icon={glyph.up} size={14} />
+          </button>
+          <button className="quiet nav-mini" type="button" aria-label={`Move ${item.label} down`} onClick={() => menu.move(item.id, 1)}>
+            <Glyph icon={glyph.down} size={14} />
+          </button>
+          <a href={`#/${item.id}`} aria-current={view === item.id ? "page" : undefined}>
+            <Glyph icon={navIcons[item.id]} />
+            <span className="nav-text">{item.label}</span>
+          </a>
+          <button
+            className="quiet nav-mini"
+            type="button"
+            aria-label={item.hidden ? `Show ${item.label}` : `Hide ${item.label}`}
+            onClick={() => menu.hide(item.id, !item.hidden)}
+          >
+            <Glyph icon={item.hidden ? glyph.eye : glyph.eyeOff} size={14} />
+          </button>
+        </div>
+      );
+    }
+    return (
+      <Tip key={item.id} label={open ? "" : item.label} side="right">
+        <a href={`#/${item.id}`} aria-current={view === item.id ? "page" : undefined} aria-label={item.label}>
+          <Glyph icon={navIcons[item.id]} />
+          <span className="nav-text">{item.label}</span>
+        </a>
+      </Tip>
+    );
+  }
+
   return (
     <nav
       className={[open ? "" : "is-collapsed", dragging ? "is-dragging" : ""].filter(Boolean).join(" ")}
       style={!narrow && open ? { width } : undefined}
       aria-label="Sections"
     >
+      {rowsOf("Top").map(row)}
       <div className="nav-links">
-        {menu.editing && open && <p className="status nav-note">Up and down move an item. Hide takes it off this menu.</p>}
-        {["Ledger", "Studio"].map((group) => {
-          const rows = menu.items.filter((item) => item.group === group && (menu.editing || !item.hidden));
+        {menu.editing && open && <p className="status nav-note">Use the arrows to move an item, and the eye to hide it.</p>}
+        {menuGroups.map(({ id: group }) => {
+          const rows = rowsOf(group);
           if (!rows.length) return null;
+          if (flat) {
+            return (
+              <div key={group} className="nav-group" role="group" aria-label={group}>
+                {narrow && open && <span className="nav-label">{group}</span>}
+                {rows.map(row)}
+              </div>
+            );
+          }
           return (
-            <div key={group}>
-              <span className="nav-label">{group}</span>
-              {rows.map((item) =>
-                menu.editing && open ? (
-                  <div key={item.id} className={item.hidden ? "nav-row is-hidden" : "nav-row"}>
-                    <button className="quiet nav-mini" type="button" aria-label={`Move ${item.label} up`} onClick={() => menu.move(item.id, -1)}>
-                      <Glyph icon={glyph.up} size={14} />
-                    </button>
-                    <button className="quiet nav-mini" type="button" aria-label={`Move ${item.label} down`} onClick={() => menu.move(item.id, 1)}>
-                      <Glyph icon={glyph.down} size={14} />
-                    </button>
-                    <a href={`#/${item.id}`} aria-current={view === item.id ? "page" : undefined}>
-                      <Glyph icon={navIcons[item.id]} />
-                      <span className="nav-text">{item.label}</span>
-                    </a>
-                    <button
-                      className="quiet nav-mini"
-                      type="button"
-                      aria-label={item.hidden ? `Show ${item.label}` : `Hide ${item.label}`}
-                      onClick={() => menu.hide(item.id, !item.hidden)}
-                    >
-                      <Glyph icon={item.hidden ? glyph.eye : glyph.eyeOff} size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <Tip key={item.id} label={open ? "" : item.label} side="right">
-                    <a href={`#/${item.id}`} aria-current={view === item.id ? "page" : undefined} aria-label={item.label}>
-                      <Glyph icon={navIcons[item.id]} />
-                      <span className="nav-text">{item.label}</span>
-                    </a>
-                  </Tip>
-                ),
-              )}
-            </div>
+            <details key={group} className="nav-group" open={menu.editing || menu.groups[group]}>
+              <summary
+                className="nav-label"
+                onClick={(event) => {
+                  // React owns the open state, so a reload shows what was last chosen.
+                  event.preventDefault();
+                  if (!menu.editing) menu.setGroup(group, !menu.groups[group]);
+                }}
+              >
+                {group}
+                <Glyph icon={glyph.down} size={12} />
+              </summary>
+              {rows.map(row)}
+            </details>
           );
         })}
       </div>
-      <div className="nav-tools">
-        {open && (
-          <button className={menu.editing ? "quiet on nav-toggle" : "quiet nav-toggle"} type="button" aria-pressed={menu.editing} onClick={() => menu.setEditing((value) => !value)}>
-            {menu.editing ? "Done" : "Arrange"}
-          </button>
-        )}
-        <Tip label={open ? "" : "Show menu"} side="right">
-        <button className="quiet nav-toggle" type="button" aria-pressed={open} aria-label={open ? "Hide menu" : "Show menu"} onClick={toggle}>
-          <Glyph icon={open ? glyph.hide : glyph.show} />
-          {open && <span className="nav-text">Hide</span>}
-        </button>
-        </Tip>
+      <div className="nav-bottom">
+        {rowsOf("Bottom").map(row)}
+        <div className="nav-tools">
+          {open && (
+            <button className={menu.editing ? "quiet on nav-toggle" : "quiet nav-toggle"} type="button" aria-pressed={menu.editing} onClick={() => menu.setEditing((value) => !value)}>
+              {menu.editing ? "Done" : "Arrange"}
+            </button>
+          )}
+          <Tip label={open ? "" : "Show menu"} side="right">
+            <button className="quiet nav-toggle" type="button" aria-pressed={open} aria-label={open ? "Hide menu" : "Show menu"} onClick={toggle}>
+              <Glyph icon={open ? glyph.hide : glyph.show} />
+              {open && <span className="nav-text">Hide</span>}
+            </button>
+          </Tip>
+        </div>
       </div>
       {open && !narrow && (
         <div
