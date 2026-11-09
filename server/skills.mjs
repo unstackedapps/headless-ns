@@ -318,7 +318,7 @@ export function openSkillStore(dataDir, { git = runGit, schemes = ["https:"] } =
 
   function find(name) {
     const row = list().find((item) => item.name === String(name || ""));
-    if (!row) throw fail(`No skill named ${String(name || "").slice(0, 80)}.`, 404);
+    if (!row) throw fail(`No skill named ${String(name || "").slice(0, 80)}.`);
     return row;
   }
 
@@ -428,6 +428,24 @@ export function openSkillStore(dataDir, { git = runGit, schemes = ["https:"] } =
     return { imported, kept };
   }
 
+  // For the Settings preview: one saved file as text, on or off. Without a path, SKILL.md and the file list.
+  function file(name, path) {
+    const row = find(name);
+    const rel = String(path || "SKILL.md");
+    const known = row.files.find((item) => item.path === rel);
+    if (!known) throw fail(`No file ${rel.slice(0, 120)} in ${row.name}.`);
+    const ext = extname(rel).toLowerCase();
+    const image = IMAGES.has(ext);
+    return {
+      name: row.name,
+      path: rel,
+      size: known.size,
+      script: SCRIPTS.has(ext),
+      text: image ? "" : readFileSync(join(skillsDir, row.name, rel), "utf8"),
+      ...(path ? {} : { files: row.files }),
+    };
+  }
+
   // Resolves the ref to a commit, fetches that one folder, and stages it. The preview names the commit.
   async function stageGit(input) {
     const source = parseGitSource(input, { schemes });
@@ -484,14 +502,14 @@ export function openSkillStore(dataDir, { git = runGit, schemes = ["https:"] } =
   // skill_read: a skill's body and outline, a folder's outline, one file, or one #section of a file. Read-only.
   function read({ name, path, page } = {}) {
     const row = list().find((item) => item.name === String(name || "") && item.enabled);
-    if (!row) throw fail(`No skill named ${String(name || "").slice(0, 80)}.`, 404);
+    if (!row) throw fail(`No skill named ${String(name || "").slice(0, 80)}.`);
     const [rawPath, anchor] = String(path || "SKILL.md").replace(/^\.\//, "").split("#");
     const file = rawPath.replace(/\/$/, "") || "SKILL.md";
     const known = row.files.find((item) => item.path === file);
     if (!known) {
       const inside = row.files.some((item) => item.path.startsWith(`${file}/`));
       if (inside && !pathProblem(file)) return { name: row.name, folder: file, files: outline(row.files, file) };
-      throw fail(`No file ${file.slice(0, 120)} in ${row.name}. Files: ${outline(row.files).map((item) => item.path).join(", ")}`, 404);
+      throw fail(`No file ${file.slice(0, 120)} in ${row.name}. Files: ${outline(row.files).map((item) => item.path).join(", ")}`);
     }
     const ext = extname(file).toLowerCase();
     if ([".png", ".jpg", ".svg"].includes(ext)) return { name: row.name, path: file, text: "This is an image. Ask can't view it." };
@@ -499,7 +517,7 @@ export function openSkillStore(dataDir, { git = runGit, schemes = ["https:"] } =
     if (file === "SKILL.md") text = readFrontmatter(text)?.body ?? text;
     if (anchor) {
       const section = sectionOf(text, anchor);
-      if (section === null) throw fail(`No section #${anchor.slice(0, 80)} in ${file}.`, 404);
+      if (section === null) throw fail(`No section #${anchor.slice(0, 80)} in ${file}.`);
       text = section;
     }
     text = rewriteLinks(text.trim(), file);
@@ -515,7 +533,7 @@ export function openSkillStore(dataDir, { git = runGit, schemes = ["https:"] } =
     };
   }
 
-  return { dir: skillsDir, list, find, read, stage, stageGit, update, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
+  return { dir: skillsDir, list, find, read, file, stage, stageGit, update, staged, importStaged, toggle, remove, enabled: () => list().filter((row) => row.enabled) };
 }
 
 export const skillStore = openSkillStore("data");
