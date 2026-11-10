@@ -94,3 +94,25 @@ test("buttons in the Ask drawer and the command line don't touch", async ({ page
   const cli = page.getByRole("region", { name: "Command line" });
   await expect.poll(() => gap(cli.getByRole("button", { name: "Minimize" }), cli.getByRole("button", { name: "Close" }))).toBeGreaterThanOrEqual(8);
 });
+
+test("the confirm box keeps the same gap below the question as the messages have", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/flow": salesOrder([flowLine()]),
+    "/api/config": { llm: { id: "m", configured: true, model: "gemma" }, models: { connections: [], activeId: "m" } },
+    "POST /api/ask": pending,
+  });
+  await page.goto("/#/transaction?type=salesorder&id=500");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const drawer = page.getByRole("complementary", { name: "Ask" });
+  await drawer.getByLabel("Question").fill("Quote Acme 2 SPC002 at 10");
+  await drawer.getByLabel("Question").press("Enter");
+  const confirm = drawer.locator("section.panel", { hasText: "Confirm before this runs on NetSuite" });
+  await expect(confirm).toBeVisible();
+  const gap = await drawer.evaluate((root) => {
+    const bubbles = root.querySelectorAll(".thread .bubble");
+    const last = bubbles[bubbles.length - 1].getBoundingClientRect();
+    return root.querySelector(".thread + .panel")!.getBoundingClientRect().top - last.bottom;
+  });
+  expect(gap).toBe(10);
+});

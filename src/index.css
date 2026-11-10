@@ -875,6 +875,8 @@ textarea.code {
 .composer:focus-within { border-color: var(--accent); }
 .icon-btn { width: 32px; height: 32px; padding: 0; flex: none; }
 .thread { display: grid; gap: 10px; margin-top: 14px; }
+/* The confirm box and errors after the messages keep the same 10 px gap as the messages. */
+.thread + .panel, .thread + .error { margin-top: 10px; }
 .bubble {
   background: var(--panel);
   border: 1px solid var(--line);
