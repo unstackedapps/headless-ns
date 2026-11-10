@@ -270,7 +270,7 @@ export function FilesPage() {
           <div className="filters">
             <label>
               Path
-              <input value={jumpPath} aria-label="Path" placeholder="/SuiteScripts" onChange={(event) => setJumpPath(event.target.value)} />
+              <input value={jumpPath} aria-label="Path" placeholder="Type a folder or file path" onChange={(event) => setJumpPath(event.target.value)} />
             </label>
             <label>
               Internal ID
