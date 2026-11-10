@@ -1,20 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, session } from "./mock";
 
-// Every search box that sits directly above a table leaves the same gap before it.
+// Whatever sits directly above a table, its search box or its Filters row, leaves the same gap before it.
 const cases: [string, string, (page: Page) => Promise<void>, string][] = [
   ["Searches", "/#/searches", async (page) => {
     await page.getByRole("button", { name: /Open orders/ }).click();
     await page.getByRole("table").waitFor();
-  }, ".split-main > .search-field"],
+  }, ".split-main"],
   ["Records", "/#/records", async (page) => {
     await page.getByLabel("Find a record").fill("quinu");
     await page.getByRole("table", { name: "Search results" }).waitFor();
-  }, ".finder > .search-field"],
+  }, ".finder"],
 ];
 
-for (const [name, url, ready, field] of cases) {
-  test(`${name}: the search box keeps a gap above its table`, async ({ page }) => {
+for (const [name, url, ready, pane] of cases) {
+  test(`${name}: the row above the table keeps a 10 px gap`, async ({ page }) => {
     await mockApi(page, {
       "/api/session": session,
       "/api/searches": { rows: [{ id: "s1", title: "Open orders", recordType: "Transaction", shared: false }] },
@@ -25,10 +25,9 @@ for (const [name, url, ready, field] of cases) {
     await page.goto(url);
     await ready(page);
     const gap = await page.evaluate((selector) => {
-      const box = document.querySelector(selector)!;
-      const table = box.nextElementSibling!.closest(".table-wrap") || box.parentElement!.querySelector(".table-wrap")!;
-      return table.getBoundingClientRect().top - box.getBoundingClientRect().bottom;
-    }, field);
+      const table = document.querySelector(`${selector} .table-wrap`)!;
+      return table.getBoundingClientRect().top - table.previousElementSibling!.getBoundingClientRect().bottom;
+    }, pane);
     expect(gap).toBe(10);
   });
 }

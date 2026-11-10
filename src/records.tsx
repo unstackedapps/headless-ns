@@ -243,6 +243,7 @@ export function LineGrid({
         label={sublist.title}
         className="line-grid"
         rows={lines}
+        noFilters={Boolean(onChange)}
         rowKey={(line, index) => line.line ?? `row-${index}`}
         empty="No lines."
         columns={[
@@ -250,6 +251,7 @@ export function LineGrid({
           ...(onChange ? editColumns : columns).map((field) => ({
             key: field.id,
             label: field.title,
+            value: (line: Line) => line.values[field.id]?.refName || line.values[field.id]?.value,
             cell: (line: Line, index: number) =>
               onChange && !(line.original && (line.line == null || field.id === "item")) ? (
                 <>

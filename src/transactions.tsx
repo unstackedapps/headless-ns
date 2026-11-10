@@ -101,10 +101,10 @@ export function TransactionList({
           { key: "number", label: "Number", nowrap: true, cell: (row) => <a href={flowLink(recordType, row.id)}>{row.number || row.id}</a> },
           { key: "date", label: "Date", nowrap: true, cell: (row) => dateLabel(row.date) },
           ...(money ? [{ key: "due", label: "Due", nowrap: true, cell: (row: Row) => dateLabel(row.due) }] : []),
-          { key: "party", label: party, cell: (row) => orBlank(row.name) },
+          { key: "party", label: party, value: (row) => row.name, cell: (row) => orBlank(row.name) },
           ...(hasStatus ? [{ key: "status", label: "Status", cell: (row: Row) => <StatusPill value={row.status} /> }] : []),
           { key: "amount", label: "Amount", num: true, cell: (row) => amount(row.amount, row.currency) },
-          ...(money ? [{ key: "open", label: "Open", num: true, cell: (row: Row) => amount(row.unpaid, row.currency) }] : []),
+          ...(money ? [{ key: "open", label: "Open", num: true, value: (row: Row) => row.unpaid, cell: (row: Row) => amount(row.unpaid, row.currency) }] : []),
           {
             key: "netsuite",
             label: "NetSuite",

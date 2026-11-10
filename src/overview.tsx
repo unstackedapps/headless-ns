@@ -491,8 +491,8 @@ export function OverviewPage() {
                       rowKey={(row) => row.type}
                       empty="No transactions in this range."
                       columns={[
-                        { key: "type", label: "Type", cell: (row) => typeLabels[row.type] || row.type },
-                        { key: "count", label: "Count", num: true, cell: (row) => count(row.n) },
+                        { key: "type", label: "Type", value: (row) => typeLabels[row.type] || row.type, cell: (row) => typeLabels[row.type] || row.type },
+                        { key: "count", label: "Count", num: true, value: (row) => row.n, cell: (row) => count(row.n) },
                       ]}
                     />
                   )}

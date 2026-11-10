@@ -205,7 +205,6 @@ button.linkish:hover { text-decoration: underline; }
 .rel-row.is-focus { background: var(--soft); }
 .add-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
 .th-sort { background: none; border: 0; padding: 0; font: inherit; font-weight: 300; color: inherit; cursor: pointer; }
-.col-filter { width: 100%; min-width: 96px; height: 28px; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
 .crumb-gap { color: var(--muted); margin: 0 2px; }
 .row-actions { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
@@ -491,8 +490,31 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .split-main h2 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
 .split-main .table-wrap.plain { border: 0; background: transparent; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-/* A search box above its table leaves the same 10 px gap as a pane header. */
-.split-main > .search-field, .finder > .search-field { margin-bottom: 10px; }
+/* The row above a table: its search box, if any, and the Filters button. */
+.table-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* A page's toolbar spot for the Filters button, next to its search box or status line. */
+.table-slot { display: contents; }
+.pane-tools { display: flex; align-items: center; gap: 8px; }
+.table-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 10px; }
+.table-status > .status { margin: 0; }
+/* With no toolbar, the button sits at the end of the table's header row, icon only. */
+th .filter-tools.compact { float: right; margin: -4px 0 -4px 8px; }
+th .filter-tools.compact .filter-button { height: 24px; padding: 0 6px; }
+.table-tools .search-field { margin: 0; }
+.filter-tools { display: flex; align-items: center; gap: 8px; }
+.filter-button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; }
+.filter-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--panel); font-size: 11px; }
+.menu-content.filter-panel { width: min(380px, calc(100vw - 32px)); max-height: min(560px, calc(100vh - 120px)); overflow: auto; padding: 14px; display: grid; gap: 12px; font-size: 13px; }
+.filter-panel strong { font-weight: 400; }
+.filter-field { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.filter-field legend { padding: 0; margin-bottom: 4px; color: var(--muted); }
+.filter-field .check { margin: 2px 0; }
+.filter-field > input { width: 100%; }
+.filter-range { display: flex; align-items: center; gap: 8px; }
+.filter-range input { flex: 1 1 0; width: 0; min-width: 0; }
+.filter-range span { color: var(--muted); }
+.filter-panel .status { margin: 0; }
+.filter-foot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 10px; }
 .pane-head .search-field { width: min(280px, 55%); }
 /* Records: the field search sits under the title, so the fields start level with the ID box. */
 .pane-title { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
@@ -504,7 +526,7 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .filters.saved-row label:first-child { flex: none; width: 280px; min-width: 0; }
 .sql-editor { min-height: 140px; margin: 8px 0; }
 .finder { margin: 0 0 12px; }
-.finder > .search-field { max-width: 520px; }
+.finder .search-field { width: min(520px, 100%); }
 .finder .quick { flex-wrap: wrap; align-items: center; margin-top: 0; }
 .rail-note { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 12px; }
 .split-rail .skeleton-table { padding: 8px 12px; }

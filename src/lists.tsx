@@ -4,6 +4,7 @@ import { BLANK, clock, count } from "./format";
 import { RelatedLink } from "./related";
 import { Glyph, glyph } from "./icons";
 import { SkeletonTable } from "./load";
+import { TableSlot, useTableSlot } from "./table";
 import { markBusy, RefreshButton } from "./refresh";
 import { api } from "./api";
 import { PageHead } from "./head";
@@ -111,6 +112,7 @@ export function ListFrame({
   bar?: ReactNode;
   children: ReactNode;
 }) {
+  const { slot, target } = useTableSlot();
   return (
     <>
       <PageHead title={title}>
@@ -125,19 +127,22 @@ export function ListFrame({
         <div className="list-bar">
           <strong>{viewName}</strong>
           {bar}
-          <label className="search-field">
-            <Glyph icon={glyph.search} size={14} />
-            <input
-              className="search"
-              type="search"
-              value={search}
-              placeholder={placeholder}
-              aria-label={`Search ${title.toLowerCase()}`}
-              onChange={(event) => onSearch(event.target.value)}
-            />
-          </label>
+          <div className="pane-tools">
+            <label className="search-field">
+              <Glyph icon={glyph.search} size={14} />
+              <input
+                className="search"
+                type="search"
+                value={search}
+                placeholder={placeholder}
+                aria-label={`Search ${title.toLowerCase()}`}
+                onChange={(event) => onSearch(event.target.value)}
+              />
+            </label>
+            {target}
+          </div>
         </div>
-        {loading && !ready ? <SkeletonTable /> : children}
+        <TableSlot.Provider value={slot}>{loading && !ready ? <SkeletonTable /> : children}</TableSlot.Provider>
       </section>
     </>
   );

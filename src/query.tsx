@@ -6,7 +6,7 @@ import { Pick } from "./pick";
 import { FilterRail } from "./rail";
 import { RefreshButton, refreshScope } from "./refresh";
 import { addColumn, commonTables, isMissingLabel, sampleQueries, toCsv } from "./sql";
-import { DataTable } from "./table";
+import { DataTable, TableSlot, useTableSlot } from "./table";
 import { orBlank } from "./format";
 import { api, postJson } from "./api";
 import { PageHead } from "./head";
@@ -22,6 +22,7 @@ const CSV_MAX = 5000;
 
 // Query: write a SELECT, run it, page through the rows, export them, and save it by name.
 export function QueryPage() {
+  const { slot, target } = useTableSlot();
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [chosen, setChosen] = useState<TableInfo | null>(null);
@@ -255,10 +256,14 @@ export function QueryPage() {
           {runError && <p className="error">{runError}</p>}
           {result && (
             <>
-              <p className="status">
-                {result.total != null ? `${result.total.toLocaleString()} rows` : `${result.rows.length} rows`}
-                {result.page ? `, page ${result.page + 1}` : ""}
-              </p>
+              <div className="table-status">
+                <p className="status">
+                  {result.total != null ? `${result.total.toLocaleString()} rows` : `${result.rows.length} rows`}
+                  {result.page ? `, page ${result.page + 1}` : ""}
+                </p>
+                {target}
+              </div>
+              <TableSlot.Provider value={slot}>
               <DataTable
                 label="Query results"
                 wrap="plain"
@@ -267,6 +272,7 @@ export function QueryPage() {
                 empty="The query returned no rows."
                 columns={result.columns.map((column) => ({ key: column, label: column, cell: (row: Record<string, unknown>) => orBlank(row[column]) }))}
               />
+              </TableSlot.Provider>
               <Pager page={result.page} hasMore={result.hasMore} onPage={(page) => run(page)} />
             </>
           )}
