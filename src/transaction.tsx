@@ -39,6 +39,7 @@ export const FLOW_LABELS: Record<string, string> = {
   vendorbill: "Bill",
   vendorpayment: "Bill payment",
 };
+const SHIPPED = new Set(["itemfulfillment", "itemreceipt"]);
 const VENDOR_SIDE = new Set(["purchaseorder", "itemreceipt", "vendorbill", "vendorpayment"]);
 const ORDERS = new Set(["salesorder", "purchaseorder"]);
 const PAYMENTS = new Set(["customerpayment", "vendorpayment"]);
@@ -55,6 +56,7 @@ export function newLink(type: string) {
 
 type FlowLine = {
   line: number;
+  orderLine?: number | null;
   item: { id: string; name: string } | null;
   description: string;
   quantity: number;
@@ -138,6 +140,8 @@ function FlowView({ type, id }: { type: string; id: string }) {
   const h = flow?.header || {};
   const party = VENDOR_SIDE.has(type) ? "Vendor" : "Customer";
   const isOrder = ORDERS.has(type);
+  // Fulfillments and receipts number their lines with internal ids (0, 3, ...); show the order's line instead.
+  const lineNumber = (line: FlowLine) => (SHIPPED.has(type) && line.orderLine != null ? line.orderLine : line.line);
 
   if (!flow && live.loading) {
     return (
@@ -246,7 +250,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
               rowKey={(line) => line.line}
               empty="No item lines."
               columns={[
-                { key: "line", label: "Line", cell: (line) => line.line },
+                { key: "line", label: "Line", value: (line) => lineNumber(line), cell: (line) => lineNumber(line) },
                 { key: "item", label: "Item", value: (line) => line.item?.name || line.description, cell: (line) => orBlank(line.item?.name || line.description) },
                 { key: "quantity", label: "Quantity", num: true, cell: (line) => line.quantity },
                 ...(isOrder

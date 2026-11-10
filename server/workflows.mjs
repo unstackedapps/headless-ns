@@ -119,6 +119,23 @@ export function itemFactsSql(ids) {
   return `SELECT id, isserialitem, islotitem FROM item WHERE id IN (${idList(ids)})`;
 }
 
+export function itemNamesSql(ids) {
+  return `SELECT id, itemid, displayname FROM item WHERE id IN (${idList(ids)})`;
+}
+
+// ns_getRecord returns fulfillment and receipt items as bare ids. Names them the way a sales order shows them:
+// the item code, then the display name when it differs.
+export function nameItems(lines, rows) {
+  const names = new Map(
+    (rows || []).map((row) => {
+      const code = String(row.itemid || "").trim();
+      const display = String(row.displayname || "").trim();
+      return [String(row.id), display && display !== code ? `${code} ${display}` : code];
+    }),
+  );
+  return lines.map((line) => (line.item && line.item.name === line.item.id && names.get(line.item.id) ? { ...line, item: { ...line.item, name: names.get(line.item.id) } } : line));
+}
+
 export function stockSql(ids) {
   return `SELECT ib.item, ib.location, BUILTIN.DF(ib.location) AS name, SUM(ib.quantityavailable) AS available
 FROM inventorybalance ib WHERE ib.item IN (${idList(ids)})
@@ -335,6 +352,8 @@ export function flowRoutes({ sendJson, authorized }) {
       delete header.customer;
       const items = read.sublists.find((sublist) => sublist.id === "item")?.lines || [];
       let lines = mergeLines(items, quantities.items);
+      const unnamed = lines.filter((line) => line.item && line.item.name === line.item.id).map((line) => line.item.id);
+      if (unnamed.length) lines = nameItems(lines, (await withSource("flow", () => suiteqlOsmcp(itemNamesSql(unnamed), 200))).items);
       const itemIds = lines.map((line) => line.item?.id).filter(Boolean);
       // Orders need serial or lot tracking per line; sales orders also need stock by location.
       if ((type === "salesorder" || type === "purchaseorder") && itemIds.length) {
