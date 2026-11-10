@@ -1184,12 +1184,14 @@ dialog.confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
   .signin { padding: 20px 12px 40px; }
   .card { padding: 20px 16px 24px; }
   .shell { display: flex; flex-direction: column; }
-  .app-nav, .app-nav.is-collapsed { flex-direction: row; align-items: center; gap: 4px; width: auto; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); flex: none; }
+  .app-nav, .app-nav.is-collapsed { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; width: auto; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); flex: none; }
   .nav-bottom { flex-direction: row; align-items: center; border-top: 0; padding-top: 0; margin-left: auto; }
   .nav-group { flex-direction: row; align-items: center; }
   .nav-tools { margin-top: 0; padding-top: 0; }
   .nav-toggle { width: auto; }
-  .nav-links { flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; min-width: 0; margin: 0; }
+  /* The section links get their own full-width row under Overview and Settings, and scroll sideways. */
+  .nav-links { order: 1; flex: 1 0 100%; flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; min-width: 0; margin: 0; }
+  .nav-links a { flex: none; }
   .nav-label { padding: 0 8px; }
   .nav-grip { display: none; }
   main { flex: 1; min-height: 0; }
