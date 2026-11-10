@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  oneItemName,
   applyData,
   billData,
   cleanLines,
@@ -240,4 +241,14 @@ test("the pick list reads the right table for lists, items and transactions", as
   assert.match(latestSql("inventoryitem"), /FROM item WHERE itemtype = 'InvtPart'/);
   assert.match(latestSql("vendorbill"), /NVL\(tranid, transactionnumber\).*recordtype = 'vendorbill'/);
   assert.throws(() => latestSql("x'; drop"), /not valid/);
+});
+
+test("an item whose code and display name match shows its name once", () => {
+  assert.equal(oneItemName("Breville BKE820XL Variable-Temp Kettle Breville BKE820XL Variable-Temp Kettle"), "Breville BKE820XL Variable-Temp Kettle");
+  assert.equal(oneItemName("CTNLBL001 Carton Label 4x6"), "CTNLBL001 Carton Label 4x6");
+  assert.equal(oneItemName("A A B"), "A A B");
+  const read = readRecord({ item: { items: [{ line: 1, item: { id: "715", refName: "Kettle Kettle" }, location: { id: "2", refName: "San San" } }] } });
+  assert.equal(read.sublists[0].lines[0].item.refName, "Kettle");
+  assert.equal(read.sublists[0].lines[0].location.refName, "San San");
+  assert.match(lookupSql("item", "kettle"), /CASE WHEN displayname IS NULL OR displayname = itemid THEN itemid ELSE itemid \|\| ' ' \|\| displayname END/);
 });

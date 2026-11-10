@@ -143,11 +143,22 @@ function readFlat(data) {
 }
 
 // Turns ns_getRecord data into body fields and sublist lines. References keep refName for display.
+// NetSuite names a line's item "<item code> <display name>", which repeats when the two are the same.
+export function oneItemName(name) {
+  const text = String(name ?? "");
+  return /^(.+) \1$/.exec(text)?.[1] ?? text;
+}
+
 export function readRecord(data) {
   const sublists = [];
   for (const [id, value] of Object.entries(data || {})) {
     if (value && typeof value === "object" && Array.isArray(value.items)) {
-      sublists.push({ id, lines: value.items.slice(0, MAX_LINES).map((line) => Object.fromEntries(readFlat(line).map((row) => [row.id, row]))) });
+      sublists.push({
+        id,
+        lines: value.items.slice(0, MAX_LINES).map((line) =>
+          Object.fromEntries(readFlat(line).map((row) => [row.id, row.id === "item" && row.refName ? { ...row, refName: oneItemName(row.refName) } : row])),
+        ),
+      });
     }
   }
   return { fields: readFlat(data), sublists };
@@ -379,7 +390,7 @@ const LOOKUPS = {
   customer: { table: "customer", label: "entityid || ' ' || NVL(companyname, '')", search: ["entityid", "companyname"], where: "isinactive = 'F'" },
   vendor: { table: "vendor", label: "entityid || ' ' || NVL(companyname, '')", search: ["entityid", "companyname"], where: "isinactive = 'F'" },
   employee: { table: "employee", label: "entityid", search: ["entityid", "firstname", "lastname"], where: "isinactive = 'F'" },
-  item: { table: "item", label: "itemid || ' ' || NVL(displayname, '')", search: ["itemid", "displayname"], where: "isinactive = 'F'" },
+  item: { table: "item", label: "CASE WHEN displayname IS NULL OR displayname = itemid THEN itemid ELSE itemid || ' ' || displayname END", search: ["itemid", "displayname"], where: "isinactive = 'F'" },
   location: { table: "location", label: "name", search: ["name"], where: "isinactive = 'F'" },
   subsidiary: { table: "subsidiary", label: "name", search: ["name"], where: "isinactive = 'F'" },
   department: { table: "department", label: "name", search: ["name"], where: "isinactive = 'F'" },
