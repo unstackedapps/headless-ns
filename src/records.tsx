@@ -331,6 +331,8 @@ export function RecordsPage() {
   const [needle, setNeedle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  // Attach and detach report under their own buttons; the page notice sits far above them.
+  const [fileNote, setFileNote] = useState<{ text: string; failed: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const typeRef = useRef("");
   const shapeRef = useRef<Promise<{ fields: Field[]; sublists: Sublist[] }> | null>(null);
@@ -373,6 +375,7 @@ export function RecordsPage() {
     setConfirm(false);
     setActions([]);
     setLines({});
+    setFileNote(null);
   }
 
   function choose(next: string, keepNotice = false) {
@@ -553,13 +556,13 @@ export function RecordsPage() {
   async function linkFile(detach: boolean) {
     if (!confirm || !openId || !filePath.trim() || busy) return;
     setBusy(true);
-    setError(null);
+    setFileNote(null);
     try {
       await postJson("/api/records/file", { path: filePath.trim(), recordType: type, recordId: openId, detach, confirm: true });
-      setNotice(detach ? "NetSuite detached the file." : "NetSuite attached the file.");
+      setFileNote({ text: detach ? "NetSuite detached the file." : "NetSuite attached the file.", failed: false });
       setConfirm(false);
     } catch (reason) {
-      setError(errorText(reason, "NetSuite did not change the file link."));
+      setFileNote({ text: errorText(reason, "NetSuite did not change the file link."), failed: true });
     } finally {
       setBusy(false);
     }
@@ -780,6 +783,11 @@ export function RecordsPage() {
                       Detach
                     </Button>
                   </div>
+                  {fileNote && (
+                    <p className={fileNote.failed ? "error" : "status"} role="status">
+                      {fileNote.text}
+                    </p>
+                  )}
                 </section>
               )}
             </>
