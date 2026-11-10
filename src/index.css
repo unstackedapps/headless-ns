@@ -491,6 +491,8 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .split-main h2 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
 .split-main .table-wrap.plain { border: 0; background: transparent; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+/* A search box above its table leaves the same 10 px gap as a pane header. */
+.split-main > .search-field, .finder > .search-field { margin-bottom: 10px; }
 .pane-head .search-field { width: min(280px, 55%); }
 /* Records: the field search sits under the title, so the fields start level with the ID box. */
 .pane-title { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
@@ -502,7 +504,7 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .filters.saved-row label:first-child { flex: none; width: 280px; min-width: 0; }
 .sql-editor { min-height: 140px; margin: 8px 0; }
 .finder { margin: 0 0 12px; }
-.finder > .search-field { max-width: 520px; margin-bottom: 8px; }
+.finder > .search-field { max-width: 520px; }
 .finder .quick { flex-wrap: wrap; align-items: center; margin-top: 0; }
 .rail-note { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 12px; }
 .split-rail .skeleton-table { padding: 8px 12px; }
