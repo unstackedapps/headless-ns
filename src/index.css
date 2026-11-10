@@ -483,9 +483,11 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
   overflow: hidden;
   border-right: 1px solid var(--line);
 }
-.split-rail .search-field { width: auto; margin: 8px; flex: none; }
+/* Both panes start their first row 10 px from the top and left, level with the side list's row text. */
+.split-rail .search-field { width: auto; margin: 10px; flex: none; }
+.split-rail > .tree-row:first-child { margin-top: 10px; }
 .split-rail .tool-list { flex: 1; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; overflow: auto; }
-.split-main { min-width: 0; min-height: 0; overflow: auto; padding: 12px 14px 20px; }
+.split-main { min-width: 0; min-height: 0; overflow: auto; padding: 10px 10px 20px; }
 .split-main h2 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
 .split-main .table-wrap.plain { border: 0; background: transparent; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
@@ -496,7 +498,7 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .split-rail .tool span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 8px 8px; font-size: 12px; }
 .rail-head.check { flex-direction: row; align-items: center; margin: 0 8px 8px; }
-.samples { flex-wrap: wrap; align-items: center; margin: 0 0 4px; }
+.quick.samples { flex-wrap: wrap; align-items: center; min-height: 32px; margin: 0 0 8px; }
 .filters.saved-row label:first-child { flex: none; width: 280px; min-width: 0; }
 .sql-editor { min-height: 140px; margin: 8px 0; }
 .finder { margin: 0 0 12px; }
