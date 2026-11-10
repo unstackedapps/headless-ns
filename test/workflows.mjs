@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addStock, headerSql, itemFactsSql, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, numberProblems, shipLinesSql, stockProblems, stockSql } from "../server/workflows.mjs";
+import { addStock, headerSql, itemFactsSql, itemNamesSql, nameItems, lineQuantitySql, linkedSql, mergeLines, nextSteps, numbersSql, recordTypeOfCode, numberProblems, shipLinesSql, stockProblems, stockSql } from "../server/workflows.mjs";
 
 const ids = (steps) => steps.map((step) => step.id);
 const open = [{ closed: false, remaining: 2 }];
@@ -183,4 +183,23 @@ test("a serial or lot line without numbers is named with the numbers in stock", 
   assert.deepEqual(numberProblems([line], facts, withNumbers, stock), []);
   assert.deepEqual(numberProblems([line], facts, [{ orderLine: 1, itemReceive: false }], stock), []);
   assert.deepEqual(numberProblems([line], [{ id: 761, isserialitem: "F", islotitem: "F" }], null, stock), []);
+});
+
+test("fulfillment lines that come back as bare item ids get the names a sales order shows", () => {
+  assert.match(itemNamesSql(["702", "703", "702"]), /SELECT id, itemid, displayname FROM item WHERE id IN \(702, 703\)$/);
+  const lines = [
+    { line: 0, orderLine: 1, item: { id: "702", name: "702" } },
+    { line: 3, orderLine: 2, item: { id: "715", name: "715" } },
+    { line: 6, orderLine: 3, item: { id: "9", name: "Already named" } },
+    { line: 9, orderLine: 4, item: null },
+  ];
+  const rows = [
+    { id: 702, itemid: "CTNLBL001", displayname: "Carton Label 4x6" },
+    { id: 715, itemid: "Breville BKE820XL Variable-Temp Kettle", displayname: "Breville BKE820XL Variable-Temp Kettle" },
+  ];
+  assert.deepEqual(
+    nameItems(lines, rows).map((line) => line.item?.name ?? null),
+    ["CTNLBL001 Carton Label 4x6", "Breville BKE820XL Variable-Temp Kettle", "Already named", null],
+  );
+  assert.equal(nameItems(lines, []).at(0).item.name, "702");
 });

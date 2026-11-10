@@ -187,3 +187,25 @@ test.describe("lists", () => {
     await expect(page.locator("select")).toHaveCount(0);
   });
 });
+
+test("a fulfillment numbers its lines by the order's lines and shows item names", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/flow": {
+      ...salesOrder([
+        flowLine({ line: 0, orderLine: 1, item: { id: "702", name: "CTNLBL001 Carton Label 4x6" }, quantity: 500 }),
+        flowLine({ line: 3, orderLine: 2, item: { id: "703", name: "HDCTN002 Heavy Duty Regular Slotted" }, quantity: 250 }),
+      ]),
+      type: "itemfulfillment",
+      id: "18689",
+      number: "IF483",
+      status: { id: "C", name: "Shipped" },
+      steps: [],
+    },
+  });
+  await page.goto("/#/transaction?type=itemfulfillment&id=18689");
+  const lines = page.getByRole("table", { name: "Lines" });
+  await expect(lines.locator("tbody tr").nth(0).locator("td").nth(0)).toHaveText("1");
+  await expect(lines.locator("tbody tr").nth(1).locator("td").nth(0)).toHaveText("2");
+  await expect(lines.getByText("CTNLBL001 Carton Label 4x6")).toBeVisible();
+});

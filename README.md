@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/node-%3E%3D23.6-brightgreen" alt="node >=23.6">
 </p>
 
-<p align="center">A detachable browser client for the standard NetSuite MCP tools.</p>
+<p align="center">A detachable browser client for NetSuite's MCP tools.</p>
 
 ![The Invoices list showing open invoices for many customers, with due dates, amounts and NetSuite links](docs/invoices.png)
 
