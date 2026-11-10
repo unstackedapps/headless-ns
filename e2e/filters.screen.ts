@@ -165,6 +165,16 @@ test("a table with no toolbar puts the Filters button in its header row", async 
   await expect(table).toBeVisible();
   const button = table.locator("thead").getByRole("button", { name: "Filters", exact: true });
   await expect(button).toBeVisible();
+  // The button must not push its cell's label out of line with the other header labels.
+  const tops = await table.locator("thead th").evaluateAll((cells) =>
+    cells.map((cell) => {
+      const text = [...cell.childNodes].find((node) => node.nodeType === 3 && node.textContent!.trim());
+      const range = document.createRange();
+      range.selectNodeContents(text!);
+      return Math.round(range.getBoundingClientRect().top);
+    }),
+  );
+  expect(new Set(tops).size).toBe(1);
   const lonely = await page.locator(".table-tools").evaluateAll((rows) => rows.filter((row) => !row.querySelector(".search-field")).length);
   expect(lonely).toBe(0);
   await button.click();

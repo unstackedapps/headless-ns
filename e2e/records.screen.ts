@@ -122,3 +122,23 @@ test("with round corners on, the type list stays square so the selected first ro
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--radius-panel").trim())).not.toBe("0px");
   expect(await list.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("0px");
 });
+
+test("Attach reports its result under the Attach button, not at the top of the record", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/records/types": { types: ["salesorder"] },
+    "/api/records/fields": { type: "salesorder", fields: [{ id: "memo", title: "Memo", type: "string" }], sublists: [] },
+    "/api/records/transforms": { targets: [] },
+    "/api/records/actions": { actions: [] },
+    "/api/records": order,
+    "POST /api/records/file": { ok: true },
+  });
+  await page.goto("/#/records?type=salesorder&id=17489");
+  await expect(page.getByText("Rush")).toBeVisible();
+  await page.getByLabel("Cabinet path").fill("/Customer POs/RW-1042-signed.pdf");
+  await page.getByLabel(/I mean to run this/).first().check();
+  await page.getByRole("button", { name: "Attach" }).click();
+  const file = page.locator("section", { has: page.getByRole("heading", { name: "File" }) });
+  await expect(file.getByRole("status")).toHaveText("NetSuite attached the file.");
+  await expect(file.getByRole("status")).toBeInViewport();
+});

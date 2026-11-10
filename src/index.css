@@ -498,7 +498,8 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
 .table-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 10px; }
 .table-status > .status { margin: 0; }
 /* With no toolbar, the button sits at the end of the table's header row, icon only. */
-th .filter-tools.compact { float: right; margin: -4px 0 -4px 8px; }
+th:has(> .filter-tools.compact) { position: relative; padding-right: 40px; }
+th .filter-tools.compact { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); }
 th .filter-tools.compact .filter-button { height: 24px; padding: 0 6px; }
 .table-tools .search-field { margin: 0; }
 .filter-tools { display: flex; align-items: center; gap: 8px; }
