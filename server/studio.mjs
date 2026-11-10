@@ -3,7 +3,8 @@ import { toolKind } from "./kinds.mjs";
 import { ask, confirmAsk, pingModel, skillListing } from "./llm.mjs";
 import { modelStore } from "./models.mjs";
 import { listModels } from "./providers.mjs";
-import { callTool, listTools, osmcpIdentity, withSource } from "./osmcp.mjs";
+import { callTool, listTools, osmcpIdentity, suiteqlOsmcp, withSource } from "./osmcp.mjs";
+import { withNames } from "./searchnames.mjs";
 import { readPolicy, writePolicy } from "./policy.mjs";
 import { recordRoutes } from "./records.mjs";
 import { flowRoutes } from "./workflows.mjs";
@@ -391,8 +392,9 @@ export function studioRoutes({ sendJson, authorized }) {
       const result = await withSource("searches", () =>
         callTool("ns_runSavedSearch", { searchId, range_start: 0, range_end: 50 }),
       );
-      const data = listedSearches(result).slice(0, 50);
-      const columns = data[0] && typeof data[0] === "object" ? Object.keys(data[0]) : [];
+      const raw = listedSearches(result).slice(0, 50);
+      const columns = raw[0] && typeof raw[0] === "object" ? Object.keys(raw[0]) : [];
+      const data = await withNames(columns, raw, (sql) => withSource("searches", () => suiteqlOsmcp(sql, 100)).then((page) => page.items));
       sendJson(res, 200, { columns, rows: data, total: data.length });
     },
 
