@@ -152,14 +152,17 @@ h1, h2, h3, h4, strong, b, th, button, summary { font-weight: 300; }
 }
 
 * { box-sizing: border-box; }
+/* Scrollbars show only while the pointer or focus is inside that scroll area. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 50%, transparent) transparent;
+  scrollbar-color: transparent transparent;
 }
+*:hover, *:focus-within { scrollbar-color: color-mix(in srgb, var(--muted) 50%, transparent) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
+*:hover::-webkit-scrollbar-thumb, *:focus-within::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--muted) 45%, transparent); }
 *::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--muted) 45%, transparent);
+  background-color: transparent;
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
@@ -202,7 +205,6 @@ button.linkish:hover { text-decoration: underline; }
 .rel-row.is-focus { background: var(--soft); }
 .add-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
 .th-sort { background: none; border: 0; padding: 0; font: inherit; font-weight: 300; color: inherit; cursor: pointer; }
-.col-filter { width: 100%; min-width: 96px; height: 28px; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
 .crumb-gap { color: var(--muted); margin: 0 2px; }
 .row-actions { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
@@ -304,7 +306,7 @@ html .hns-screen.is-cover {
 }
 .drawer, .ask-drawer { border-radius: var(--radius-panel) 0 0 var(--radius-panel); }
 .cli { border-radius: var(--radius-panel) var(--radius-panel) 0 0; }
-.primary, .quiet, a.primary, .pick, nav a, .quick a, .drag, .search, .skeleton,
+.primary, .quiet, a.primary, .pick, .app-nav a, .quick a, .drag, .search, .skeleton,
 input:not([type="checkbox"]):not([type="radio"]) {
   border-radius: var(--radius-control);
 }
@@ -383,7 +385,7 @@ code, .mono, .steps code { border-radius: var(--radius-control); }
   font-weight: 300;
 }
 .shell { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
-nav {
+.app-nav {
   position: relative;
   box-sizing: border-box;
   display: flex;
@@ -396,8 +398,8 @@ nav {
   overflow: hidden;
   transition: width 160ms ease;
 }
-nav.is-collapsed { width: 48px; padding-left: 0; padding-right: 0; }
-nav.is-dragging { transition: none; user-select: none; }
+.app-nav.is-collapsed { width: 48px; padding-left: 0; padding-right: 0; }
+.app-nav.is-dragging { transition: none; user-select: none; }
 .nav-links {
   flex: 1;
   min-height: 0;
@@ -407,13 +409,7 @@ nav.is-dragging { transition: none; user-select: none; }
   gap: 2px;
   margin: 4px 0;
   scrollbar-gutter: stable;
-  scrollbar-color: transparent transparent;
 }
-/* The rail's scrollbar shows only while the pointer or focus is in the rail. */
-.nav-links:hover, .nav-links:focus-within { scrollbar-color: color-mix(in srgb, var(--muted) 50%, transparent) transparent; }
-.nav-links::-webkit-scrollbar { width: 6px; }
-.nav-links::-webkit-scrollbar-thumb { background-color: transparent; }
-.nav-links:hover::-webkit-scrollbar-thumb, .nav-links:focus-within::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
 details.nav-group { display: block; }
 details.nav-group > a, details.nav-group > .nav-row, details.nav-group > [data-state] { margin-top: 2px; }
@@ -422,7 +418,9 @@ summary.nav-label::-webkit-details-marker { display: none; }
 summary.nav-label:hover { color: var(--ink); }
 summary.nav-label svg { transition: transform 120ms ease; }
 details.nav-group:not([open]) > summary.nav-label svg { transform: rotate(-90deg); }
-nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
+/* The icon-only rail has no room for a gutter: the reserved 11 px scrollbar space pushes the icons off center. */
+.app-nav.is-collapsed .nav-links { scrollbar-gutter: auto; scrollbar-width: none; }
+.app-nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
 .nav-bottom { flex: none; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 6px; }
 .nav-note { margin: 0 4px 8px; }
 .nav-row { display: flex; align-items: center; gap: 2px; }
@@ -431,10 +429,10 @@ nav.is-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); pa
 .nav-mini { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .nav-tools { display: flex; flex: none; gap: 6px; padding-top: 4px; }
 .nav-toggle { width: 100%; }
-nav.is-collapsed .nav-label,
-nav.is-collapsed .nav-text { display: none; }
-nav.is-collapsed a,
-nav.is-collapsed .nav-toggle {
+.app-nav.is-collapsed .nav-label,
+.app-nav.is-collapsed .nav-text { display: none; }
+.app-nav.is-collapsed a,
+.app-nav.is-collapsed .nav-toggle {
   justify-content: center;
   width: 32px;
   height: 32px;
@@ -442,7 +440,7 @@ nav.is-collapsed .nav-toggle {
   padding: 0;
   border-left-width: 0;
 }
-nav.is-collapsed .nav-tools { flex-direction: column; align-items: center; }
+.app-nav.is-collapsed .nav-tools { flex-direction: column; align-items: center; }
 .nav-grip {
   position: absolute;
   top: 0;
@@ -452,8 +450,8 @@ nav.is-collapsed .nav-tools { flex-direction: column; align-items: center; }
   cursor: ew-resize;
   background: transparent;
 }
-.nav-grip:hover, nav.is-dragging .nav-grip { background: var(--accent); }
-nav a {
+.nav-grip:hover, .app-nav.is-dragging .nav-grip { background: var(--accent); }
+.app-nav a {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -462,8 +460,8 @@ nav a {
   border-left: 3px solid transparent;
   border-radius: var(--radius-control);
 }
-nav a:hover { text-decoration: none; background: var(--soft); }
-nav a[aria-current="page"] { background: var(--soft); color: var(--accent); font-weight: 300; border-left-color: var(--accent); }
+.app-nav a:hover { text-decoration: none; background: var(--soft); }
+.app-nav a[aria-current="page"] { background: var(--soft); color: var(--accent); font-weight: 300; border-left-color: var(--accent); }
 main { padding: 16px 20px 40px; min-width: 0; overflow: auto; }
 main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden; }
 .split-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -484,19 +482,51 @@ main:has(.split-page) { display: flex; flex-direction: column; overflow: hidden;
   overflow: hidden;
   border-right: 1px solid var(--line);
 }
-.split-rail .search-field { width: auto; margin: 8px; flex: none; }
-.split-rail .tool-list { flex: 1; min-height: 0; max-height: none; margin: 0; border: 0; overflow: auto; }
-.split-main { min-width: 0; min-height: 0; overflow: auto; padding: 12px 14px 20px; }
+/* Both panes start their first row 10 px from the top and left, level with the side list's row text. */
+.split-rail .search-field { width: auto; margin: 10px; flex: none; }
+.split-rail > .tree-row:first-child { margin-top: 10px; }
+.split-rail .tool-list { flex: 1; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; overflow: auto; }
+.split-main { min-width: 0; min-height: 0; overflow: auto; padding: 10px 10px 20px; }
 .split-main h2 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
 .split-main .table-wrap.plain { border: 0; background: transparent; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+/* The row above a table: its search box, if any, and the Filters button. */
+.table-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* A page's toolbar spot for the Filters button, next to its search box or status line. */
+.table-slot { display: contents; }
+.pane-tools { display: flex; align-items: center; gap: 8px; }
+.table-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 10px; }
+.table-status > .status { margin: 0; }
+/* With no toolbar, the button sits at the end of the table's header row, icon only. */
+th .filter-tools.compact { float: right; margin: -4px 0 -4px 8px; }
+th .filter-tools.compact .filter-button { height: 24px; padding: 0 6px; }
+.table-tools .search-field { margin: 0; }
+.filter-tools { display: flex; align-items: center; gap: 8px; }
+.filter-button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; }
+.filter-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--panel); font-size: 11px; }
+.menu-content.filter-panel { width: min(380px, calc(100vw - 32px)); max-height: min(560px, calc(100vh - 120px)); overflow: auto; padding: 14px; display: grid; gap: 12px; font-size: 13px; }
+.filter-panel strong { font-weight: 400; }
+.filter-field { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.filter-field legend { padding: 0; margin-bottom: 4px; color: var(--muted); }
+.filter-field .check { margin: 2px 0; }
+.filter-field > input { width: 100%; }
+.filter-range { display: flex; align-items: center; gap: 8px; }
+.filter-range input { flex: 1 1 0; width: 0; min-width: 0; }
+.filter-range span { color: var(--muted); }
+.filter-panel .status { margin: 0; }
+.filter-foot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 10px; }
 .pane-head .search-field { width: min(280px, 55%); }
+/* Records: the field search sits under the title, so the fields start level with the ID box. */
+.pane-title { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.pane-title .search-field { width: min(280px, 100%); }
 .split-rail .tool span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 8px 8px; font-size: 12px; }
-.rail-head.check { flex-direction: row; align-items: center; }
+.rail-head.check { flex-direction: row; align-items: center; margin: 0 8px 8px; }
+.quick.samples { flex-wrap: wrap; align-items: center; min-height: 32px; margin: 0 0 8px; }
+.filters.saved-row label:first-child { flex: none; width: 280px; min-width: 0; }
 .sql-editor { min-height: 140px; margin: 8px 0; }
 .finder { margin: 0 0 12px; }
-.finder > .search-field { max-width: 520px; margin-bottom: 8px; }
+.finder .search-field { width: min(520px, 100%); }
 .finder .quick { flex-wrap: wrap; align-items: center; margin-top: 0; }
 .rail-note { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 12px; }
 .split-rail .skeleton-table { padding: 8px 12px; }
@@ -1170,7 +1200,7 @@ dialog.confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
 .callout svg { flex: none; margin-top: 2px; color: var(--accent); }
 .callout strong { color: var(--ink); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
-  .ask-drawer, .cli, nav { transition: none; }
+  .ask-drawer, .cli, .app-nav { transition: none; }
 }
 
 @media (max-width: 1100px) {
@@ -1180,16 +1210,18 @@ dialog.confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 300; }
   .signin { padding: 20px 12px 40px; }
   .card { padding: 20px 16px 24px; }
   .shell { display: flex; flex-direction: column; }
-  nav, nav.is-collapsed { flex-direction: row; align-items: center; gap: 4px; width: auto; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); flex: none; }
+  .app-nav, .app-nav.is-collapsed { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; width: auto; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); flex: none; }
   .nav-bottom { flex-direction: row; align-items: center; border-top: 0; padding-top: 0; margin-left: auto; }
   .nav-group { flex-direction: row; align-items: center; }
   .nav-tools { margin-top: 0; padding-top: 0; }
   .nav-toggle { width: auto; }
-  .nav-links { flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; min-width: 0; margin: 0; }
+  /* The section links get their own full-width row under Overview and Settings, and scroll sideways. */
+  .nav-links { order: 1; flex: 1 0 100%; flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; min-width: 0; margin: 0; }
+  .nav-links a { flex: none; }
   .nav-label { padding: 0 8px; }
   .nav-grip { display: none; }
   main { flex: 1; min-height: 0; }
-  nav a { white-space: nowrap; }
+  .app-nav a { white-space: nowrap; }
   .highlights { grid-template-columns: 1fr 1fr; }
   .portlet { grid-column: span 12; }
   .ask-drawer { display: none; width: auto; }

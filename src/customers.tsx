@@ -189,7 +189,7 @@ function CustomerFilePanel({
             columns={[
               { key: "number", label: "Number", nowrap: true, cell: (row) => row.number },
               { key: "due", label: "Due", nowrap: true, cell: (row) => dateLabel(row.due) },
-              { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
+              { key: "open", label: "Open", num: true, value: (row) => row.unpaid, cell: (row) => amount(row.unpaid, row.currency) },
               {
                 key: "actions",
                 label: "",

@@ -15,16 +15,10 @@ function cellText(value: string | number | null | undefined) {
   return value == null ? "" : String(value);
 }
 
-function visibleRows(run: SearchRun, needle: string, filters: Record<string, string>, sort: { column: string; dir: "asc" | "desc" } | null) {
-  // shortcut: search, filter, and sort apply to the first 50 rows the saved search returned
+function visibleRows(run: SearchRun, needle: string, sort: { column: string; dir: "asc" | "desc" } | null) {
+  // shortcut: search and sort apply to the first 50 rows the saved search returned
   const query = needle.trim().toLowerCase();
-  let rows = run.rows.filter((row) => {
-    if (query && !run.columns.some((column) => cellText(row[column]).toLowerCase().includes(query))) return false;
-    return run.columns.every((column) => {
-      const filter = (filters[column] || "").trim().toLowerCase();
-      return !filter || cellText(row[column]).toLowerCase().includes(filter);
-    });
-  });
+  let rows = run.rows.filter((row) => !query || run.columns.some((column) => cellText(row[column]).toLowerCase().includes(query)));
   if (sort) {
     const dir = sort.dir === "asc" ? 1 : -1;
     rows = [...rows].sort((a, b) => cellText(a[sort.column]).localeCompare(cellText(b[sort.column]), undefined, { numeric: true }) * dir);
@@ -40,7 +34,6 @@ export function SearchesPage() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [needle, setNeedle] = useState("");
-  const [filters, setFilters] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<{ column: string; dir: "asc" | "desc" } | null>(null);
 
   useEffect(() => {
@@ -74,7 +67,6 @@ export function SearchesPage() {
     setRun(null);
     setRunError(null);
     setNeedle("");
-    setFilters({});
     setSort(null);
     setRunning(true);
     try {
@@ -86,7 +78,7 @@ export function SearchesPage() {
     }
   }
 
-  const shown = run ? visibleRows(run, needle, filters, sort) : [];
+  const shown = run ? visibleRows(run, needle, sort) : [];
 
   if (!rows && !error) {
     return (
@@ -122,11 +114,14 @@ export function SearchesPage() {
           {runError && <p className="error">{runError}</p>}
           {run && (
             <>
-              <label className="search-field">
-                <Glyph icon={glyph.search} size={14} />
-                <input className="search" value={needle} placeholder="Search these rows" onChange={(event) => setNeedle(event.target.value)} />
-              </label>
               <DataTable
+                key={chosen?.id}
+                tools={
+                  <label className="search-field">
+                    <Glyph icon={glyph.search} size={14} />
+                    <input className="search" value={needle} placeholder="Search these rows" onChange={(event) => setNeedle(event.target.value)} />
+                  </label>
+                }
                 label={chosen?.title || "Search results"}
                 wrap="plain"
                 rows={shown}
@@ -134,6 +129,7 @@ export function SearchesPage() {
                 empty={run.rows.length === 0 ? "The search returned no rows." : "No rows match."}
                 columns={run.columns.map((column) => ({
                   key: column,
+                  title: column,
                   sort: sort?.column === column ? (sort.dir === "asc" ? "ascending" : "descending") : "none",
                   label: (
                     <button className="th-sort" type="button" onClick={() => setSort((current) => (current?.column === column && current.dir === "asc" ? { column, dir: "desc" } : { column, dir: "asc" }))}>
@@ -143,21 +139,6 @@ export function SearchesPage() {
                   ),
                   cell: (row: Record<string, unknown>) => orBlank(row[column]),
                 }))}
-                head={
-                  <tr>
-                    {run.columns.map((column) => (
-                      <th key={`${column}-filter`}>
-                        <input
-                          className="col-filter"
-                          aria-label={`Filter ${column}`}
-                          value={filters[column] || ""}
-                          placeholder="Filter"
-                          onChange={(event) => setFilters((current) => ({ ...current, [column]: event.target.value }))}
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                }
               />
             </>
           )}

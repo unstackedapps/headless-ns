@@ -7,7 +7,7 @@ import { ConnectionSettings } from "./connect";
 import { DatePick, Pick } from "./pick";
 import { RefreshButton, RefreshIntervalSelect } from "./refresh";
 import { FilterRail } from "./rail";
-import { DataTable } from "./table";
+import { DataTable, TableSlot, useTableSlot } from "./table";
 import { orBlank } from "./format";
 import { ShapeSelect, ThemeSelect } from "./theme";
 import { api, postJson } from "./api";
@@ -567,6 +567,7 @@ export function WorkbenchPage() {
 }
 
 export function ReportsPage() {
+  const { slot, target } = useTableSlot();
   const [reports, setReports] = useState<ReportInfo[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<Subsidiary[]>([]);
   const [books, setBooks] = useState<NamedOption[]>([]);
@@ -763,9 +764,13 @@ export function ReportsPage() {
                 .join(" · ")}
             </p>
           )}
-          <p className="status">
-            {run.total} detail lines{run.truncated ? ", showing the first 200" : ""}.
-          </p>
+          <div className="table-status">
+            <p className="status">
+              {run.total} detail lines{run.truncated ? ", showing the first 200" : ""}.
+            </p>
+            {target}
+          </div>
+          <TableSlot.Provider value={slot}>
           <DataTable
             label={run.title}
             wrap="loose"
@@ -774,6 +779,7 @@ export function ReportsPage() {
             empty="The report returned no rows."
             columns={run.columns.map((column) => ({ key: column, label: column, cell: (row: Record<string, unknown>) => orBlank(row[column]) }))}
           />
+          </TableSlot.Provider>
         </section>
       )}
     </>
@@ -781,6 +787,7 @@ export function ReportsPage() {
 }
 
 export function TracePage() {
+  const { slot, target } = useTableSlot();
   const [entries, setEntries] = useState<TraceEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -828,8 +835,12 @@ export function TracePage() {
       <PageHead title="Trace">
         <RefreshButton label="trace" scope="trace" />
       </PageHead>
-      <p className="status">Recent calls. This list updates on its own.</p>
+      <div className="table-status">
+        <p className="status">Recent calls. This list updates on its own.</p>
+        {target}
+      </div>
       {error && <p className="error">{error}</p>}
+      <TableSlot.Provider value={slot}>
       <DataTable
         label="Recent calls"
         wrap="loose"
@@ -840,16 +851,18 @@ export function TracePage() {
           {
             key: "when",
             label: "When",
+            value: (entry) => entry.at,
             className: "when",
             cell: (entry) => new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }),
           },
           { key: "source", label: "Source", cell: (entry) => entry.source },
-          { key: "tool", label: "Tool", cell: (entry) => entry.name },
+          { key: "tool", label: "Tool", value: (entry) => entry.name, cell: (entry) => entry.name },
           { key: "ms", label: "ms", num: true, cell: (entry) => entry.ms },
-          { key: "result", label: "Result", cell: (entry) => (entry.ok ? "Ok" : "Failed") },
+          { key: "result", label: "Result", value: (entry) => (entry.ok ? "Ok" : "Failed"), cell: (entry) => (entry.ok ? "Ok" : "Failed") },
           { key: "detail", label: "Detail", cell: (entry) => orBlank(entry.detail) },
         ]}
       />
+      </TableSlot.Provider>
     </>
   );
 }

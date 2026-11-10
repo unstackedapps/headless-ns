@@ -63,9 +63,9 @@ export function ItemsPage() {
         empty="No items matched."
         columns={[
           { key: "name", label: "Name", cell: (row) => row.name },
-          { key: "display", label: "Display name", cell: (row) => orBlank(row.displayName) },
+          { key: "display", label: "Display name", value: (row) => row.displayName, cell: (row) => orBlank(row.displayName) },
           { key: "type", label: "Type", cell: (row) => orBlank(row.type) },
-          { key: "onhand", label: "On hand", num: true, cell: (row) => (row.onHand == null ? BLANK : count(row.onHand)) },
+          { key: "onhand", label: "On hand", num: true, value: (row) => row.onHand, cell: (row) => (row.onHand == null ? BLANK : count(row.onHand)) },
           { key: "available", label: "Available", num: true, cell: (row) => (row.available == null ? BLANK : count(row.available)) },
           {
             key: "netsuite",

@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
+import { TableSlot } from "./table";
 import { Glyph, glyph } from "./icons";
 import { Lookup, SkeletonRecord } from "./load";
 
@@ -59,7 +60,7 @@ export function Drawer({
             {error && <p className="error">{error}</p>}
             {head}
           </header>
-          {children}
+          <TableSlot.Provider value={null}>{children}</TableSlot.Provider>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

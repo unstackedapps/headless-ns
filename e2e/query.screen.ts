@@ -76,3 +76,29 @@ test("a sample fills the editor and its name", async ({ page }) => {
   await expect(page.getByLabel("SQL")).toHaveValue(/CustInvc/);
   await expect(page.getByLabel("Query name")).toHaveValue("Overdue invoices");
 });
+
+test("Query keeps the unlabeled-tables box inside the rail, shows samples as small chips, and sizes the Saved box", async ({ page }) => {
+  await mockApi(page, { "/api/session": session, "/api/suiteql": { tables }, "/api/queries": { queries: [] } });
+  await page.goto("/#/query");
+  const check = page.getByLabel(/NetSuite left unlabeled/);
+  await expect(check).toBeVisible();
+  const rail = (await page.locator(".split-rail").boundingBox())!;
+  expect((await check.boundingBox())!.x - rail.x).toBeGreaterThanOrEqual(6);
+  for (const name of ["Open sales orders", "Top customers this month"]) {
+    expect((await page.getByRole("button", { name }).boundingBox())!.height).toBeLessThanOrEqual(26);
+  }
+  expect(Math.round((await page.locator(".saved-row label").first().boundingBox())!.width)).toBe(280);
+});
+
+test("a list's scrollbar shows only while the pointer is over it", async ({ page }) => {
+  const many = Array.from({ length: 80 }, (_, i) => ({ name: `t${i}`, title: `Table ${i}` }));
+  await mockApi(page, { "/api/session": session, "/api/suiteql": { tables: many }, "/api/queries": { queries: [] } });
+  await page.goto("/#/query");
+  const list = page.locator(".split-rail .tool-list");
+  await expect(list.getByText("Table 1", { exact: true })).toBeVisible();
+  const color = () => list.evaluate((el) => getComputedStyle(el).scrollbarColor);
+  await page.mouse.move(5, 5);
+  expect(await color()).toBe("rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)");
+  await list.hover();
+  expect(await color()).not.toBe("rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)");
+});

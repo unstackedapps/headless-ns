@@ -52,3 +52,73 @@ test("Records finds a record by name, lists the newest of a type, and remembers 
   await expect(page).toHaveURL(/#\/records\?type=salesorder&id=17489/);
   await expect(page.locator(".pane-head strong")).toHaveText("Sales order SO640");
 });
+
+test("Recent sits in one row under the search box, not styled as the side menu", async ({ page }) => {
+  await mockApi(page, { "/api/session": session, "/api/records/types": { types: ["salesorder"] } });
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "hn-records-recent",
+      JSON.stringify([
+        { type: "salesorder", id: "17489", label: "SO640" },
+        { type: "estimate", id: "16391", label: "QUO102" },
+      ]),
+    ),
+  );
+  await page.goto("/#/records");
+  const recent = page.getByRole("navigation", { name: "Recent records" });
+  const chips = recent.getByRole("button");
+  await expect(chips).toHaveCount(2);
+  const tops = await chips.evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)));
+  expect(new Set(tops).size).toBe(1);
+  const search = await page.getByLabel("Find a record").boundingBox();
+  const box = await recent.boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(search!.y + search!.height);
+  expect(box!.width).toBeGreaterThan(400);
+  const look = await recent.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { direction: style.flexDirection, border: style.borderRightWidth, background: style.backgroundColor };
+  });
+  expect(look).toEqual({ direction: "row", border: "0px", background: "rgba(0, 0, 0, 0)" });
+});
+
+test("an open record puts Find a field under its title, level with the Internal ID box", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/records/types": { types: ["salesorder"] },
+    "/api/records/fields": { type: "salesorder", fields: [{ id: "memo", title: "Memo", type: "string" }], sublists: [] },
+    "/api/records/transforms": { targets: [] },
+    "/api/records/actions": { actions: [] },
+    "/api/records": order,
+  });
+  await page.goto("/#/records?type=salesorder&id=17489");
+  const head = page.locator(".split-main > .pane-head");
+  await expect(head.locator("strong")).toHaveText("Sales order SO640");
+  const find = head.getByLabel("Find a field");
+  await expect(find).toBeVisible();
+  const box = async (locator: typeof find) => (await locator.boundingBox())!;
+  const [title, search, id, label] = [
+    await box(head.locator("strong")),
+    await box(find),
+    await box(head.getByRole("textbox", { name: "Internal ID" })),
+    await box(head.locator(".filters label")),
+  ];
+  expect(Math.abs(search.y + search.height - (id.y + id.height))).toBeLessThanOrEqual(2);
+  expect(Math.abs(title.y - label.y)).toBeLessThanOrEqual(4);
+});
+
+test("with round corners on, the type list stays square so the selected first row is not clipped", async ({ page }) => {
+  await mockApi(page, {
+    "/api/session": session,
+    "/api/records/types": { types: ["customer", "salesorder"] },
+    "/api/records/fields": { type: "customer", fields: [], sublists: [] },
+    "/api/records/latest": { rows: [] },
+    "/api/records/transforms": { targets: [] },
+    "/api/records/actions": { actions: [] },
+  });
+  await page.addInitScript(() => localStorage.setItem("hn-shape", "round"));
+  await page.goto("/#/records?type=customer");
+  const list = page.locator(".split-rail .tool-list");
+  await expect(list.locator(".tool").first()).toContainText("Customer");
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--radius-panel").trim())).not.toBe("0px");
+  expect(await list.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("0px");
+});

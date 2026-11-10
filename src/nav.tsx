@@ -148,7 +148,7 @@ export function SideNav({ view }: { view: PageId }) {
 
   return (
     <nav
-      className={[open ? "" : "is-collapsed", dragging ? "is-dragging" : ""].filter(Boolean).join(" ")}
+      className={["app-nav", open ? "" : "is-collapsed", dragging ? "is-dragging" : ""].filter(Boolean).join(" ")}
       style={!narrow && open ? { width } : undefined}
       aria-label="Sections"
     >

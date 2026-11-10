@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Glyph, glyph } from "./icons";
 import { Pick } from "./pick";
-import { DataTable } from "./table";
+import { DataTable, TableSlot, useTableSlot } from "./table";
 import { RefreshButton, refreshScope } from "./refresh";
 import { api, postJson } from "./api";
 import { PageHead } from "./head";
@@ -34,6 +34,7 @@ function folderLabel(path: string) {
 }
 
 export function FilesPage() {
+  const { slot, target } = useTableSlot();
   const [pages, setPages] = useState<Record<string, Page>>({});
   const [opened, setOpened] = useState<Record<string, boolean>>({ "/": true });
   const [selected, setSelected] = useState("/");
@@ -252,16 +253,19 @@ export function FilesPage() {
         >
           <div className="pane-head">
             <strong>{needle ? "Search" : folderLabel(selected)}</strong>
-            <label className="search-field">
-              <Glyph icon={glyph.search} size={14} />
-              <input
-                className="search"
-                value={query}
-                placeholder="Search file names"
-                aria-label="Search file names"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+            <div className="pane-tools">
+              <label className="search-field">
+                <Glyph icon={glyph.search} size={14} />
+                <input
+                  className="search"
+                  value={query}
+                  placeholder="Search file names"
+                  aria-label="Search file names"
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              {target}
+            </div>
           </div>
           <div className="filters">
             <label>
@@ -289,6 +293,7 @@ export function FilesPage() {
             </button>
           </div>
           {openError && <p className="error">{openError}</p>}
+          <TableSlot.Provider value={slot}>
           <DataTable
             label={needle ? "Search results" : folderLabel(selected)}
             rows={rows}
@@ -313,9 +318,10 @@ export function FilesPage() {
                     </button>
                   ),
               },
-              { key: "kind", label: needle ? "Path" : "Kind", cell: (entry) => (needle ? entry.path : entry.kind === "folder" ? "Folder" : "File") },
+              { key: "kind", label: needle ? "Path" : "Kind", value: (entry) => (needle ? entry.path : entry.kind === "folder" ? "Folder" : "File"), cell: (entry) => (needle ? entry.path : entry.kind === "folder" ? "Folder" : "File") },
             ]}
           />
+          </TableSlot.Provider>
           {!needle && page?.hasMore && (
             <button className="quiet" type="button" onClick={() => loadFolder(selected, page.cursor).catch((reason: Error) => setError(reason.message))}>
               More

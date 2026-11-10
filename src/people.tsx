@@ -41,10 +41,11 @@ export function PeoplePage() {
           { key: "title", label: "Title", cell: (row) => orBlank(row.title) },
           { key: "subsidiary", label: "Subsidiary", cell: (row) => orBlank(row.subsidiary) },
           { key: "email", label: "Email", cell: (row) => <EmailText value={row.email} /> },
-          { key: "hired", label: "Hired", nowrap: true, cell: (row) => dateLabel(row.hireDate) },
+          { key: "hired", label: "Hired", nowrap: true, value: (row) => row.hireDate, cell: (row) => dateLabel(row.hireDate) },
           {
             key: "rep",
             label: "Sales rep",
+            value: (row) => (row.salesRep === "Yes" || row.salesRep === "T" ? "Yes" : row.salesRep || "No"),
             cell: (row) => <StatusPill value={row.salesRep === "Yes" || row.salesRep === "T" ? "Yes" : row.salesRep || "No"} />,
           },
           { key: "netsuite", label: "NetSuite", cell: (row) => <RecordActions kind="employee" id={row.id} title={row.name} href={row.href} /> },

@@ -149,7 +149,7 @@ function VendorPanel({
               { key: "number", label: "Number", nowrap: true, cell: (row) => <a href={flowLink("vendorbill", row.id)} onClick={onClose}>{row.number}</a> },
               { key: "due", label: "Due", nowrap: true, cell: (row) => dateLabel(row.due) },
               { key: "status", label: "Status", cell: (row) => <StatusPill value={row.status} /> },
-              { key: "open", label: "Open", num: true, cell: (row) => amount(row.unpaid, row.currency) },
+              { key: "open", label: "Open", num: true, value: (row) => row.unpaid, cell: (row) => amount(row.unpaid, row.currency) },
             ]}
           />
         </div>

@@ -247,7 +247,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
               empty="No item lines."
               columns={[
                 { key: "line", label: "Line", cell: (line) => line.line },
-                { key: "item", label: "Item", cell: (line) => orBlank(line.item?.name || line.description) },
+                { key: "item", label: "Item", value: (line) => line.item?.name || line.description, cell: (line) => orBlank(line.item?.name || line.description) },
                 { key: "quantity", label: "Quantity", num: true, cell: (line) => line.quantity },
                 ...(isOrder
                   ? [
@@ -267,7 +267,7 @@ function FlowView({ type, id }: { type: string; id: string }) {
                   : []),
                 { key: "rate", label: "Rate", num: true, cell: (line) => amount(line.rate) },
                 { key: "amount", label: "Amount", num: true, cell: (line) => amount(line.amount) },
-                ...(isOrder ? [{ key: "closed", label: "Closed", cell: (line: FlowLine) => (line.closed ? "Yes" : "No") }] : []),
+                ...(isOrder ? [{ key: "closed", label: "Closed", value: (line: FlowLine) => (line.closed ? "Yes" : "No"), cell: (line: FlowLine) => (line.closed ? "Yes" : "No") }] : []),
               ]}
             />
           </section>
@@ -281,9 +281,9 @@ function FlowView({ type, id }: { type: string; id: string }) {
                 rows={flow.linked}
                 rowKey={(row) => `${row.direction}:${row.id}`}
                 columns={[
-                  { key: "link", label: "Link", cell: (row) => (row.direction === "previous" ? "Made from" : "Turned into") },
+                  { key: "link", label: "Link", value: (row) => (row.direction === "previous" ? "Made from" : "Turned into"), cell: (row) => (row.direction === "previous" ? "Made from" : "Turned into") },
                   { key: "number", label: "Number", nowrap: true, cell: (row) => <a href={flowLink(row.type, row.id)}>{row.number}</a> },
-                  { key: "type", label: "Type", cell: (row) => FLOW_LABELS[row.type] || row.type },
+                  { key: "type", label: "Type", value: (row) => FLOW_LABELS[row.type] || row.type, cell: (row) => FLOW_LABELS[row.type] || row.type },
                   { key: "date", label: "Date", nowrap: true, cell: (row) => dateLabel(row.date) },
                   { key: "status", label: "Status", cell: (row) => (row.status ? <StatusPill value={row.status.replace(/^[^:]*:\s*/, "")} /> : BLANK) },
                 ]}

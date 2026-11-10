@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Glyph, glyph } from "./icons";
 import { Lookup } from "./load";
 import { useDebounced } from "./lists";
-import { DataTable } from "./table";
+import { DataTable, TableSlot, useTableSlot } from "./table";
 import { orBlank } from "./format";
 import { api } from "./api";
 
@@ -64,6 +64,7 @@ type Found = { id: string; type: string; label: string; detail: string };
 
 // Finds a record by number, name or email, and lists the recent ones while the box is empty.
 export function RecordFinder({ onOpen }: { onOpen: (type: string, id: string) => void }) {
+  const { slot, target } = useTableSlot();
   const [text, setText] = useState("");
   const q = useDebounced(text.trim(), 300);
   const [found, setFound] = useState<Found[] | null>(null);
@@ -89,19 +90,22 @@ export function RecordFinder({ onOpen }: { onOpen: (type: string, id: string) =>
 
   return (
     <section className="finder">
-      <label className="search-field">
-        <Glyph icon={glyph.search} size={14} />
-        <input
-          className="search"
-          type="search"
-          value={text}
-          placeholder="Find a record by number, name or email"
-          aria-label="Find a record"
-          onChange={(event) => setText(event.target.value)}
-        />
-      </label>
+      <div className="table-tools">
+        <label className="search-field">
+          <Glyph icon={glyph.search} size={14} />
+          <input
+            className="search"
+            type="search"
+            value={text}
+            placeholder="Find a record by number, name or email"
+            aria-label="Find a record"
+            onChange={(event) => setText(event.target.value)}
+          />
+        </label>
+        {target}
+      </div>
       {q.length >= 2 ? (
-        <>
+        <TableSlot.Provider value={slot}>
           {!found && !error && <Lookup label="Searching transactions, customers, vendors, employees and items." />}
           <DataTable
             label="Search results"
@@ -119,11 +123,11 @@ export function RecordFinder({ onOpen }: { onOpen: (type: string, id: string) =>
                   </button>
                 ),
               },
-              { key: "type", label: "Type", cell: (row) => typeLabel(row.type) },
+              { key: "type", label: "Type", value: (row) => typeLabel(row.type), cell: (row) => typeLabel(row.type) },
               { key: "detail", label: "Detail", cell: (row) => orBlank(row.detail) },
             ]}
           />
-        </>
+        </TableSlot.Provider>
       ) : (
         recent.length > 0 && (
           <nav className="quick" aria-label="Recent records">
